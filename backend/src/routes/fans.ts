@@ -4,6 +4,7 @@ import { writeAudit } from "../audit.js";
 import { query, queryOne } from "../db.js";
 import { businessToday, diffDays, isIsoDate, toDateOnly } from "../lib/dates.js";
 import { parseCount } from "../lib/money.js";
+import { recordSubmission, reviewPublicFields } from "../lib/review.js";
 import { getBackfillDays } from "../settings.js";
 import { HttpError } from "../types.js";
 import {
@@ -26,7 +27,7 @@ export function createFanRouter(db: Pool, config: AppConfig): Router {
       const from = String(req.query.from ?? "");
       const to = String(req.query.to ?? "");
       const params: unknown[] = [actor.id];
-      let sql = `SELECT id, user_id, team_id, business_date, added_count, created_at, updated_at
+      let sql = `SELECT *
                    FROM fan_reports WHERE user_id = $1`;
       if (from && isIsoDate(from)) {
         params.push(from);
@@ -68,22 +69,42 @@ export function createFanRouter(db: Pool, config: AppConfig): Router {
       ]);
 
       if (!existing) {
-        const inserted = await queryOne(
-          db,
-          `INSERT INTO fan_reports (user_id, team_id, business_date, added_count)
-           VALUES ($1, $2, $3, $4)
-           RETURNING id, user_id, team_id, business_date, added_count, created_at, updated_at`,
-          [targetUserId, membership.team_id, businessDate, addedCount]
-        );
-        await writeAudit(db, {
-          actorId: actor.id,
-          action: "fan_report_create",
-          entityType: "fan_report",
-          entityId: inserted!.id,
-          after: { addedCount, businessDate, userId: targetUserId, teamId: membership.team_id },
-          ip: req.ip
-        });
-        res.json({ report: serializeFan(inserted), revised: false });
+        const client = await db.connect();
+        try {
+          await client.query("BEGIN");
+          const inserted = await queryOne(
+            client,
+            `INSERT INTO fan_reports (user_id, team_id, business_date, added_count, last_submitted_by)
+             VALUES ($1, $2, $3, $4, $5)
+             RETURNING *`,
+            [targetUserId, membership.team_id, businessDate, addedCount, actor.id]
+          );
+          await recordSubmission(client, {
+            table: "fan_reports",
+            entityType: "fan_report",
+            id: String(inserted!.id),
+            actorId: actor.id,
+            changed: true,
+            isNew: true,
+            ip: req.ip
+          });
+          await writeAudit(client, {
+            actorId: actor.id,
+            action: "fan_report_create",
+            entityType: "fan_report",
+            entityId: inserted!.id,
+            after: { addedCount, businessDate, userId: targetUserId, teamId: membership.team_id },
+            ip: req.ip
+          });
+          const fresh = await queryOne(client, "SELECT * FROM fan_reports WHERE id = $1", [inserted!.id]);
+          await client.query("COMMIT");
+          res.json({ report: serializeFan(fresh), revised: false });
+        } catch (error) {
+          await client.query("ROLLBACK");
+          throw error;
+        } finally {
+          client.release();
+        }
         return;
       }
 
@@ -97,26 +118,51 @@ export function createFanRouter(db: Pool, config: AppConfig): Router {
         return;
       }
 
-      await db.query(
-        "UPDATE fan_reports SET added_count = $1, updated_at = now() WHERE id = $2",
-        [addedCount, existing.id]
-      );
-      await db.query(
-        `INSERT INTO fan_report_revisions (report_id, previous_count, new_count, changed_by)
-         VALUES ($1, $2, $3, $4)`,
-        [existing.id, existing.added_count, addedCount, actor.id]
-      );
-      await writeAudit(db, {
-        actorId: actor.id,
-        action: "fan_report_revise",
-        entityType: "fan_report",
-        entityId: existing.id,
-        before: { addedCount: existing.added_count },
-        after: { addedCount },
-        ip: req.ip
-      });
-      const updated = await queryOne(db, "SELECT * FROM fan_reports WHERE id = $1", [existing.id]);
-      res.json({ report: serializeFan(updated), revised: true });
+      const client = await db.connect();
+      try {
+        await client.query("BEGIN");
+        const locked = await queryOne<{ id: string; added_count: number }>(
+          client,
+          "SELECT * FROM fan_reports WHERE id = $1 FOR UPDATE",
+          [existing.id]
+        );
+        if (!locked) throw new HttpError(404, "记录不存在");
+        await client.query(
+          "UPDATE fan_reports SET added_count = $1, updated_at = now() WHERE id = $2",
+          [addedCount, locked.id]
+        );
+        await client.query(
+          `INSERT INTO fan_report_revisions (report_id, previous_count, new_count, changed_by)
+           VALUES ($1, $2, $3, $4)`,
+          [locked.id, locked.added_count, addedCount, actor.id]
+        );
+        await recordSubmission(client, {
+          table: "fan_reports",
+          entityType: "fan_report",
+          id: existing.id,
+          actorId: actor.id,
+          changed: true,
+          isNew: false,
+          ip: req.ip
+        });
+        await writeAudit(client, {
+          actorId: actor.id,
+          action: "fan_report_revise",
+          entityType: "fan_report",
+          entityId: existing.id,
+          before: { addedCount: existing.added_count },
+          after: { addedCount },
+          ip: req.ip
+        });
+        const updated = await queryOne(client, "SELECT * FROM fan_reports WHERE id = $1", [existing.id]);
+        await client.query("COMMIT");
+        res.json({ report: serializeFan(updated), revised: true });
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
     } catch (error) {
       next(error);
     }
@@ -125,7 +171,7 @@ export function createFanRouter(db: Pool, config: AppConfig): Router {
   router.get("/summary", async (req, res, next) => {
     try {
       const actor = req.actor!;
-      if (actor.role === "cs" || actor.role === "ops" || actor.role === "editor") {
+      if (actor.role === "cs" || actor.role === "ops" || actor.role === "editor" || actor.role === "assistant") {
         throw new HttpError(403, "无权查看加粉汇总");
       }
       const today = businessToday(new Date(), config.businessTimezone);
@@ -143,7 +189,7 @@ export function createFanRouter(db: Pool, config: AppConfig): Router {
   router.get("/export", async (req, res, next) => {
     try {
       const actor = req.actor!;
-      if (actor.role === "cs" || actor.role === "ops" || actor.role === "editor") {
+      if (actor.role === "cs" || actor.role === "ops" || actor.role === "editor" || actor.role === "assistant") {
         throw new HttpError(403, "无权导出加粉汇总");
       }
       const today = businessToday(new Date(), config.businessTimezone);
@@ -214,6 +260,7 @@ type FanDetail = {
   addedCount: number | null;
   status: "reported" | "missing";
   updatedAt: string | null;
+  reviewStatus: "pending" | "approved" | "rejected" | null;
 };
 
 type FanTeamSummary = {
@@ -225,6 +272,7 @@ type FanTeamSummary = {
   missingCount: number;
   missing: { userId: string; displayName: string }[];
   details: FanDetail[];
+  reviewCounts: { pending: number; approved: number; rejected: number };
 };
 
 async function buildFanSummaries(
@@ -247,9 +295,9 @@ async function buildFanSummaries(
   for (const team of teams) {
     const members = await membersOnDate(db, team.id, date);
     const reports = members.length
-      ? await query<{ user_id: string; added_count: number; updated_at: string }>(
+      ? await query<{ user_id: string; added_count: number; updated_at: string; review_status: "pending" | "approved" | "rejected" }>(
           db,
-          `SELECT user_id, added_count, updated_at
+          `SELECT user_id, added_count, updated_at, review_status
              FROM fan_reports
             WHERE business_date = $1 AND user_id = ANY($2::uuid[])`,
           [date, members.map((item) => item.user_id)]
@@ -264,7 +312,8 @@ async function buildFanSummaries(
         username: member.username,
         addedCount: report ? report.added_count : null,
         status: report ? ("reported" as const) : ("missing" as const),
-        updatedAt: report?.updated_at ?? null
+        updatedAt: report?.updated_at ?? null,
+        reviewStatus: report ? report.review_status : null
       };
     });
     const reported = details.filter((item) => item.status === "reported");
@@ -279,7 +328,12 @@ async function buildFanSummaries(
         userId: item.userId,
         displayName: item.displayName
       })),
-      details
+      details,
+      reviewCounts: {
+        pending: details.filter((item) => item.reviewStatus === "pending").length,
+        approved: details.filter((item) => item.reviewStatus === "approved").length,
+        rejected: details.filter((item) => item.reviewStatus === "rejected").length
+      }
     });
   }
   return summaries;
@@ -294,7 +348,8 @@ function serializeFan(row: Record<string, unknown> | undefined) {
     businessDate: toDateOnly(row.business_date),
     addedCount: row.added_count,
     createdAt: row.created_at,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
+    ...reviewPublicFields(row)
   };
 }
 

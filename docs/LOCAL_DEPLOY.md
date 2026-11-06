@@ -130,3 +130,8 @@ npm run preflight -- --env-file .env --check-db
 - [ ] 生产关闭 `SEED_DEMO`，HTTPS 场景开启 `COOKIE_SECURE`
 
 本仓库的单元测试或开发箱测试通过，只能证明检查逻辑和业务代码在当时环境可用，不能替代上述目标环境验收。
+
+
+## 审核功能升级注意
+
+应用 `002_review.sql` 前请先备份（`./scripts/backup.sh ./backups`）。该迁移不会改 `001_init.sql`。升级后已有运营、拍剪、加粉、订单记录均为待审，不会自动视为通过。请在目标环境验收前安排助理审核历史数据。这不是绕过 Windows 告警的步骤。

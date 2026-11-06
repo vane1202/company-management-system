@@ -22,6 +22,7 @@ import { createOrderRouter } from "./routes/orders.js";
 import { createSalaryRouter } from "./routes/salaries.js";
 import { createDashboardRouter } from "./routes/dashboard.js";
 import { createNoteRouter } from "./routes/notes.js";
+import { createReviewRouter } from "./routes/reviews.js";
 import { requireAuth } from "./routes/auth.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -115,6 +116,7 @@ export function createApp(db: Pool, config: AppConfig) {
   app.use("/api/salaries", createSalaryRouter(db));
   app.use("/api/dashboard", createDashboardRouter(db, config));
   app.use("/api/notes", createNoteRouter(db));
+  app.use("/api/reviews", createReviewRouter(db));
 
   app.use("/api", (_req, res) => {
     res.status(404).json({ error: "接口不存在" });

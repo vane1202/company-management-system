@@ -97,3 +97,28 @@ h1, h2, h3 { margin: 0 0 12px; }
 .bottom-nav button { flex: 1; background: transparent; color: var(--ink); padding: 10px 4px; font-size: 13px; }
 .bottom-nav button.active { color: var(--jade); font-weight: 700; }
 @media (min-width: 800px) { .bottom-nav { display: none; } }
+
+.status-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+.chip {
+  display: inline-flex; align-items: center; border-radius: 999px;
+  padding: 8px 12px; font-size: 13px; border: 1px solid var(--line);
+  background: #f3eee4; color: var(--ink);
+}
+button.chip { cursor: pointer; }
+.chip.pending { background: #fff4d6; }
+.chip.rejected { background: #f8d7da; }
+.chip.approved { background: #d9f2e3; }
+.chip.active { outline: 2px solid var(--jade); font-weight: 700; }
+.review-card {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 14px;
+  margin-bottom: 12px;
+  background: #fffaf1;
+}
+.review-card-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin-bottom: 8px; }
+.review-card p { margin: 6px 0; }
+@media (max-width: 799px) {
+  .review-card, .metric { min-width: 0; }
+  th, td { white-space: normal; }
+}

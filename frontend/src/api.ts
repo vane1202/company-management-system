@@ -1,4 +1,5 @@
-export type Role = "boss" | "admin" | "ops" | "editor" | "cs" | "cs_supervisor";
+export type Role = "boss" | "admin" | "assistant" | "ops" | "editor" | "cs" | "cs_supervisor";
+export type ReviewStatus = "pending" | "approved" | "rejected";
 
 export type User = {
   id: string;
@@ -86,7 +87,26 @@ export const api = {
   orders: () => requestInner<{ orders: Order[] }>("/api/orders"),
   createOrder: (payload: Record<string, unknown>) =>
     requestInner("/api/orders", { method: "POST", body: JSON.stringify(payload) }),
-  dashboard: (preset: string) => requestInner<{ period: { from: string; to: string }; metrics: Metrics; disclaimer: string; formula: string }>(`/api/dashboard/summary?preset=${preset}`),
+  dashboard: (preset: string, reviewStatus?: string) =>
+    requestInner<{
+      period: { from: string; to: string };
+      metrics: Metrics;
+      disclaimer: string;
+      formula: string;
+      selectedReviewStatus?: ReviewStatus;
+      dailyByReviewStatus?: Record<ReviewStatus, DailyReviewMetrics>;
+      overallSalary?: { allocated: string; note: string };
+      estimateNote?: string;
+    }>(`/api/dashboard/summary?preset=${preset}${reviewStatus ? `&reviewStatus=${encodeURIComponent(reviewStatus)}` : ""}`),
+  reviews: (status?: string) =>
+    requestInner<{ items: ReviewItem[] }>(`/api/reviews${status ? `?status=${encodeURIComponent(status)}` : ""}`),
+  reviewHistory: (entityType: string, id: string) =>
+    requestInner<{ history: ReviewHistoryItem[] }>(`/api/reviews/${encodeURIComponent(entityType)}/${encodeURIComponent(id)}/history`),
+  decideReview: (payload: { entityType: string; entityId: string; action: "approve" | "reject"; version: number; reason?: string }) =>
+    requestInner<{ item: ReviewItem; message: string }>("/api/reviews", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
   teams: () => requestInner<{ teams: Team[] }>("/api/admin/teams"),
   createTeam: (payload: Record<string, unknown>) =>
     requestInner("/api/admin/teams", { method: "POST", body: JSON.stringify(payload) }),
@@ -105,12 +125,19 @@ export const api = {
     requestInner("/api/notes", { method: "POST", body: JSON.stringify(payload) })
 };
 
+export type ReviewFields = {
+  reviewStatus?: ReviewStatus;
+  reviewVersion?: number;
+  reviewReason?: string | null;
+  reviewedAt?: string | null;
+};
+
 export type FanReport = {
   id: string;
   businessDate: string;
   addedCount: number;
   updatedAt: string;
-};
+} & ReviewFields;
 
 export type FanSummary = {
   teamId: string;
@@ -126,7 +153,9 @@ export type FanSummary = {
     addedCount: number | null;
     status: "reported" | "missing";
     updatedAt: string | null;
+    reviewStatus?: ReviewStatus | null;
   }[];
+  reviewCounts?: { pending: number; approved: number; rejected: number };
 };
 
 export type OpsReport = {
@@ -136,7 +165,7 @@ export type OpsReport = {
   promoVideoCount: number;
   promoCost: string;
   note?: string;
-};
+} & ReviewFields;
 
 export type EditorReport = {
   id: string;
@@ -146,7 +175,7 @@ export type EditorReport = {
   publishedCount: number;
   inventorySnapshot: number;
   inventoryAdjusted: boolean;
-};
+} & ReviewFields;
 
 export type Order = {
   id: string;
@@ -159,7 +188,7 @@ export type Order = {
   customProductCost: string;
   laborCost: string;
   shippingCost: string;
-};
+} & ReviewFields;
 
 export type Metrics = {
   revenue: string;
@@ -197,3 +226,46 @@ export type Salary = {
   effectiveTo: string | null;
 };
 export type Note = { id: string; authorName: string; targetDate: string; content: string };
+
+export type DailyReviewMetrics = {
+  revenue: string;
+  refunds: string;
+  promoCost: string;
+  customProductCost: string;
+  laborCost: string;
+  shippingCost: string;
+  orderCount: number;
+  promoVideoCount: number;
+  shootCount: number;
+  finishedCount: number;
+  publishedCount: number;
+  endingInventory: number;
+  fanAddedTotal: number;
+};
+
+export type ReviewItem = {
+  id: string;
+  entityType: string;
+  entityLabel: string;
+  userId: string;
+  displayName?: string | null;
+  username?: string | null;
+  businessDate: string;
+  updatedAt: string;
+  reviewStatus: ReviewStatus;
+  reviewVersion: number;
+  reviewReason?: string | null;
+  reviewedAt?: string | null;
+  payload: Record<string, unknown>;
+};
+
+export type ReviewHistoryItem = {
+  id: string;
+  action: string;
+  reason?: string | null;
+  actorName: string;
+  reviewVersion: number;
+  beforeStatus?: string | null;
+  afterStatus?: string | null;
+  createdAt: string;
+};

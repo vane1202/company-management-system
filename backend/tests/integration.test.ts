@@ -30,7 +30,7 @@ describe("公司内部管理系统集成测试", () => {
     db = createPool(config.databaseUrl);
     await migrate(db);
     await db.query(`
-      TRUNCATE fan_report_revisions, fan_reports, ops_reports, editor_reports, orders,
+      TRUNCATE review_actions, fan_report_revisions, fan_reports, ops_reports, editor_reports, orders,
                salaries, notes, audit_logs, supervisor_scopes, team_memberships,
                teams, session, users RESTART IDENTITY CASCADE
     `);

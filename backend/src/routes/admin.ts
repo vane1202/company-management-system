@@ -7,7 +7,7 @@ import { hashPassword, validatePassword } from "../lib/password.js";
 import { HttpError, type UserRole } from "../types.js";
 import { isBossOrAdmin } from "../users.js";
 
-const ROLES: UserRole[] = ["boss", "admin", "ops", "editor", "cs", "cs_supervisor"];
+const ROLES: UserRole[] = ["boss", "admin", "assistant", "ops", "editor", "cs", "cs_supervisor"];
 
 export function createAdminRouter(db: Pool): Router {
   const router = Router();

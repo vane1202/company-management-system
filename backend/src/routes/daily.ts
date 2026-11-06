@@ -4,6 +4,7 @@ import { writeAudit } from "../audit.js";
 import { query, queryOne } from "../db.js";
 import { businessToday, isIsoDate, toDateOnly } from "../lib/dates.js";
 import { parseCount, parseMoney } from "../lib/money.js";
+import { recordSubmission, reviewPublicFields } from "../lib/review.js";
 import { HttpError } from "../types.js";
 import { isBossOrAdmin, type Actor } from "../users.js";
 import type { AppConfig } from "../config.js";
@@ -48,27 +49,69 @@ export function createOpsRouter(db: Pool, config: AppConfig): Router {
       const promoVideoCount = parseCount(req.body?.promoVideoCount, "推广视频数");
       const promoCost = parseMoney(req.body?.promoCost, "推广费用");
       const note = req.body?.note ? String(req.body.note).slice(0, 500) : null;
-      const saved = await queryOne(
-        db,
-        `INSERT INTO ops_reports (user_id, business_date, platform, promo_video_count, promo_cost, note)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (user_id, business_date, platform)
-         DO UPDATE SET promo_video_count = EXCLUDED.promo_video_count,
-                       promo_cost = EXCLUDED.promo_cost,
-                       note = EXCLUDED.note,
-                       updated_at = now()
-         RETURNING *`,
-        [targetId, businessDate, platform, promoVideoCount, promoCost, note]
-      );
-      await writeAudit(db, {
-        actorId: actor.id,
-        action: "ops_report_upsert",
-        entityType: "ops_report",
-        entityId: saved!.id,
-        after: { businessDate, platform, promoVideoCount, promoCost },
-        ip: req.ip
-      });
-      res.json({ report: serializeOps(saved) });
+      const client = await db.connect();
+      try {
+        await client.query("BEGIN");
+        const existing = await queryOne<Record<string, unknown>>(
+          client,
+          `SELECT * FROM ops_reports
+            WHERE user_id = $1 AND business_date = $2 AND platform = $3
+            FOR UPDATE`,
+          [targetId, businessDate, platform]
+        );
+        const unchanged = Boolean(
+          existing &&
+            Number(existing.promo_video_count) === promoVideoCount &&
+            Number(existing.promo_cost) === Number(promoCost) &&
+            (existing.note ?? null) === note
+        );
+        if (existing && unchanged) {
+          await client.query("COMMIT");
+          res.json({ report: serializeOps(existing) });
+          return;
+        }
+        const saved = existing
+          ? await queryOne(
+              client,
+              `UPDATE ops_reports
+                  SET promo_video_count = $2, promo_cost = $3, note = $4, updated_at = now()
+                WHERE id = $1
+                RETURNING *`,
+              [existing.id, promoVideoCount, promoCost, note]
+            )
+          : await queryOne(
+              client,
+              `INSERT INTO ops_reports (user_id, business_date, platform, promo_video_count, promo_cost, note, last_submitted_by)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)
+               RETURNING *`,
+              [targetId, businessDate, platform, promoVideoCount, promoCost, note, actor.id]
+            );
+        await recordSubmission(client, {
+          table: "ops_reports",
+          entityType: "ops_report",
+          id: String(saved!.id),
+          actorId: actor.id,
+          changed: true,
+          isNew: !existing,
+          ip: req.ip
+        });
+        await writeAudit(client, {
+          actorId: actor.id,
+          action: "ops_report_upsert",
+          entityType: "ops_report",
+          entityId: String(saved!.id),
+          after: { businessDate, platform, promoVideoCount, promoCost },
+          ip: req.ip
+        });
+        const fresh = await queryOne(client, "SELECT * FROM ops_reports WHERE id = $1", [saved!.id]);
+        await client.query("COMMIT");
+        res.json({ report: serializeOps(fresh) });
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
     } catch (error) {
       next(error);
     }
@@ -172,32 +215,72 @@ export function createEditorRouter(db: Pool, config: AppConfig): Router {
       );
       const suggested = (previous?.inventory_snapshot ?? 0) + finishedCount - publishedCount;
       const adjusted = inventorySnapshot !== suggested;
-      const saved = await queryOne(
-        db,
-        `INSERT INTO editor_reports (
-            user_id, business_date, shoot_count, finished_count, published_count,
-            inventory_snapshot, inventory_adjusted, note
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-         ON CONFLICT (user_id, business_date)
-         DO UPDATE SET shoot_count = EXCLUDED.shoot_count,
-                       finished_count = EXCLUDED.finished_count,
-                       published_count = EXCLUDED.published_count,
-                       inventory_snapshot = EXCLUDED.inventory_snapshot,
-                       inventory_adjusted = EXCLUDED.inventory_adjusted,
-                       note = EXCLUDED.note,
-                       updated_at = now()
-         RETURNING *`,
-        [targetId, businessDate, shootCount, finishedCount, publishedCount, inventorySnapshot, adjusted, note]
-      );
-      await writeAudit(db, {
-        actorId: actor.id,
-        action: "editor_report_upsert",
-        entityType: "editor_report",
-        entityId: saved!.id,
-        after: { businessDate, shootCount, finishedCount, publishedCount, inventorySnapshot, suggested, adjusted },
-        ip: req.ip
-      });
-      res.json({ report: serializeEditor(saved), suggestedInventory: suggested });
+      const client = await db.connect();
+      try {
+        await client.query("BEGIN");
+        const existing = await queryOne<Record<string, unknown>>(
+          client,
+          `SELECT * FROM editor_reports WHERE user_id = $1 AND business_date = $2 FOR UPDATE`,
+          [targetId, businessDate]
+        );
+        const unchanged = Boolean(
+          existing &&
+            Number(existing.shoot_count) === shootCount &&
+            Number(existing.finished_count) === finishedCount &&
+            Number(existing.published_count) === publishedCount &&
+            Number(existing.inventory_snapshot) === inventorySnapshot &&
+            (existing.note ?? null) === note
+        );
+        if (existing && unchanged) {
+          await client.query("COMMIT");
+          res.json({ report: serializeEditor(existing), suggestedInventory: suggested });
+          return;
+        }
+        const saved = existing
+          ? await queryOne(
+              client,
+              `UPDATE editor_reports
+                  SET shoot_count = $2, finished_count = $3, published_count = $4,
+                      inventory_snapshot = $5, inventory_adjusted = $6, note = $7, updated_at = now()
+                WHERE id = $1
+                RETURNING *`,
+              [existing.id, shootCount, finishedCount, publishedCount, inventorySnapshot, adjusted, note]
+            )
+          : await queryOne(
+              client,
+              `INSERT INTO editor_reports (
+                  user_id, business_date, shoot_count, finished_count, published_count,
+                  inventory_snapshot, inventory_adjusted, note, last_submitted_by
+               ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+               RETURNING *`,
+              [targetId, businessDate, shootCount, finishedCount, publishedCount, inventorySnapshot, adjusted, note, actor.id]
+            );
+        await recordSubmission(client, {
+          table: "editor_reports",
+          entityType: "editor_report",
+          id: String(saved!.id),
+          actorId: actor.id,
+          changed: true,
+          isNew: !existing,
+          ip: req.ip
+        });
+        await writeAudit(client, {
+          actorId: actor.id,
+          action: "editor_report_upsert",
+          entityType: "editor_report",
+          entityId: String(saved!.id),
+          after: { businessDate, shootCount, finishedCount, publishedCount, inventorySnapshot, suggested, adjusted },
+          ip: req.ip
+        });
+        const fresh = await queryOne(client, "SELECT * FROM editor_reports WHERE id = $1", [saved!.id]);
+        await client.query("COMMIT");
+        res.json({ report: serializeEditor(fresh), suggestedInventory: suggested });
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
     } catch (error) {
       next(error);
     }
@@ -227,7 +310,8 @@ function serializeOps(row: Record<string, unknown> | undefined) {
     promoVideoCount: row.promo_video_count,
     promoCost: money(row.promo_cost),
     note: row.note,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
+    ...reviewPublicFields(row)
   };
 }
 
@@ -243,7 +327,8 @@ function serializeEditor(row: Record<string, unknown> | undefined) {
     inventorySnapshot: row.inventory_snapshot,
     inventoryAdjusted: row.inventory_adjusted,
     note: row.note,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
+    ...reviewPublicFields(row)
   };
 }
 

@@ -4,6 +4,7 @@ import { writeAudit } from "../audit.js";
 import { query, queryOne } from "../db.js";
 import { businessToday, isIsoDate, toDateOnly } from "../lib/dates.js";
 import { formatMoney, parseMoney } from "../lib/money.js";
+import { recordSubmission, reviewPublicFields } from "../lib/review.js";
 import { HttpError, type OrderStatus } from "../types.js";
 import { isBossOrAdmin, type Actor } from "../users.js";
 import type { AppConfig } from "../config.js";
@@ -98,8 +99,8 @@ export function createOrderRouter(db: Pool, config: AppConfig): Router {
           db,
           `INSERT INTO orders (
               user_id, business_date, order_ref, customer_label, amount, status, is_custom,
-              custom_product_cost, labor_cost, shipping_cost, note
-           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+              custom_product_cost, labor_cost, shipping_cost, note, last_submitted_by
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
            RETURNING *`,
           [
             targetId,
@@ -112,9 +113,19 @@ export function createOrderRouter(db: Pool, config: AppConfig): Router {
             payload.customProductCost,
             payload.laborCost,
             payload.shippingCost,
-            payload.note
+            payload.note,
+            actor.id
           ]
         );
+        await recordSubmission(db, {
+          table: "orders",
+          entityType: "order",
+          id: String(saved!.id),
+          actorId: actor.id,
+          changed: true,
+          isNew: true,
+          ip: req.ip
+        });
         await writeAudit(db, {
           actorId: actor.id,
           action: "order_create",
@@ -123,7 +134,8 @@ export function createOrderRouter(db: Pool, config: AppConfig): Router {
           after: { orderRef: payload.orderRef, amount: payload.amount, status: payload.status },
           ip: req.ip
         });
-        res.status(201).json({ order: serializeOrder(saved) });
+        const fresh = await queryOne(db, "SELECT * FROM orders WHERE id = $1", [saved!.id]);
+        res.status(201).json({ order: serializeOrder(fresh) });
       } catch (error) {
         if (isUniqueViolation(error)) throw new HttpError(409, "订单标识已存在，不能重复录入");
         throw error;
@@ -144,38 +156,73 @@ export function createOrderRouter(db: Pool, config: AppConfig): Router {
         throw new HttpError(403, "无权修改该订单");
       }
       const payload = readOrderBody({ ...existingMapped(existing), ...req.body }, config, true);
-      const saved = await queryOne(
-        db,
-        `UPDATE orders SET
-            business_date = $1, order_ref = $2, customer_label = $3, amount = $4, status = $5,
-            is_custom = $6, custom_product_cost = $7, labor_cost = $8, shipping_cost = $9, note = $10,
-            updated_at = now()
-          WHERE id = $11
-          RETURNING *`,
-        [
-          payload.businessDate,
-          payload.orderRef,
-          payload.customerLabel,
-          payload.amount,
-          payload.status,
-          payload.isCustom,
-          payload.customProductCost,
-          payload.laborCost,
-          payload.shippingCost,
-          payload.note,
-          existing.id
-        ]
-      );
-      await writeAudit(db, {
-        actorId: actor.id,
-        action: "order_update",
-        entityType: "order",
-        entityId: String(existing.id),
-        before: { orderRef: existing.order_ref, amount: existing.amount, status: existing.status },
-        after: { orderRef: payload.orderRef, amount: payload.amount, status: payload.status },
-        ip: req.ip
-      });
-      res.json({ order: serializeOrder(saved) });
+      const unchanged =
+        toDateOnly(existing.business_date) === payload.businessDate &&
+        String(existing.order_ref) === payload.orderRef &&
+        (existing.customer_label ?? null) === payload.customerLabel &&
+        Number(existing.amount) === Number(payload.amount) &&
+        String(existing.status) === payload.status &&
+        Boolean(existing.is_custom) === payload.isCustom &&
+        Number(existing.custom_product_cost) === Number(payload.customProductCost) &&
+        Number(existing.labor_cost) === Number(payload.laborCost) &&
+        Number(existing.shipping_cost) === Number(payload.shippingCost) &&
+        (existing.note ?? null) === payload.note;
+      if (unchanged) {
+        res.json({ order: serializeOrder(existing) });
+        return;
+      }
+      const client = await db.connect();
+      try {
+        await client.query("BEGIN");
+        const saved = await queryOne(
+          client,
+          `UPDATE orders SET
+              business_date = $1, order_ref = $2, customer_label = $3, amount = $4, status = $5,
+              is_custom = $6, custom_product_cost = $7, labor_cost = $8, shipping_cost = $9, note = $10,
+              updated_at = now()
+            WHERE id = $11
+            RETURNING *`,
+          [
+            payload.businessDate,
+            payload.orderRef,
+            payload.customerLabel,
+            payload.amount,
+            payload.status,
+            payload.isCustom,
+            payload.customProductCost,
+            payload.laborCost,
+            payload.shippingCost,
+            payload.note,
+            existing.id
+          ]
+        );
+        await recordSubmission(client, {
+          table: "orders",
+          entityType: "order",
+          id: String(existing.id),
+          actorId: actor.id,
+          changed: true,
+          isNew: false,
+          ip: req.ip
+        });
+        await writeAudit(client, {
+          actorId: actor.id,
+          action: "order_update",
+          entityType: "order",
+          entityId: String(existing.id),
+          before: { orderRef: existing.order_ref, amount: existing.amount, status: existing.status },
+          after: { orderRef: payload.orderRef, amount: payload.amount, status: payload.status },
+          ip: req.ip
+        });
+        const fresh = await queryOne(client, "SELECT * FROM orders WHERE id = $1", [existing.id]);
+        await client.query("COMMIT");
+        res.json({ order: serializeOrder(fresh ?? saved) });
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
     } catch (error) {
       if (isUniqueViolation(error)) next(new HttpError(409, "订单标识已存在，不能重复录入"));
       else next(error);
@@ -252,7 +299,8 @@ function serializeOrder(row: Record<string, unknown> | undefined) {
     laborCost: money(row.labor_cost),
     shippingCost: money(row.shipping_cost),
     note: row.note,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
+    ...reviewPublicFields(row)
   };
 }
 

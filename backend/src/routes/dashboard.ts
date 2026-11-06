@@ -101,9 +101,25 @@ export function createDashboardRouter(db: Pool, config: AppConfig): Router {
         subMoney(subMoney(subMoney(subMoney(revenue, refunds), promoCost), salaryAllocated), customCost),
         laborAndShipping
       );
+      const dailyByReviewStatus = {
+        pending: await loadDailyBundle(db, period.from, period.to, "pending"),
+        approved: await loadDailyBundle(db, period.from, period.to, "approved"),
+        rejected: await loadDailyBundle(db, period.from, period.to, "rejected")
+      };
+      const requestedStatus = String(req.query.reviewStatus ?? "approved");
+      const selectedReviewStatus =
+        requestedStatus === "pending" || requestedStatus === "rejected" || requestedStatus === "approved"
+          ? requestedStatus
+          : "approved";
 
       res.json({
         period,
+        selectedReviewStatus,
+        dailyByReviewStatus,
+        overallSalary: {
+          allocated: salaryAllocated,
+          note: "工资没有审核状态，按整体成本单独展示，不会复制分摊进待审/退回/通过以免重复扣减。"
+        },
         metrics: {
           revenue,
           refunds,
@@ -122,7 +138,9 @@ export function createDashboardRouter(db: Pool, config: AppConfig): Router {
           fanAddedTotal: Number(fans?.total ?? 0)
         },
         formula: "收入 - 退款 - 推广费 - 工资分摊 - 定制商品成本 - 工费 - 运费",
-        disclaimer: "此结果为经营估算，用于看日常趋势，不等于会计净利润；未包含房租、水电、税费、社保公积金、平台扣点等。收入为查询期内全部订单金额（含状态为退款的源订单），退款为状态=退款的订单金额之和；估算按收入减去退款，避免同一笔退款订单先从收入排除再扣一次。退款订单的成本仍计入。订单按录入的业务日归属，没有独立退款日或部分退款字段。"
+        estimateScope: "all_daily_minus_overall_salary",
+        estimateNote: "整体估算使用全部审核状态的日常数据减去整体工资，不是某一审核状态的净利润。待审、退回、通过的日常收入/退款/推广/成本与加粉/拍剪请看分组汇总，不要把未审核数据当成已通过。",
+        disclaimer: "此结果为经营估算，用于看日常趋势，不等于会计净利润；未包含房租、水电、税费、社保公积金、平台扣点等。收入为查询期内全部订单金额（含状态为退款的源订单），退款为状态=退款的订单金额之和；估算按收入减去退款，避免同一笔退款订单先从收入排除再扣一次。退款订单的成本仍计入。订单按录入的业务日归属，没有独立退款日或部分退款字段。工资不按审核状态拆分。"
       });
     } catch (error) {
       next(error);
@@ -132,3 +150,71 @@ export function createDashboardRouter(db: Pool, config: AppConfig): Router {
   return router;
 }
 
+async function loadDailyBundle(db: Pool, from: string, to: string, reviewStatus: "pending" | "approved" | "rejected") {
+  const orderAgg = await queryOne<{
+    order_count: string;
+    revenue: string;
+    refunds: string;
+    custom_cost: string;
+    labor_cost: string;
+    shipping_cost: string;
+  }>(
+    db,
+    `SELECT COUNT(*) FILTER (WHERE status <> 'refunded')::text AS order_count,
+            COALESCE(SUM(amount), 0)::text AS revenue,
+            COALESCE(SUM(amount) FILTER (WHERE status = 'refunded'), 0)::text AS refunds,
+            COALESCE(SUM(custom_product_cost), 0)::text AS custom_cost,
+            COALESCE(SUM(labor_cost), 0)::text AS labor_cost,
+            COALESCE(SUM(shipping_cost), 0)::text AS shipping_cost
+       FROM orders
+      WHERE business_date BETWEEN $1 AND $2 AND review_status = $3`,
+    [from, to, reviewStatus]
+  );
+  const promo = await queryOne<{ promo_cost: string; promo_videos: string }>(
+    db,
+    `SELECT COALESCE(SUM(promo_cost), 0)::text AS promo_cost,
+            COALESCE(SUM(promo_video_count), 0)::text AS promo_videos
+       FROM ops_reports
+      WHERE business_date BETWEEN $1 AND $2 AND review_status = $3`,
+    [from, to, reviewStatus]
+  );
+  const editor = await queryOne<{ shoot: string; finished: string; published: string }>(
+    db,
+    `SELECT COALESCE(SUM(shoot_count),0)::text AS shoot,
+            COALESCE(SUM(finished_count),0)::text AS finished,
+            COALESCE(SUM(published_count),0)::text AS published
+       FROM editor_reports
+      WHERE business_date BETWEEN $1 AND $2 AND review_status = $3`,
+    [from, to, reviewStatus]
+  );
+  const latestInventory = await query<{ inventory_snapshot: number }>(
+    db,
+    `SELECT DISTINCT ON (user_id) inventory_snapshot
+       FROM editor_reports
+      WHERE business_date BETWEEN $1 AND $2 AND review_status = $3
+      ORDER BY user_id, business_date DESC`,
+    [from, to, reviewStatus]
+  );
+  const fans = await queryOne<{ total: string }>(
+    db,
+    `SELECT COALESCE(SUM(added_count),0)::text AS total
+       FROM fan_reports
+      WHERE business_date BETWEEN $1 AND $2 AND review_status = $3`,
+    [from, to, reviewStatus]
+  );
+  return {
+    revenue: formatMoney(orderAgg?.revenue ?? "0"),
+    refunds: formatMoney(orderAgg?.refunds ?? "0"),
+    promoCost: formatMoney(promo?.promo_cost ?? "0"),
+    customProductCost: formatMoney(orderAgg?.custom_cost ?? "0"),
+    laborCost: formatMoney(orderAgg?.labor_cost ?? "0"),
+    shippingCost: formatMoney(orderAgg?.shipping_cost ?? "0"),
+    orderCount: Number(orderAgg?.order_count ?? 0),
+    promoVideoCount: Number(promo?.promo_videos ?? 0),
+    shootCount: Number(editor?.shoot ?? 0),
+    finishedCount: Number(editor?.finished ?? 0),
+    publishedCount: Number(editor?.published ?? 0),
+    endingInventory: latestInventory.reduce((sum, row) => sum + Number(row.inventory_snapshot), 0),
+    fanAddedTotal: Number(fans?.total ?? 0)
+  };
+}

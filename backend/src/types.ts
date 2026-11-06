@@ -10,6 +10,7 @@ declare module "express-session" {
 export type UserRole =
   | "boss"
   | "admin"
+  | "assistant"
   | "ops"
   | "editor"
   | "cs"

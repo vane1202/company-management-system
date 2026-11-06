@@ -1,6 +1,8 @@
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { canQueryByDate, isIsoDate } from "./dates";
 import { labelOrderStatus } from "./labels";
+import { navItems, roleLabel, type Page } from "./access";
+import { labelReviewStatus, pickDailyByStatus, type ReviewStatus } from "./reviewUi";
 import { createRequestGate } from "./requestGate";
 import { toErrorMessage } from "./errors";
 import { readSessionMeta, type SessionMeta } from "./sessionMeta";
@@ -14,44 +16,11 @@ import {
   type Note,
   type OpsReport,
   type Order,
-  type Role,
+  type ReviewItem,
   type Salary,
   type Team,
   type User
 } from "./api";
-
-type Page =
-  | "home"
-  | "fans"
-  | "summary"
-  | "orders"
-  | "ops"
-  | "editor"
-  | "dashboard"
-  | "people"
-  | "salaries";
-
-const roleLabel: Record<Role, string> = {
-  boss: "Boss",
-  admin: "行政",
-  ops: "运营",
-  editor: "拍剪",
-  cs: "客服",
-  cs_supervisor: "客服主管"
-};
-
-function navItems(role: Role): { id: Page; label: string }[] {
-  const items: { id: Page; label: string }[] = [{ id: "home", label: "首页" }];
-  if (role === "cs" || role === "cs_supervisor") items.push({ id: "fans", label: "加粉填报" });
-  if (role === "cs_supervisor" || role === "boss" || role === "admin") items.push({ id: "summary", label: "加粉汇总" });
-  if (role === "cs" || role === "boss" || role === "admin") items.push({ id: "orders", label: "订单" });
-  if (role === "ops" || role === "boss" || role === "admin") items.push({ id: "ops", label: "推广" });
-  if (role === "editor" || role === "boss" || role === "admin") items.push({ id: "editor", label: "拍剪" });
-  if (role === "boss" || role === "admin") {
-    items.push({ id: "dashboard", label: "经营估算" }, { id: "people", label: "编制" }, { id: "salaries", label: "工资" });
-  }
-  return items;
-}
 
 export function App() {
   const [ready, setReady] = useState(false);
@@ -141,6 +110,7 @@ export function App() {
       {page === "orders" && <OrdersPage today={today} onError={setError} />}
       {page === "ops" && <OpsPage today={today} onError={setError} />}
       {page === "editor" && <EditorPage today={today} onError={setError} />}
+      {page === "review" && <ReviewPage onError={setError} />}
       {page === "dashboard" && <DashboardPage onError={setError} />}
       {page === "people" && <PeoplePage today={today} onError={setError} />}
       {page === "salaries" && <SalaryPage onError={setError} />}
@@ -153,6 +123,11 @@ export function App() {
       </nav>
     </div>
   );
+}
+
+function ReviewStatusBadge({ status }: { status?: string | null }) {
+  if (!status) return <span className="chip">—</span>;
+  return <span className={`chip ${status}`}>{labelReviewStatus(status)}</span>;
 }
 
 function Login({ onLogin }: { onLogin: (user: User, extras?: SessionMeta) => void | Promise<void> }) {
@@ -249,7 +224,8 @@ function Home({
       <h2>今日 {today || "—"}</h2>
       <p className="notice">业务日按东八区计算。客服加粉入口可放进微信群公告，每天打开同一链接即可，系统不会自动往群里发消息。</p>
       {user.role === "cs" && <p className="notice">你只能填报并查看自己的加粉与订单。补报窗口为近 {backfillDays} 个业务日（含今天）。填写 0 表示当天已报零粉，未提交则是未报。</p>}
-      {user.role === "cs_supervisor" && <p className="notice">你可以查看负责小组的加粉汇总、未报名单和逐人明细，不能查看工资或客户消费。</p>}
+      {user.role === "cs_supervisor" && <p className="notice">你可以查看负责小组的加粉汇总、未报名单和逐人明细，不能查看工资或客户消费。汇总里的加粉数是已填报数据，已按待审/退回/通过分开计数，不把未审核当成已通过。</p>}
+      {user.role === "assistant" && <p className="notice">你负责审核运营、拍剪、加粉和订单的日常填报：通过或退回（退回必须填写原因），不能改业务数字，也不能查看或审核工资和经营估算。</p>}
       {(user.role === "boss" || user.role === "admin") && <p className="notice">{disclaimer}</p>}
     </section>
   );
@@ -307,13 +283,14 @@ function FanForm({ today, onError }: { today: string; onError: (value: string) =
       <div className="table-wrap">
         <table>
           <thead>
-            <tr><th>日期</th><th>加粉数</th></tr>
+            <tr><th>日期</th><th>加粉数</th><th>审核</th></tr>
           </thead>
           <tbody>
             {reports.map((item) => (
               <tr key={item.id}>
                 <td>{item.businessDate}</td>
                 <td>{item.addedCount}</td>
+                <td><ReviewStatusBadge status={item.reviewStatus} />{item.reviewStatus === "rejected" && item.reviewReason ? <div className="notice">退回：{item.reviewReason}</div> : null}</td>
               </tr>
             ))}
           </tbody>
@@ -364,11 +341,14 @@ function FanSummaryPage({ today, onError }: { today: string; onError: (value: st
             <div className="metric"><b>{team.expectedCount}</b><span>应报</span></div>
             <div className="metric"><b>{team.reportedCount}</b><span>已报</span></div>
             <div className="metric"><b>{team.missingCount}</b><span>未报</span></div>
+            <div className="metric"><b>{team.reviewCounts?.pending ?? 0}</b><span>待审</span></div>
+            <div className="metric"><b>{team.reviewCounts?.rejected ?? 0}</b><span>退回</span></div>
+            <div className="metric"><b>{team.reviewCounts?.approved ?? 0}</b><span>通过</span></div>
           </div>
           <div className="table-wrap">
             <table>
               <thead>
-                <tr><th>姓名</th><th>人数</th><th>状态</th></tr>
+                <tr><th>姓名</th><th>人数</th><th>填报</th><th>审核</th></tr>
               </thead>
               <tbody>
                 {team.details.map((item) => (
@@ -376,6 +356,7 @@ function FanSummaryPage({ today, onError }: { today: string; onError: (value: st
                     <td>{item.displayName}</td>
                     <td>{item.addedCount === null ? "—" : item.addedCount}</td>
                     <td><span className={`badge ${item.status}`}>{item.status === "reported" ? (item.addedCount === 0 ? "已报 0" : "已报") : "未报"}</span></td>
+                    <td><ReviewStatusBadge status={item.reviewStatus} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -461,7 +442,7 @@ function OrdersPage({ today, onError }: { today: string; onError: (value: string
       <div className="table-wrap">
         <table>
           <thead>
-            <tr><th>日期</th><th>标识</th><th>金额</th><th>状态</th><th>成本/工费/运费</th></tr>
+            <tr><th>日期</th><th>标识</th><th>金额</th><th>订单状态</th><th>成本/工费/运费</th><th>审核</th></tr>
           </thead>
           <tbody>
             {orders.map((item) => (
@@ -471,6 +452,7 @@ function OrdersPage({ today, onError }: { today: string; onError: (value: string
                 <td>{item.amount}</td>
                 <td>{labelOrderStatus(item.status)}</td>
                 <td>{item.customProductCost} / {item.laborCost} / {item.shippingCost}</td>
+                <td><ReviewStatusBadge status={item.reviewStatus} /></td>
               </tr>
             ))}
           </tbody>
@@ -518,10 +500,10 @@ function OpsPage({ today, onError }: { today: string; onError: (value: string) =
       </form>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>日期</th><th>平台</th><th>视频数</th><th>费用</th></tr></thead>
+          <thead><tr><th>日期</th><th>平台</th><th>视频数</th><th>费用</th><th>审核</th></tr></thead>
           <tbody>
             {reports.map((item) => (
-              <tr key={item.id}><td>{item.businessDate}</td><td>{item.platform || "—"}</td><td>{item.promoVideoCount}</td><td>{item.promoCost}</td></tr>
+              <tr key={item.id}><td>{item.businessDate}</td><td>{item.platform || "—"}</td><td>{item.promoVideoCount}</td><td>{item.promoCost}</td><td><ReviewStatusBadge status={item.reviewStatus} /></td></tr>
             ))}
           </tbody>
         </table>
@@ -584,7 +566,7 @@ function EditorPage({ today, onError }: { today: string; onError: (value: string
       </form>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>日期</th><th>拍摄</th><th>成片</th><th>发布</th><th>囤量快照</th></tr></thead>
+          <thead><tr><th>日期</th><th>拍摄</th><th>成片</th><th>发布</th><th>囤量快照</th><th>审核</th></tr></thead>
           <tbody>
             {reports.map((item) => (
               <tr key={item.id}>
@@ -593,6 +575,7 @@ function EditorPage({ today, onError }: { today: string; onError: (value: string
                 <td>{item.finishedCount}</td>
                 <td>{item.publishedCount}</td>
                 <td>{item.inventorySnapshot}{item.inventoryAdjusted ? "（已校正）" : ""}</td>
+                <td><ReviewStatusBadge status={item.reviewStatus} /></td>
               </tr>
             ))}
           </tbody>
@@ -604,8 +587,10 @@ function EditorPage({ today, onError }: { today: string; onError: (value: string
 
 function DashboardPage({ onError }: { onError: (value: string) => void }) {
   const [preset, setPreset] = useState("day");
+  const [reviewStatus, setReviewStatus] = useState<ReviewStatus>("approved");
   const [metrics, setMetrics] = useState<Metrics | null>(null);
-  const [meta, setMeta] = useState({ disclaimer: "", formula: "", from: "", to: "" });
+  const [dailyByStatus, setDailyByStatus] = useState<Record<ReviewStatus, ReturnType<typeof pickDailyByStatus>> | null>(null);
+  const [meta, setMeta] = useState({ disclaimer: "", formula: "", from: "", to: "", estimateNote: "", salaryNote: "" });
   const [notes, setNotes] = useState<Note[]>([]);
   const [note, setNote] = useState("");
   const [loadError, setLoadError] = useState("");
@@ -614,10 +599,18 @@ function DashboardPage({ onError }: { onError: (value: string) => void }) {
   async function load(next = preset) {
     const ticket = gate.next();
     try {
-      const data = await api.dashboard(next);
+      const data = await api.dashboard(next, reviewStatus);
       if (!ticket.isCurrent()) return;
       setMetrics(data.metrics);
-      setMeta({ disclaimer: data.disclaimer, formula: data.formula, from: data.period.from, to: data.period.to });
+      setDailyByStatus(data.dailyByReviewStatus ?? null);
+      setMeta({
+        disclaimer: data.disclaimer,
+        formula: data.formula,
+        from: data.period.from,
+        to: data.period.to,
+        estimateNote: data.estimateNote ?? "",
+        salaryNote: data.overallSalary?.note ?? ""
+      });
       const notesData = await api.notes(data.period.to);
       if (!ticket.isCurrent()) return;
       setNotes(notesData.notes);
@@ -649,6 +642,7 @@ function DashboardPage({ onError }: { onError: (value: string) => void }) {
       </section>
     );
   }
+  const selectedDaily = pickDailyByStatus(dailyByStatus ?? undefined, reviewStatus);
   return (
     <section className="card">
       <h2>经营估算</h2>
@@ -659,18 +653,61 @@ function DashboardPage({ onError }: { onError: (value: string) => void }) {
           </button>
         ))}
       </div>
-      <p className="notice">{meta.from} 至 {meta.to} · {meta.formula}</p>
+      <p className="notice">{meta.from} 至 {meta.to}</p>
+      <div className="status-tabs">
+        {(["pending", "rejected", "approved"] as ReviewStatus[]).map((status) => (
+          <button key={status} type="button" className={reviewStatus === status ? `chip ${status} active` : `chip ${status}`} onClick={() => setReviewStatus(status)}>
+            {labelReviewStatus(status)}日常
+          </button>
+        ))}
+      </div>
+      <p className="notice">默认查看已通过日常指标。三个审核状态分开汇总，不会混成一个日常总数。这里不算分状态净利润。</p>
+      {(["pending", "rejected", "approved"] as ReviewStatus[]).map((status) => {
+        const item = pickDailyByStatus(dailyByStatus ?? undefined, status);
+        return (
+          <div key={status} className="review-card">
+            <div className="review-card-head">
+              <strong>{labelReviewStatus(status)}日常汇总</strong>
+              <ReviewStatusBadge status={status} />
+            </div>
+            <div className="metrics">
+              <div className="metric"><b>{item.revenue}</b><span>收入</span></div>
+              <div className="metric"><b>{item.refunds}</b><span>退款</span></div>
+              <div className="metric"><b>{item.promoCost}</b><span>推广费</span></div>
+              <div className="metric"><b>{item.customProductCost}</b><span>定制成本</span></div>
+              <div className="metric"><b>{item.laborCost}</b><span>工费</span></div>
+              <div className="metric"><b>{item.shippingCost}</b><span>运费</span></div>
+              <div className="metric"><b>{item.fanAddedTotal}</b><span>加粉</span></div>
+              <div className="metric"><b>{item.shootCount}/{item.finishedCount}</b><span>拍摄/成片</span></div>
+            </div>
+          </div>
+        );
+      })}
+      <h3>{labelReviewStatus(reviewStatus)}明细卡片</h3>
       <div className="metrics">
-        <div className="metric"><b>{metrics.estimate}</b><span>经营估算</span></div>
-        <div className="metric"><b>{metrics.revenue}</b><span>收入</span></div>
-        <div className="metric"><b>{metrics.refunds}</b><span>退款</span></div>
-        <div className="metric"><b>{metrics.promoCost}</b><span>推广费</span></div>
-        <div className="metric"><b>{metrics.salaryAllocated}</b><span>工资分摊</span></div>
-        <div className="metric"><b>{metrics.customProductCost}</b><span>定制成本</span></div>
-        <div className="metric"><b>{metrics.laborCost}</b><span>工费</span></div>
-        <div className="metric"><b>{metrics.shippingCost}</b><span>运费</span></div>
-        <div className="metric"><b>{metrics.endingInventory}</b><span>期末囤量</span></div>
-        <div className="metric"><b>{metrics.fanAddedTotal}</b><span>加粉合计</span></div>
+        <div className="metric"><b>{selectedDaily.revenue}</b><span>收入</span></div>
+        <div className="metric"><b>{selectedDaily.refunds}</b><span>退款</span></div>
+        <div className="metric"><b>{selectedDaily.promoCost}</b><span>推广费</span></div>
+        <div className="metric"><b>{selectedDaily.customProductCost}</b><span>定制成本</span></div>
+        <div className="metric"><b>{selectedDaily.laborCost}</b><span>工费</span></div>
+        <div className="metric"><b>{selectedDaily.shippingCost}</b><span>运费</span></div>
+        <div className="metric"><b>{selectedDaily.endingInventory}</b><span>期末囤量</span></div>
+        <div className="metric"><b>{selectedDaily.fanAddedTotal}</b><span>加粉合计</span></div>
+      </div>
+      <div className="review-card">
+        <strong>整体工资（无审核状态）</strong>
+        <div className="metrics">
+          <div className="metric"><b>{metrics.salaryAllocated}</b><span>工资分摊</span></div>
+        </div>
+        <p className="notice">{meta.salaryNote || "工资按整体成本单独展示，不拆进待审/退回/通过。"}</p>
+      </div>
+      <div className="review-card">
+        <strong>整体估算（不是某一审核状态的净利润）</strong>
+        <div className="metrics">
+          <div className="metric"><b>{metrics.estimate}</b><span>经营估算</span></div>
+        </div>
+        <p className="notice">{meta.formula}</p>
+        <p className="notice">{meta.estimateNote}</p>
       </div>
       <p className="notice">{meta.disclaimer}</p>
       <form
@@ -697,6 +734,99 @@ function DashboardPage({ onError }: { onError: (value: string) => void }) {
     </section>
   );
 }
+
+function payloadLines(item: ReviewItem): string[] {
+  const payload = item.payload ?? {};
+  if (item.entityType === "fan_report") return [`加粉 ${payload.addedCount ?? "—"}`];
+  if (item.entityType === "ops_report") return [`平台 ${payload.platform || "—"}`, `视频 ${payload.promoVideoCount ?? "—"}`, `推广费 ${payload.promoCost ?? "—"}`];
+  if (item.entityType === "editor_report") return [`拍摄 ${payload.shootCount ?? "—"}`, `成片 ${payload.finishedCount ?? "—"}`, `发布 ${payload.publishedCount ?? "—"}`, `囤量 ${payload.inventorySnapshot ?? "—"}`];
+  return [`标识 ${payload.orderRef ?? "—"}`, `金额 ${payload.amount ?? "—"}`, `订单状态 ${labelOrderStatus(String(payload.status ?? ""))}`, `成本 ${payload.customProductCost ?? "—"} / ${payload.laborCost ?? "—"} / ${payload.shippingCost ?? "—"}`];
+}
+
+function ReviewPage({ onError }: { onError: (value: string) => void }) {
+  const [status, setStatus] = useState<ReviewStatus>("pending");
+  const [items, setItems] = useState<ReviewItem[]>([]);
+  const [reasonById, setReasonById] = useState<Record<string, string>>({});
+  const [pendingId, setPendingId] = useState("");
+
+  async function refresh(next = status) {
+    const data = await api.reviews(next);
+    setItems(data.items);
+  }
+  useEffect(() => {
+    refresh().catch((err) => onError(toErrorMessage(err, "加载审核列表失败")));
+  }, []);
+
+  async function decide(item: ReviewItem, action: "approve" | "reject") {
+    const reason = (reasonById[item.id] ?? "").trim();
+    if (action === "reject" && !reason) {
+      onError("退回必须填写原因");
+      return;
+    }
+    setPendingId(item.id);
+    try {
+      await api.decideReview({
+        entityType: item.entityType,
+        entityId: item.id,
+        action,
+        version: item.reviewVersion,
+        reason
+      });
+      onError("");
+      await refresh(status);
+    } catch (err) {
+      onError(toErrorMessage(err, "审核失败"));
+    } finally {
+      setPendingId("");
+    }
+  }
+
+  return (
+    <section className="card">
+      <h2>日常审核</h2>
+      <p className="notice">只能通过或退回，不能改业务数字。工资和经营估算不在助理范围内。</p>
+      <div className="status-tabs">
+        {(["pending", "rejected", "approved"] as ReviewStatus[]).map((item) => (
+          <button
+            key={item}
+            type="button"
+            className={status === item ? `chip ${item} active` : `chip ${item}`}
+            onClick={() => {
+              setStatus(item);
+              refresh(item).catch((err) => onError(toErrorMessage(err, "加载审核列表失败")));
+            }}
+          >
+            {labelReviewStatus(item)}
+          </button>
+        ))}
+      </div>
+      {items.length === 0 && <p className="notice">当前没有{labelReviewStatus(status)}记录。</p>}
+      {items.map((item) => (
+        <article key={`${item.entityType}-${item.id}`} className="review-card">
+          <div className="review-card-head">
+            <strong>{item.entityLabel} · {item.displayName || item.username || "员工"}</strong>
+            <ReviewStatusBadge status={item.reviewStatus} />
+          </div>
+          <p>{item.businessDate}</p>
+          {payloadLines(item).map((line) => <p key={line}>{line}</p>)}
+          {item.reviewReason && <p className="notice">上次原因：{item.reviewReason}</p>}
+          {item.reviewStatus === "pending" && (
+            <>
+              <Field label="退回原因">
+                <textarea value={reasonById[item.id] ?? ""} onChange={(e) => setReasonById({ ...reasonById, [item.id]: e.target.value })} />
+              </Field>
+              <div className="actions">
+                <button type="button" disabled={pendingId === item.id} onClick={() => decide(item, "approve")}>通过</button>
+                <button type="button" className="danger" disabled={pendingId === item.id} onClick={() => decide(item, "reject")}>退回</button>
+              </div>
+            </>
+          )}
+        </article>
+      ))}
+    </section>
+  );
+}
+
 
 function PeoplePage({ today, onError }: { today: string; onError: (value: string) => void }) {
   const [teams, setTeams] = useState<Team[]>([]);
