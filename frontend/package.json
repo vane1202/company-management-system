@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.json --noEmit && vite build",
-    "preview": "vite preview --host 127.0.0.1 --port 15174"
+    "preview": "vite preview --host 127.0.0.1 --port 15174",
+    "test": "vitest run --config vitest.config.ts"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -17,6 +18,7 @@
     "@types/react-dom": "^18.3.6",
     "@vitejs/plugin-react": "^4.3.4",
     "typescript": "^5.8.2",
-    "vite": "^5.4.18"
+    "vite": "^5.4.18",
+    "vitest": "^3.2.7"
   }
 }

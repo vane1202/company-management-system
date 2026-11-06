@@ -2,7 +2,7 @@ import { Router } from "express";
 import type { Pool } from "pg";
 import { writeAudit } from "../audit.js";
 import { query, queryOne } from "../db.js";
-import { businessToday, isIsoDate } from "../lib/dates.js";
+import { businessToday, isIsoDate, toDateOnly } from "../lib/dates.js";
 import { parseMoney } from "../lib/money.js";
 import { HttpError, type OrderStatus } from "../types.js";
 import { isBossOrAdmin, type Actor } from "../users.js";
@@ -65,7 +65,7 @@ export function createOrderRouter(db: Pool, config: AppConfig): Router {
       for (const row of rows) {
         lines.push(
           [
-            dateOnly(row.business_date),
+            toDateOnly(row.business_date),
             csv(String(row.order_ref)),
             csv(String(row.display_name)),
             csv(String(row.customer_label ?? "")),
@@ -224,7 +224,7 @@ function readOrderBody(body: Record<string, unknown>, config: AppConfig, partial
 
 function existingMapped(row: Record<string, unknown>) {
   return {
-    businessDate: dateOnly(row.business_date),
+    businessDate: toDateOnly(row.business_date),
     orderRef: row.order_ref,
     customerLabel: row.customer_label,
     amount: money(row.amount),
@@ -242,7 +242,7 @@ function serializeOrder(row: Record<string, unknown> | undefined) {
   return {
     id: row.id,
     userId: row.user_id,
-    businessDate: dateOnly(row.business_date),
+    businessDate: toDateOnly(row.business_date),
     orderRef: row.order_ref,
     customerLabel: row.customer_label,
     amount: money(row.amount),
@@ -259,11 +259,6 @@ function serializeOrder(row: Record<string, unknown> | undefined) {
 function emptyDate(value: unknown): string | null {
   const text = String(value ?? "");
   return text && isIsoDate(text) ? text : null;
-}
-
-function dateOnly(value: unknown): string {
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
-  return String(value).slice(0, 10);
 }
 
 function money(value: unknown): string {

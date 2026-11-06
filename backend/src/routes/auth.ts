@@ -35,7 +35,7 @@ export function createAuthRouter(db: Pool, config: AppConfig): Router {
   router.get("/me", async (req, res, next) => {
     try {
       if (!req.actor) throw new HttpError(401, "未登录");
-      res.json({ user: req.actor });
+      res.json({ user: req.actor, ...(await sessionMeta()) });
     } catch (error) {
       next(error);
     }
@@ -88,7 +88,7 @@ export function createAuthRouter(db: Pool, config: AppConfig): Router {
         entityId: user.id,
         ip: req.ip
       });
-      res.json({ user: toPublicUser(user), csrfToken: req.session.csrfToken });
+      res.json({ user: toPublicUser(user), csrfToken: req.session.csrfToken, ...(await sessionMeta()) });
     } catch (error) {
       next(error);
     }
@@ -147,6 +147,17 @@ export function createAuthRouter(db: Pool, config: AppConfig): Router {
       next(error);
     }
   });
+
+  async function sessionMeta() {
+    const today = businessToday(new Date(), config.businessTimezone);
+    const backfillDays = await getBackfillDays(db, config.fanReportBackfillDays);
+    return {
+      today,
+      timezone: config.businessTimezone,
+      backfillDays,
+      disclaimer: "经营估算用于看日常趋势，不等于会计净利润。"
+    };
+  }
 
   return router;
 }

@@ -1,4 +1,8 @@
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
+import { canQueryByDate, isIsoDate } from "./dates";
+import { labelOrderStatus } from "./labels";
+import { createRequestGate } from "./requestGate";
+import { readSessionMeta, type SessionMeta } from "./sessionMeta";
 import {
   api,
   type AdminUser,
@@ -57,16 +61,30 @@ export function App() {
   const [backfillDays, setBackfillDays] = useState(3);
   const [disclaimer, setDisclaimer] = useState("");
 
+  function applySession(nextUser: User, payload?: SessionMeta) {
+    const meta = readSessionMeta(payload);
+    setToday(meta.today);
+    if (typeof meta.backfillDays === "number") setBackfillDays(meta.backfillDays);
+    if (meta.disclaimer) setDisclaimer(meta.disclaimer);
+    setUser(nextUser);
+  }
+
+  async function hydrateUser(nextUser: User, payload?: SessionMeta) {
+    const parsed = readSessionMeta(payload);
+    if (parsed.today && parsed.disclaimer) {
+      applySession(nextUser, parsed);
+      return;
+    }
+    const meta = await api.meta();
+    applySession(nextUser, { ...parsed, ...meta });
+  }
+
   useEffect(() => {
     (async () => {
       try {
         await api.loadCsrf();
         const me = await api.me();
-        setUser(me.user);
-        const meta = await api.meta();
-        setToday(meta.today);
-        setBackfillDays(meta.backfillDays);
-        setDisclaimer(meta.disclaimer);
+        await hydrateUser(me.user, me);
       } catch {
         setUser(null);
       } finally {
@@ -76,7 +94,8 @@ export function App() {
   }, []);
 
   if (!ready) return <div className="page">加载中…</div>;
-  if (!user) return <Login onLogin={setUser} />;
+  if (!user) return <Login onLogin={hydrateUser} />;
+  if (!today) return <div className="page">加载中…</div>;
   if (user.mustChangePassword) {
     return <ChangePassword user={user} onDone={() => setUser({ ...user, mustChangePassword: false })} />;
   }
@@ -130,7 +149,7 @@ export function App() {
   );
 }
 
-function Login({ onLogin }: { onLogin: (user: User) => void }) {
+function Login({ onLogin }: { onLogin: (user: User, extras?: SessionMeta) => void | Promise<void> }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -143,7 +162,7 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
     try {
       await api.loadCsrf();
       const data = await api.login(username, password);
-      onLogin(data.user);
+      await onLogin(data.user, data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "登录失败");
     } finally {
@@ -241,6 +260,9 @@ function FanForm({ today, onError }: { today: string; onError: (value: string) =
     setReports(data.reports);
   }
   useEffect(() => {
+    if (isIsoDate(today)) setBusinessDate(today);
+  }, [today]);
+  useEffect(() => {
     refresh().catch((err) => onError(err.message));
   }, []);
 
@@ -298,19 +320,27 @@ function FanForm({ today, onError }: { today: string; onError: (value: string) =
 function FanSummaryPage({ today, onError }: { today: string; onError: (value: string) => void }) {
   const [date, setDate] = useState(today);
   const [teams, setTeams] = useState<FanSummary[]>([]);
+  const gate = useState(() => createRequestGate())[0];
 
   async function load(next = date) {
+    if (!canQueryByDate(next)) return;
+    const ticket = gate.next();
     try {
       const data = await api.fanSummary(next);
+      if (!ticket.isCurrent()) return;
       setTeams(data.teams);
       onError("");
     } catch (err) {
+      if (!ticket.isCurrent()) return;
       onError(err instanceof Error ? err.message : "加载失败");
     }
   }
   useEffect(() => {
-    load(today);
-  }, []);
+    if (isIsoDate(today)) setDate(today);
+  }, [today]);
+  useEffect(() => {
+    if (canQueryByDate(date)) load(date);
+  }, [date]);
 
   return (
     <section className="card">
@@ -369,6 +399,9 @@ function OrdersPage({ today, onError }: { today: string; onError: (value: string
     setOrders((await api.orders()).orders);
   }
   useEffect(() => {
+    if (isIsoDate(today)) setForm((current) => ({ ...current, businessDate: current.businessDate || today }));
+  }, [today]);
+  useEffect(() => {
     refresh().catch((err) => onError(err.message));
   }, []);
 
@@ -425,7 +458,7 @@ function OrdersPage({ today, onError }: { today: string; onError: (value: string
                 <td>{item.businessDate}</td>
                 <td>{item.orderRef}</td>
                 <td>{item.amount}</td>
-                <td>{item.status}</td>
+                <td>{labelOrderStatus(item.status)}</td>
                 <td>{item.customProductCost} / {item.laborCost} / {item.shippingCost}</td>
               </tr>
             ))}
@@ -439,6 +472,9 @@ function OrdersPage({ today, onError }: { today: string; onError: (value: string
 function OpsPage({ today, onError }: { today: string; onError: (value: string) => void }) {
   const [reports, setReports] = useState<OpsReport[]>([]);
   const [form, setForm] = useState({ businessDate: today, platform: "", promoVideoCount: "0", promoCost: "0.00", note: "" });
+  useEffect(() => {
+    if (isIsoDate(today)) setForm((current) => ({ ...current, businessDate: current.businessDate || today }));
+  }, [today]);
   useEffect(() => {
     api.opsReports().then((data) => setReports(data.reports)).catch((err) => onError(err.message));
   }, []);
@@ -499,6 +535,9 @@ function EditorPage({ today, onError }: { today: string; onError: (value: string
     setSummary(`区间拍摄 ${result.shootCount}，成片 ${result.finishedCount}，已发布 ${result.publishedCount}，期末囤量 ${result.endingInventory}。${result.note}`);
   }
   useEffect(() => {
+    if (isIsoDate(today)) setForm((current) => ({ ...current, businessDate: current.businessDate || today }));
+  }, [today]);
+  useEffect(() => {
     refresh().catch((err) => onError(err.message));
   }, []);
   return (
@@ -558,15 +597,21 @@ function DashboardPage({ onError }: { onError: (value: string) => void }) {
   const [meta, setMeta] = useState({ disclaimer: "", formula: "", from: "", to: "" });
   const [notes, setNotes] = useState<Note[]>([]);
   const [note, setNote] = useState("");
+  const gate = useState(() => createRequestGate())[0];
 
   async function load(next = preset) {
+    const ticket = gate.next();
     try {
       const data = await api.dashboard(next);
+      if (!ticket.isCurrent()) return;
       setMetrics(data.metrics);
       setMeta({ disclaimer: data.disclaimer, formula: data.formula, from: data.period.from, to: data.period.to });
-      setNotes((await api.notes(data.period.to)).notes);
+      const notesData = await api.notes(data.period.to);
+      if (!ticket.isCurrent()) return;
+      setNotes(notesData.notes);
       onError("");
     } catch (err) {
+      if (!ticket.isCurrent()) return;
       onError(err instanceof Error ? err.message : "加载失败");
     }
   }
@@ -636,6 +681,9 @@ function PeoplePage({ today, onError }: { today: string; onError: (value: string
     setTeams((await api.teams()).teams);
     setUsers((await api.users()).users);
   }
+  useEffect(() => {
+    if (isIsoDate(today)) setForm((current) => ({ ...current, membershipStart: current.membershipStart || today }));
+  }, [today]);
   useEffect(() => {
     refresh().catch((err) => onError(err.message));
   }, []);

@@ -73,3 +73,18 @@ export function resolvePeriod(
   if (preset === "month") return { from: startOfMonth(today), to: today };
   throw new Error("汇总周期只能是 day、week 或 month");
 }
+
+export function toDateOnly(value: unknown): string {
+  if (typeof value === "string") {
+    const match = value.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (match && isIsoDate(match[1])) return match[1];
+  }
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, "0");
+    const day = String(value.getDate()).padStart(2, "0");
+    const iso = `${year}-${month}-${day}`;
+    if (isIsoDate(iso)) return iso;
+  }
+  throw new Error("日期格式无效");
+}

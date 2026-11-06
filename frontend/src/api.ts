@@ -42,12 +42,12 @@ export async function loadCsrf(): Promise<void> {
 export const api = {
   loadCsrf,
   login: (username: string, password: string) =>
-    requestInner<{ user: User; csrfToken: string }>("/api/auth/login", {
+    requestInner<{ user: User; csrfToken: string; today?: string; timezone?: string; backfillDays?: number; disclaimer?: string }>("/api/auth/login", {
       method: "POST",
       body: JSON.stringify({ username, password })
     }),
   logout: () => requestInner("/api/auth/logout", { method: "POST" }),
-  me: () => requestInner<{ user: User }>("/api/auth/me"),
+  me: () => requestInner<{ user: User; today?: string; timezone?: string; backfillDays?: number; disclaimer?: string }>("/api/auth/me"),
   meta: () =>
     requestInner<{ today: string; timezone: string; backfillDays: number; disclaimer: string }>("/api/auth/meta"),
   changePassword: (currentPassword: string, newPassword: string) =>

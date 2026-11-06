@@ -2,7 +2,7 @@ import { Router } from "express";
 import type { Pool } from "pg";
 import { writeAudit } from "../audit.js";
 import { query, queryOne } from "../db.js";
-import { isIsoDate } from "../lib/dates.js";
+import { isIsoDate, toDateOnly } from "../lib/dates.js";
 import { HttpError } from "../types.js";
 import { isBossOrAdmin } from "../users.js";
 
@@ -30,7 +30,7 @@ export function createNoteRouter(db: Pool): Router {
         notes: visible.map((row) => ({
           id: row.id,
           authorName: row.author_name,
-          targetDate: String(row.target_date).slice(0, 10),
+          targetDate: toDateOnly(row.target_date),
           targetType: row.target_type,
           targetId: row.target_id,
           content: row.content,

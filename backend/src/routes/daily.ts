@@ -2,7 +2,7 @@ import { Router } from "express";
 import type { Pool } from "pg";
 import { writeAudit } from "../audit.js";
 import { query, queryOne } from "../db.js";
-import { businessToday, isIsoDate } from "../lib/dates.js";
+import { businessToday, isIsoDate, toDateOnly } from "../lib/dates.js";
 import { parseCount, parseMoney } from "../lib/money.js";
 import { HttpError } from "../types.js";
 import { isBossOrAdmin, type Actor } from "../users.js";
@@ -14,15 +14,15 @@ export function createOpsRouter(db: Pool, config: AppConfig): Router {
   router.get("/", async (req, res, next) => {
     try {
       const actor = req.actor!;
-      const targetId = String(req.query.userId ?? actor.id);
-      assertSelfOrBoss(actor, targetId, "无权查看他人的运营记录");
+      const userId = resolveListUserId(actor, req.query.userId, "无权查看他人的运营记录");
       const rows = await query(
         db,
-        `SELECT * FROM ops_reports WHERE user_id = $1
-          AND ($2::date IS NULL OR business_date >= $2)
-          AND ($3::date IS NULL OR business_date <= $3)
+        `SELECT * FROM ops_reports
+          WHERE ($1::uuid IS NULL OR user_id = $1)
+            AND ($2::date IS NULL OR business_date >= $2)
+            AND ($3::date IS NULL OR business_date <= $3)
          ORDER BY business_date DESC, platform`,
-        [targetId, emptyDate(req.query.from), emptyDate(req.query.to)]
+        [userId, emptyDate(req.query.from), emptyDate(req.query.to)]
       );
       res.json({ reports: rows.map(serializeOps) });
     } catch (error) {
@@ -83,15 +83,15 @@ export function createEditorRouter(db: Pool, config: AppConfig): Router {
   router.get("/", async (req, res, next) => {
     try {
       const actor = req.actor!;
-      const targetId = String(req.query.userId ?? actor.id);
-      assertSelfOrBoss(actor, targetId, "无权查看他人的拍剪记录");
+      const userId = resolveListUserId(actor, req.query.userId, "无权查看他人的拍剪记录");
       const rows = await query(
         db,
-        `SELECT * FROM editor_reports WHERE user_id = $1
-          AND ($2::date IS NULL OR business_date >= $2)
-          AND ($3::date IS NULL OR business_date <= $3)
+        `SELECT * FROM editor_reports
+          WHERE ($1::uuid IS NULL OR user_id = $1)
+            AND ($2::date IS NULL OR business_date >= $2)
+            AND ($3::date IS NULL OR business_date <= $3)
          ORDER BY business_date DESC`,
-        [targetId, emptyDate(req.query.from), emptyDate(req.query.to)]
+        [userId, emptyDate(req.query.from), emptyDate(req.query.to)]
       );
       res.json({ reports: rows.map(serializeEditor) });
     } catch (error) {
@@ -222,7 +222,7 @@ function serializeOps(row: Record<string, unknown> | undefined) {
   return {
     id: row.id,
     userId: row.user_id,
-    businessDate: dateOnly(row.business_date),
+    businessDate: toDateOnly(row.business_date),
     platform: row.platform,
     promoVideoCount: row.promo_video_count,
     promoCost: money(row.promo_cost),
@@ -236,7 +236,7 @@ function serializeEditor(row: Record<string, unknown> | undefined) {
   return {
     id: row.id,
     userId: row.user_id,
-    businessDate: dateOnly(row.business_date),
+    businessDate: toDateOnly(row.business_date),
     shootCount: row.shoot_count,
     finishedCount: row.finished_count,
     publishedCount: row.published_count,
@@ -247,9 +247,14 @@ function serializeEditor(row: Record<string, unknown> | undefined) {
   };
 }
 
-function dateOnly(value: unknown): string {
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
-  return String(value).slice(0, 10);
+function resolveListUserId(actor: Actor, raw: unknown, message: string): string | null {
+  const requested = raw ? String(raw) : "";
+  if (requested) {
+    assertSelfOrBoss(actor, requested, message);
+    return requested;
+  }
+  if (isBossOrAdmin(actor)) return null;
+  return actor.id;
 }
 
 function money(value: unknown): string {

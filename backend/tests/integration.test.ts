@@ -5,7 +5,7 @@ import { migrate } from "../src/migrate.js";
 import { createApp } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
 import { hashPassword } from "../src/lib/password.js";
-import { addDays, businessToday, daysInMonth } from "../src/lib/dates.js";
+import { addDays, businessToday, daysInMonth, startOfMonth, startOfWeekMonday } from "../src/lib/dates.js";
 import type { Express } from "express";
 import type { Pool } from "pg";
 
@@ -358,6 +358,42 @@ describe("公司内部管理系统集成测试", () => {
     }
     expect(data.body.disclaimer).toContain("不等于会计净利润");
     expect(data.body.metrics.endingInventory).toBe(13);
+  });
+
+
+  it("登录和 /me 会返回东八区业务日，日期读写保持 YYYY-MM-DD", async () => {
+    const cs = await login("cs_a1");
+    const me = await cs.agent.get("/api/auth/me").expect(200);
+    expect(me.body.today).toBe(today);
+    expect(me.body.timezone).toBe("Asia/Shanghai");
+    const orders = await cs.agent.get("/api/orders").expect(200);
+    const ord1 = orders.body.orders.find((item: { orderRef: string }) => item.orderRef === "ORD-1");
+    expect(ord1.businessDate).toBe(today);
+    const boss = await login("boss");
+    const salaries = await boss.agent.get("/api/salaries").expect(200);
+    const row = salaries.body.salaries.find((item: { userId: string }) => item.userId === ids.ops1);
+    expect(row.effectiveFrom).toBe(addDays(today, -5));
+  });
+
+  it("Boss 未指定 userId 时能看到他人的推广和拍剪明细，且日期不偏移", async () => {
+    const boss = await login("boss");
+    const ops = await boss.agent.get("/api/ops-reports").expect(200);
+    expect(ops.body.reports.length).toBeGreaterThan(0);
+    expect(ops.body.reports[0].businessDate).toBe(today);
+    const editor = await boss.agent.get("/api/editor-reports").expect(200);
+    const todayRow = editor.body.reports.find((item: { businessDate: string }) => item.businessDate === today);
+    expect(todayRow).toBeTruthy();
+    expect(todayRow.shootCount).toBe(3);
+  });
+
+  it("经营估算日周月边界正确", async () => {
+    const boss = await login("boss");
+    const day = await boss.agent.get("/api/dashboard/summary?preset=day").expect(200);
+    expect(day.body.period).toEqual({ from: today, to: today });
+    const week = await boss.agent.get("/api/dashboard/summary?preset=week").expect(200);
+    expect(week.body.period).toEqual({ from: startOfWeekMonday(today), to: today });
+    const month = await boss.agent.get("/api/dashboard/summary?preset=month").expect(200);
+    expect(month.body.period).toEqual({ from: startOfMonth(today), to: today });
   });
 
   it("首次登录未改密时不能填报", async () => {

@@ -2,7 +2,7 @@ import { Router } from "express";
 import type { Pool } from "pg";
 import { writeAudit } from "../audit.js";
 import { query, queryOne } from "../db.js";
-import { isIsoDate } from "../lib/dates.js";
+import { isIsoDate, toDateOnly } from "../lib/dates.js";
 import { parseMoney } from "../lib/money.js";
 import { HttpError } from "../types.js";
 import { isBossOrAdmin } from "../users.js";
@@ -37,8 +37,8 @@ export function createSalaryRouter(db: Pool): Router {
           displayName: row.display_name,
           username: row.username,
           monthlyAmount: Number(row.monthly_amount).toFixed(2),
-          effectiveFrom: dateOnly(row.effective_from),
-          effectiveTo: row.effective_to ? dateOnly(row.effective_to) : null,
+          effectiveFrom: toDateOnly(row.effective_from),
+          effectiveTo: row.effective_to ? toDateOnly(row.effective_to) : null,
           createdAt: row.created_at
         }))
       });
@@ -77,8 +77,8 @@ export function createSalaryRouter(db: Pool): Router {
             id: saved!.id,
             userId: saved!.user_id,
             monthlyAmount: Number(saved!.monthly_amount).toFixed(2),
-            effectiveFrom: dateOnly(saved!.effective_from),
-            effectiveTo: saved!.effective_to ? dateOnly(saved!.effective_to) : null
+            effectiveFrom: toDateOnly(saved!.effective_from),
+            effectiveTo: saved!.effective_to ? toDateOnly(saved!.effective_to) : null
           }
         });
       } catch (error) {
@@ -91,11 +91,6 @@ export function createSalaryRouter(db: Pool): Router {
   });
 
   return router;
-}
-
-function dateOnly(value: unknown): string {
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
-  return String(value).slice(0, 10);
 }
 
 function isExclusion(error: unknown): boolean {

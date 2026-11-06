@@ -2,7 +2,7 @@ import { Router } from "express";
 import type { Pool } from "pg";
 import { writeAudit } from "../audit.js";
 import { query, queryOne } from "../db.js";
-import { businessToday, diffDays, isIsoDate } from "../lib/dates.js";
+import { businessToday, diffDays, isIsoDate, toDateOnly } from "../lib/dates.js";
 import { parseCount } from "../lib/money.js";
 import { getBackfillDays } from "../settings.js";
 import { HttpError } from "../types.js";
@@ -279,16 +279,11 @@ function serializeFan(row: Record<string, unknown> | undefined) {
     id: row.id,
     userId: row.user_id,
     teamId: row.team_id,
-    businessDate: formatDate(row.business_date),
+    businessDate: toDateOnly(row.business_date),
     addedCount: row.added_count,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
-}
-
-function formatDate(value: unknown): string {
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
-  return String(value).slice(0, 10);
 }
 
 function csv(value: string): string {

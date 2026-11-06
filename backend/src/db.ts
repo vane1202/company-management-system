@@ -2,6 +2,9 @@ import pg from "pg";
 
 export type Db = pg.Pool;
 
+const DATE_OID = 1082;
+pg.types.setTypeParser(DATE_OID, (value: string) => value);
+
 export function createPool(databaseUrl: string): pg.Pool {
   return new pg.Pool({
     connectionString: databaseUrl,
