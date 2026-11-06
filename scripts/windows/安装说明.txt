@@ -1,0 +1,69 @@
+﻿公司内部管理系统 — Windows 本机内测安装包
+
+【这不是生产安装】
+- 本包只用于 Windows 本机内测或虚构数据演示，不能当作正式上线部署。
+- 若写入演示数据，账号与业务记录全部为虚构，请勿录入真实客户隐私。
+- 服务默认绑定 127.0.0.1，只允许本机浏览器访问，脚本不会修改防火墙。
+- 本包不提供加密备份，也不包含 Cloudflare 同步。若自行使用 pg_dump，得到的是未加密备份。
+- 压缩包内不含 .git、不含已填写的 .env、不含 node_modules、不含任何真实口令。
+
+【环境前提】
+- Windows 10 x64
+- 已安装 Node.js 22.14 与 npm 10.9.2（脚本会使用当前会话里的 node/npm，不会改系统 PATH）
+- 本机已安装并运行 PostgreSQL，监听 127.0.0.1。准备环境偏好端口 15434、应用端口 13082；两者都可以改，以实际安装为准。
+- 首次执行 Install-Cms.ps1 需要能访问 npm 仓库的网络（默认 registry.npmjs.org，也可用你已配置的镜像）。
+- 依赖（express、pg、bcryptjs、helmet 等）均为纯 JavaScript。bcryptjs 官方说明为“plain JavaScript with zero dependencies”，无需 Visual Studio、Python 或 node-gyp 编译原生模块。脚本使用 npm ci --omit=dev --ignore-scripts。
+- 本包在 Linux 打包机上构建前端 dist 与后端 JS。未在目标 Windows 上编译代码，也未在 Windows 上跑过自动化测试；不能把本包当作“已在 Windows 验收通过”。
+
+【建议解压目录】
+%LOCALAPPDATA%\cms-internal
+
+例如：
+C:\Users\<你的用户名>\AppData\Local\cms-internal
+
+请把 zip 解压后得到的文件（安装说明.txt、package.json、backend、frontend、scripts 等）放在该目录下，不要多套一层无脚本的空目录。脚本不会改全局 PATH。
+
+【安装步骤】
+在 PowerShell 中进入解压目录后执行（如遇执行策略限制，每条命令前加
+powershell -NoProfile -ExecutionPolicy Bypass -File ，不要永久修改系统执行策略）：
+
+1) 生成本机配置（会提示输入 PostgreSQL 密码，不回显、不打印）：
+   .\scripts\New-CmsEnv.ps1 -DbPort 15434 -AppPort 13082 -DbHost 127.0.0.1 -DbName cms -DbUser cms
+   若实际数据库端口或库名不同，改对应参数。不要把生成的 .env 发到聊天或提交仓库。
+
+2) 安装生产依赖（需要网络）：
+   .\scripts\Install-Cms.ps1
+
+3) 初始化其一：
+   写入虚构演示账号（口令保存到 %USERPROFILE%\.cms-internal\demo-credentials.txt，终端只显示用户名和角色）：
+     .\scripts\Initialize-CmsDemo.ps1
+   或交互创建管理员（密码现场输入，不作为命令行参数）：
+     .\scripts\Initialize-CmsAdmin.ps1
+
+4) 启动：
+   .\scripts\Start-Cms.ps1
+   浏览器打开：http://127.0.0.1:13082/
+
+5) 停止：
+   .\scripts\Stop-Cms.ps1
+
+服务启动时会自动执行数据库迁移。也可单独运行：
+   npm run migrate
+
+【目录说明】
+- backend\dist          已编译的后端 JavaScript
+- backend\migrations    SQL 迁移
+- frontend\dist         已构建的前端静态文件（由后端 SERVE_STATIC=true 提供）
+- package.json / package-lock.json   供 Windows 上 npm ci 使用
+- scripts               安装、配置、启动、停止、演示初始化
+- .env.example          占位模板，不是可用密钥
+- logs                  启动后的标准输出/错误（不应出现数据库口令）
+
+【安全与数据】
+- .env 以及演示口令文件会尽量限制为当前 Windows 用户可访问。
+- 演示口令文件不在本压缩包内，由 Initialize-CmsDemo.ps1 在本机生成。
+- 不要在命令行、计划任务或日志里粘贴 DATABASE_URL 或密码。
+- 本系统登录需要 CSRF/Origin 检查，请用浏览器访问 127.0.0.1 上的页面，不要把服务端口对局域网或公网开放。
+
+【已知网络依赖】
+Install-Cms.ps1 会从当前 npm 源下载上述纯 JS 依赖及其传递依赖。若公司网络拦截 registry.npmjs.org，需先配置可用的 npm 镜像，然后再运行安装脚本。日常启动（Start-Cms.ps1）只访问本机 PostgreSQL 与 127.0.0.1 上的 Web 端口，不需要外网。

@@ -1,4 +1,6 @@
 import { randomBytes } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { loadConfig } from "../config.js";
 import { createPool } from "../db.js";
 import { migrate } from "../migrate.js";
@@ -82,8 +84,24 @@ try {
   client.release();
 }
 
-console.log("已写入虚构演示账号（请自行保存，不会再次显示明文密码）：");
+const credentialsFile = path.resolve(
+  process.env.SEED_DEMO_CREDENTIALS_FILE || path.join(process.cwd(), "data", "demo-credentials.txt")
+);
+fs.mkdirSync(path.dirname(credentialsFile), { recursive: true });
+const body = [
+  "# 虚构演示账号，仅本机验收使用。格式: username<TAB>display_name<TAB>role<TAB>password",
+  ...users.map((item) => `${item.username}\t${item.displayName}\t${item.role}\t${item.password}`),
+  ""
+].join("\n");
+fs.writeFileSync(credentialsFile, body, { encoding: "utf8", mode: 0o600 });
+try {
+  fs.chmodSync(credentialsFile, 0o600);
+} catch {
+  // Windows 上由外层脚本再收紧 ACL
+}
+console.log("已写入虚构演示账号到本地受保护文件（终端不显示密码）");
+console.log(credentialsFile);
 for (const item of users) {
-  console.log(`${item.displayName}\t${item.username}\t${item.password}`);
+  console.log(`${item.displayName}\t${item.username}\t${item.role}`);
 }
 await pool.end();

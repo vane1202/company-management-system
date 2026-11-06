@@ -7,8 +7,8 @@ const config = loadConfig();
 const pool = createPool(config.databaseUrl);
 await migrate(pool);
 const app = createApp(pool, config);
-const server = app.listen(config.port, "0.0.0.0", () => {
-  console.log(`CMS listening on ${config.port}`);
+const server = app.listen(config.port, config.host, () => {
+  console.log(`CMS listening on http://${config.host}:${config.port}`);
 });
 
 async function shutdown() {

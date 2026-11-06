@@ -1,5 +1,6 @@
 export type AppConfig = {
   nodeEnv: string;
+  host: string;
   port: number;
   databaseUrl: string;
   sessionSecret: string;
@@ -55,6 +56,7 @@ export function loadConfig(): AppConfig {
 
   return {
     nodeEnv,
+    host: (process.env.HOST ?? "127.0.0.1").trim() || "127.0.0.1",
     port: Number(process.env.PORT ?? "13080"),
     databaseUrl: required("DATABASE_URL"),
     sessionSecret,

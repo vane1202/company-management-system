@@ -15,3 +15,6 @@ frontend/dist/
 EOF
 .dev-progress.md
 .pg-test-pass
+
+# 本地生成的演示口令目录（不要提交）
+data/

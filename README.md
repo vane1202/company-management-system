@@ -65,7 +65,16 @@ SERVE_STATIC=true npm run dev:backend
 SEED_DEMO=1 npm run seed-demo
 ```
 
-脚本会在终端打印一次性虚构密码。这些账号不是真实员工。
+脚本把虚构账号写入 `SEED_DEMO_CREDENTIALS_FILE` 指定的本地文件（未设置时为 `data/demo-credentials.txt`），终端只显示用户名和角色，不打印密码。这些账号不是真实员工。
+
+
+## Windows 本机内测包
+
+`scripts/windows/` 提供不依赖 Docker、也不需要开发仓库 checkout 的本机安装脚本。`scripts/package-windows-release.sh` 在 Linux 打包机上构建前端 `dist`、编译后端 JS，并生成 zip（含 `package-lock.json`，不含 `node_modules`、`.git`、已填写的 `.env` 或任何真实口令）。
+
+目标机器需要已安装的 Node.js 22 与本机 PostgreSQL。安装脚本在 Windows 上执行 `npm ci --omit=dev --ignore-scripts`，依赖均为纯 JavaScript（含 bcryptjs），无需编译原生模块。默认绑定 `127.0.0.1`。这不是生产安装，演示数据为虚构，备份不加密，也没有 Cloudflare 同步。
+
+打包机上的测试结果不能当作已在 Windows 上验收。解压后请阅读包内 `安装说明.txt`。
 
 ## 测试
 
