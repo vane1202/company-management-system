@@ -1,0 +1,55 @@
+# 公司内部管理系统本地 / 内测编排
+# 端口绑定在 127.0.0.1，避免误暴露到公网。
+# 使用前先复制 .env.example 为 .env 并改成自己的口令和 SESSION_SECRET。
+
+name: cms-mvp
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cms}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 中设置 POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-cms}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-15432}:5432"
+    volumes:
+      - cms_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${PORT:-13080}:13080"
+    environment:
+      NODE_ENV: production
+      PORT: 13080
+      DATABASE_URL: postgres://${POSTGRES_USER:-cms}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-cms}
+      SESSION_SECRET: ${SESSION_SECRET:?请在 .env 中设置 SESSION_SECRET}
+      APP_ORIGIN: ${APP_ORIGIN:-http://127.0.0.1:13080}
+      BUSINESS_TIMEZONE: ${BUSINESS_TIMEZONE:-Asia/Shanghai}
+      FAN_REPORT_BACKFILL_DAYS: ${FAN_REPORT_BACKFILL_DAYS:-3}
+      SERVE_STATIC: "true"
+      TRUST_PROXY: ${TRUST_PROXY:-0}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      COOKIE_SAMESITE: ${COOKIE_SAMESITE:-lax}
+      LOGIN_WINDOW_MS: ${LOGIN_WINDOW_MS:-900000}
+      LOGIN_MAX_ATTEMPTS: ${LOGIN_MAX_ATTEMPTS:-8}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:13080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 25s
+
+volumes:
+  cms_pgdata:

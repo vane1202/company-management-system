@@ -1,0 +1,26 @@
+{
+  "name": "company-management-system",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:backend": "npm run dev -w backend",
+    "dev:frontend": "npm run dev -w frontend",
+    "build": "npm run build -w frontend && npm run build -w backend",
+    "test": "npm test -w backend",
+    "migrate": "npm run migrate -w backend",
+    "init-admin": "npm run init-admin -w backend",
+    "seed-demo": "npm run seed-demo -w backend"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "esbuild@0.21.5": true
+  }
+}
