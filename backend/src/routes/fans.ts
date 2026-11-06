@@ -132,56 +132,8 @@ export function createFanRouter(db: Pool, config: AppConfig): Router {
       const date = String(req.query.date ?? today);
       if (!isIsoDate(date)) throw new HttpError(400, "业务日格式无效");
       const requestedTeam = req.query.teamId ? String(req.query.teamId) : "";
-      const visible = await managedTeamIds(db, actor);
       if (requestedTeam) await assertTeamScope(db, actor, requestedTeam);
-      const teamIds = requestedTeam ? [requestedTeam] : visible;
-      const teams = teamIds.length
-        ? await query<{ id: string; name: string }>(
-            db,
-            `SELECT id, name FROM teams WHERE id = ANY($1::uuid[]) ORDER BY name`,
-            [teamIds]
-          )
-        : [];
-
-      const summaries = [];
-      for (const team of teams) {
-        const members = await membersOnDate(db, team.id, date);
-        const reports = members.length
-          ? await query<{ user_id: string; added_count: number; updated_at: string }>(
-              db,
-              `SELECT user_id, added_count, updated_at
-                 FROM fan_reports
-                WHERE business_date = $1 AND user_id = ANY($2::uuid[])`,
-              [date, members.map((item) => item.user_id)]
-            )
-          : [];
-        const reportMap = new Map(reports.map((item) => [item.user_id, item]));
-        const details = members.map((member) => {
-          const report = reportMap.get(member.user_id);
-          return {
-            userId: member.user_id,
-            displayName: member.display_name,
-            username: member.username,
-            addedCount: report ? report.added_count : null,
-            status: report ? "reported" : "missing",
-            updatedAt: report?.updated_at ?? null
-          };
-        });
-        const reported = details.filter((item) => item.status === "reported");
-        summaries.push({
-          teamId: team.id,
-          teamName: team.name,
-          totalAdded: reported.reduce((sum, item) => sum + Number(item.addedCount ?? 0), 0),
-          expectedCount: details.length,
-          reportedCount: reported.length,
-          missingCount: details.length - reported.length,
-          missing: details.filter((item) => item.status === "missing").map((item) => ({
-            userId: item.userId,
-            displayName: item.displayName
-          })),
-          details
-        });
-      }
+      const summaries = await buildFanSummaries(db, actor, date, requestedTeam);
       res.json({ date, teams: summaries });
     } catch (error) {
       next(error);
@@ -199,33 +151,14 @@ export function createFanRouter(db: Pool, config: AppConfig): Router {
       if (!isIsoDate(date)) throw new HttpError(400, "业务日格式无效");
       const requestedTeam = req.query.teamId ? String(req.query.teamId) : "";
       if (requestedTeam) await assertTeamScope(db, actor, requestedTeam);
-      const visible = requestedTeam ? [requestedTeam] : await managedTeamIds(db, actor);
-      const rows = visible.length
-        ? await query<{
-            team_name: string;
-            display_name: string;
-            username: string;
-            added_count: number | null;
-          }>(
-            db,
-            `SELECT t.name AS team_name, u.display_name, u.username, fr.added_count
-               FROM team_memberships m
-               JOIN teams t ON t.id = m.team_id
-               JOIN users u ON u.id = m.user_id
-               LEFT JOIN fan_reports fr
-                 ON fr.user_id = u.id AND fr.business_date = $1
-              WHERE m.team_id = ANY($2::uuid[])
-                AND m.start_date <= $1::date
-                AND (m.end_date IS NULL OR m.end_date >= $1::date)
-              ORDER BY t.name, u.display_name`,
-            [date, visible]
-          )
-        : [];
+      const summaries = await buildFanSummaries(db, actor, date, requestedTeam);
       const lines = ["业务日,小组,姓名,登录名,加粉数,状态"];
-      for (const row of rows) {
-        const status = row.added_count === null ? "未报" : "已报";
-        const count = row.added_count === null ? "" : String(row.added_count);
-        lines.push(`${date},${csv(row.team_name)},${csv(row.display_name)},${csv(row.username)},${count},${status}`);
+      for (const team of summaries) {
+        for (const row of team.details) {
+          const status = row.status === "reported" ? "已报" : "未报";
+          const count = row.addedCount === null ? "" : String(row.addedCount);
+          lines.push(`${date},${csv(team.teamName)},${csv(row.displayName)},${csv(row.username)},${count},${status}`);
+        }
       }
       const body = `\uFEFF${lines.join("\n")}`;
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
@@ -271,6 +204,85 @@ export function createFanRouter(db: Pool, config: AppConfig): Router {
   });
 
   return router;
+}
+
+
+type FanDetail = {
+  userId: string;
+  displayName: string;
+  username: string;
+  addedCount: number | null;
+  status: "reported" | "missing";
+  updatedAt: string | null;
+};
+
+type FanTeamSummary = {
+  teamId: string;
+  teamName: string;
+  totalAdded: number;
+  expectedCount: number;
+  reportedCount: number;
+  missingCount: number;
+  missing: { userId: string; displayName: string }[];
+  details: FanDetail[];
+};
+
+async function buildFanSummaries(
+  db: Pool,
+  actor: Actor,
+  date: string,
+  requestedTeam: string
+): Promise<FanTeamSummary[]> {
+  const visible = await managedTeamIds(db, actor);
+  const teamIds = requestedTeam ? [requestedTeam] : visible;
+  const teams = teamIds.length
+    ? await query<{ id: string; name: string }>(
+        db,
+        `SELECT id, name FROM teams WHERE id = ANY($1::uuid[]) ORDER BY name`,
+        [teamIds]
+      )
+    : [];
+
+  const summaries: FanTeamSummary[] = [];
+  for (const team of teams) {
+    const members = await membersOnDate(db, team.id, date);
+    const reports = members.length
+      ? await query<{ user_id: string; added_count: number; updated_at: string }>(
+          db,
+          `SELECT user_id, added_count, updated_at
+             FROM fan_reports
+            WHERE business_date = $1 AND user_id = ANY($2::uuid[])`,
+          [date, members.map((item) => item.user_id)]
+        )
+      : [];
+    const reportMap = new Map(reports.map((item) => [item.user_id, item]));
+    const details = members.map((member) => {
+      const report = reportMap.get(member.user_id);
+      return {
+        userId: member.user_id,
+        displayName: member.display_name,
+        username: member.username,
+        addedCount: report ? report.added_count : null,
+        status: report ? ("reported" as const) : ("missing" as const),
+        updatedAt: report?.updated_at ?? null
+      };
+    });
+    const reported = details.filter((item) => item.status === "reported");
+    summaries.push({
+      teamId: team.id,
+      teamName: team.name,
+      totalAdded: reported.reduce((sum, item) => sum + Number(item.addedCount ?? 0), 0),
+      expectedCount: details.length,
+      reportedCount: reported.length,
+      missingCount: details.length - reported.length,
+      missing: details.filter((item) => item.status === "missing").map((item) => ({
+        userId: item.userId,
+        displayName: item.displayName
+      })),
+      details
+    });
+  }
+  return summaries;
 }
 
 function serializeFan(row: Record<string, unknown> | undefined) {

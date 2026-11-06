@@ -51,3 +51,21 @@ export function parseCount(input: unknown, field: string, max = 1_000_000): numb
   }
   return value;
 }
+
+export function formatMoney(value: unknown): string {
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      throw new HttpError(400, "金额无效");
+    }
+    return centsToMoney(moneyToCents(value.toFixed(2)));
+  }
+  if (typeof value !== "string" || !value.trim()) {
+    throw new HttpError(400, "金额无效");
+  }
+  const trimmed = value.trim();
+  const raw = trimmed.startsWith("-") ? trimmed.slice(1) : trimmed;
+  if (!/^(0|[1-9]\d*)(\.\d+)?$/.test(raw)) {
+    throw new HttpError(400, "金额格式无效");
+  }
+  return centsToMoney(moneyToCents(trimmed));
+}

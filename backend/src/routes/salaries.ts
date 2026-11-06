@@ -3,7 +3,7 @@ import type { Pool } from "pg";
 import { writeAudit } from "../audit.js";
 import { query, queryOne } from "../db.js";
 import { isIsoDate, toDateOnly } from "../lib/dates.js";
-import { parseMoney } from "../lib/money.js";
+import { formatMoney, parseMoney } from "../lib/money.js";
 import { HttpError } from "../types.js";
 import { isBossOrAdmin } from "../users.js";
 
@@ -36,7 +36,7 @@ export function createSalaryRouter(db: Pool): Router {
           userId: row.user_id,
           displayName: row.display_name,
           username: row.username,
-          monthlyAmount: Number(row.monthly_amount).toFixed(2),
+          monthlyAmount: formatMoney(row.monthly_amount),
           effectiveFrom: toDateOnly(row.effective_from),
           effectiveTo: row.effective_to ? toDateOnly(row.effective_to) : null,
           createdAt: row.created_at
@@ -76,7 +76,7 @@ export function createSalaryRouter(db: Pool): Router {
           salary: {
             id: saved!.id,
             userId: saved!.user_id,
-            monthlyAmount: Number(saved!.monthly_amount).toFixed(2),
+            monthlyAmount: formatMoney(saved!.monthly_amount),
             effectiveFrom: toDateOnly(saved!.effective_from),
             effectiveTo: saved!.effective_to ? toDateOnly(saved!.effective_to) : null
           }

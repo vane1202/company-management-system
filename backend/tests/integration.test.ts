@@ -8,6 +8,7 @@ import { hashPassword } from "../src/lib/password.js";
 import { addDays, businessToday, daysInMonth, startOfMonth, startOfWeekMonday } from "../src/lib/dates.js";
 import type { Express } from "express";
 import type { Pool } from "pg";
+import { resolveTestDatabaseUrl } from "./safeDatabase.js";
 
 const ORIGIN = "http://127.0.0.1:13080";
 const PASSWORD = "Testpass1234";
@@ -21,12 +22,10 @@ describe("公司内部管理系统集成测试", () => {
   let today = "";
 
   beforeAll(async () => {
-    if (!process.env.DATABASE_URL) {
-      throw new Error("未设置 DATABASE_URL，无法运行集成测试");
-    }
+    process.env.DATABASE_URL = resolveTestDatabaseUrl();
     process.env.APP_ORIGIN = ORIGIN;
     process.env.FAN_REPORT_BACKFILL_DAYS = "3";
-    process.env.LOGIN_MAX_ATTEMPTS = "8";
+    process.env.LOGIN_MAX_ATTEMPTS = "100";
     const config = loadConfig();
     db = createPool(config.databaseUrl);
     await migrate(db);
@@ -345,7 +344,7 @@ describe("公司内部管理系统集成测试", () => {
       })
       .expect(201);
     const data = await boss.agent.get("/api/dashboard/summary?preset=day").expect(200);
-    expect(data.body.metrics.revenue).toBe("100.50");
+    expect(data.body.metrics.revenue).toBe("130.50");
     expect(data.body.metrics.refunds).toBe("30.00");
     expect(data.body.metrics.promoCost).toBe("88.00");
     expect(data.body.metrics.customProductCost).toBe("20.00");
@@ -354,8 +353,18 @@ describe("公司内部管理系统集成测试", () => {
     expect(data.body.metrics.salaryAllocated).toBe((300000n / BigInt(daysInMonth(today)) / 100n).toString() + "." + (300000n / BigInt(daysInMonth(today)) % 100n).toString().padStart(2, "0"));
     if (daysInMonth(today) === 30) {
       expect(data.body.metrics.salaryAllocated).toBe("100.00");
-      expect(data.body.metrics.estimate).toBe("-145.00");
+      expect(data.body.metrics.estimate).toBe("-115.00");
     }
+    const listed = await boss.agent.get(`/api/orders?from=${today}&to=${today}`).expect(200);
+    const grossCents = listed.body.orders.reduce(
+      (sum: number, item: { amount: string }) => sum + Math.round(Number(item.amount) * 100),
+      0
+    );
+    const refundCents = listed.body.orders
+      .filter((item: { status: string }) => item.status === "refunded")
+      .reduce((sum: number, item: { amount: string }) => sum + Math.round(Number(item.amount) * 100), 0);
+    expect((grossCents / 100).toFixed(2)).toBe(data.body.metrics.revenue);
+    expect((refundCents / 100).toFixed(2)).toBe(data.body.metrics.refunds);
     expect(data.body.disclaimer).toContain("不等于会计净利润");
     expect(data.body.metrics.endingInventory).toBe(13);
   });
@@ -394,6 +403,95 @@ describe("公司内部管理系统集成测试", () => {
     expect(week.body.period).toEqual({ from: startOfWeekMonday(today), to: today });
     const month = await boss.agent.get("/api/dashboard/summary?preset=month").expect(200);
     expect(month.body.period).toEqual({ from: startOfMonth(today), to: today });
+  });
+
+  it("退款源订单计入收入后再减去退款，避免双扣", async () => {
+    const cs = await login("cs_a1");
+    const listed = await cs.agent.get("/api/orders").expect(200);
+    const ord1 = listed.body.orders.find((item: { orderRef: string }) => item.orderRef === "ORD-1");
+    expect(ord1).toBeTruthy();
+    await write(cs.agent, cs.csrf, "patch", `/api/orders/${ord1.id}`).send({
+      businessDate: today,
+      orderRef: "ORD-1",
+      amount: "100.50",
+      customProductCost: "20.00",
+      laborCost: "5.00",
+      shippingCost: "2.50",
+      status: "refunded"
+    }).expect(200);
+
+    const boss = await login("boss");
+    const after = await boss.agent.get("/api/dashboard/summary?preset=day").expect(200);
+    expect(after.body.metrics.revenue).toBe("130.50");
+    expect(after.body.metrics.refunds).toBe("130.50");
+  });
+
+  it("员工和主管不能修改编制、工资或把自己改成 Boss", async () => {
+    const cs = await login("cs_a1");
+    await write(cs.agent, cs.csrf, "post", "/api/admin/users")
+      .send({ username: "hacker2", password: PASSWORD, displayName: "x", role: "cs" })
+      .expect(403);
+    await write(cs.agent, cs.csrf, "patch", `/api/admin/users/${ids.cs_a1}`)
+      .send({ role: "boss" })
+      .expect(403);
+    await write(cs.agent, cs.csrf, "post", `/api/admin/users/${ids.cs_a1}/transfer`)
+      .send({ teamId: ids.teamA, effectiveDate: today })
+      .expect(403);
+    const sup = await login("sup_a");
+    await write(sup.agent, sup.csrf, "post", "/api/salaries")
+      .send({ userId: ids.cs_a1, monthlyAmount: "1000.00", effectiveFrom: today })
+      .expect(403);
+    await write(sup.agent, sup.csrf, "patch", `/api/admin/users/${ids.sup_a}`)
+      .send({ role: "boss" })
+      .expect(403);
+    await write(sup.agent, sup.csrf, "post", "/api/admin/teams")
+      .send({ name: "越权组" })
+      .expect(403);
+  });
+
+  it("停用账号不改写历史应报，且导出人员与汇总一致", async () => {
+    const hist = addDays(today, -1);
+    const boss = await login("boss");
+    await write(boss.agent, boss.csrf, "patch", `/api/admin/users/${ids.cs_a2}`)
+      .send({ isActive: false })
+      .expect(200);
+    const sup = await login("sup_a");
+    const summary = await sup.agent.get(`/api/fan-reports/summary?date=${hist}`).expect(200);
+    const names = summary.body.teams[0].details.map((item: { displayName: string }) => item.displayName);
+    expect(names).toContain("cs_a2");
+    const exportRes = await sup.agent.get(`/api/fan-reports/export?date=${hist}`).expect(200);
+    expect(exportRes.text).toContain("cs_a2");
+    for (const item of summary.body.teams[0].details) {
+      expect(exportRes.text).toContain(item.displayName);
+      expect(exportRes.text).toContain(item.username);
+    }
+    await write(boss.agent, boss.csrf, "patch", `/api/admin/users/${ids.cs_a2}`)
+      .send({ isActive: true })
+      .expect(200);
+  });
+
+  it("后台设置的补报窗口对员工生效", async () => {
+    const boss = await login("boss");
+    await write(boss.agent, boss.csrf, "put", "/api/admin/settings")
+      .send({ fan_report_backfill_days: 1 })
+      .expect(200);
+    const cs = await login("cs_a2");
+    await write(cs.agent, cs.csrf, "put", "/api/fan-reports")
+      .send({ addedCount: 2, businessDate: addDays(today, -1) })
+      .expect(403);
+    await write(cs.agent, cs.csrf, "put", "/api/fan-reports")
+      .send({ addedCount: 2, businessDate: today })
+      .expect(200);
+    await write(boss.agent, boss.csrf, "put", "/api/admin/settings")
+      .send({ fan_report_backfill_days: 3 })
+      .expect(200);
+  });
+
+  it("同一员工工资生效区间不能重叠", async () => {
+    const boss = await login("boss");
+    await write(boss.agent, boss.csrf, "post", "/api/salaries")
+      .send({ userId: ids.ops1, monthlyAmount: "1000.00", effectiveFrom: today })
+      .expect(409);
   });
 
   it("首次登录未改密时不能填报", async () => {

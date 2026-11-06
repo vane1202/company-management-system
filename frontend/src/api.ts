@@ -23,9 +23,16 @@ async function requestInner<T>(path: string, options: RequestInit = {}): Promise
     credentials: "include"
   });
   const text = await response.text();
-  const data = text ? JSON.parse(text) : {};
+  let data: { error?: string; code?: string; csrfToken?: string } = {};
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error(response.ok ? "服务器返回无法解析的响应" : `请求失败（${response.status}）`);
+    }
+  }
   if (!response.ok) {
-    const error = new Error(data.error || "请求失败") as Error & { code?: string; status?: number };
+    const error = new Error(data.error || `请求失败（${response.status}）`) as Error & { code?: string; status?: number };
     error.code = data.code;
     error.status = response.status;
     throw error;

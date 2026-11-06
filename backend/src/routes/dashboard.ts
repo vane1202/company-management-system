@@ -1,8 +1,9 @@
 import { Router } from "express";
 import type { Pool } from "pg";
 import { query, queryOne } from "../db.js";
-import { businessToday, daysInMonth, resolvePeriod } from "../lib/dates.js";
-import { addMoney, centsToMoney, moneyToCents, subMoney } from "../lib/money.js";
+import { businessToday, resolvePeriod } from "../lib/dates.js";
+import { addMoney, formatMoney, subMoney } from "../lib/money.js";
+import { allocateSalaries } from "../lib/salary.js";
 import { HttpError } from "../types.js";
 import { isBossOrAdmin } from "../users.js";
 import type { AppConfig } from "../config.js";
@@ -33,7 +34,7 @@ export function createDashboardRouter(db: Pool, config: AppConfig): Router {
       }>(
         db,
         `SELECT COUNT(*) FILTER (WHERE status <> 'refunded')::text AS order_count,
-                COALESCE(SUM(amount) FILTER (WHERE status <> 'refunded'), 0)::text AS revenue,
+                COALESCE(SUM(amount), 0)::text AS revenue,
                 COALESCE(SUM(amount) FILTER (WHERE status = 'refunded'), 0)::text AS refunds,
                 COALESCE(SUM(custom_product_cost), 0)::text AS custom_cost,
                 COALESCE(SUM(labor_cost), 0)::text AS labor_cost,
@@ -89,12 +90,12 @@ export function createDashboardRouter(db: Pool, config: AppConfig): Router {
       );
 
       const salaryAllocated = allocateSalaries(salaryRows, period.from, period.to);
-      const revenue = money(orderAgg?.revenue ?? "0");
-      const refunds = money(orderAgg?.refunds ?? "0");
-      const promoCost = money(promo?.promo_cost ?? "0");
-      const customCost = money(orderAgg?.custom_cost ?? "0");
-      const laborCost = money(orderAgg?.labor_cost ?? "0");
-      const shippingCost = money(orderAgg?.shipping_cost ?? "0");
+      const revenue = formatMoney(orderAgg?.revenue ?? "0");
+      const refunds = formatMoney(orderAgg?.refunds ?? "0");
+      const promoCost = formatMoney(promo?.promo_cost ?? "0");
+      const customCost = formatMoney(orderAgg?.custom_cost ?? "0");
+      const laborCost = formatMoney(orderAgg?.labor_cost ?? "0");
+      const shippingCost = formatMoney(orderAgg?.shipping_cost ?? "0");
       const laborAndShipping = addMoney([laborCost, shippingCost]);
       const estimate = subMoney(
         subMoney(subMoney(subMoney(subMoney(revenue, refunds), promoCost), salaryAllocated), customCost),
@@ -121,7 +122,7 @@ export function createDashboardRouter(db: Pool, config: AppConfig): Router {
           fanAddedTotal: Number(fans?.total ?? 0)
         },
         formula: "收入 - 退款 - 推广费 - 工资分摊 - 定制商品成本 - 工费 - 运费",
-        disclaimer: "此结果为经营估算，用于看日常趋势，不等于会计净利润；未包含房租、水电、税费、社保公积金、平台扣点等。"
+        disclaimer: "此结果为经营估算，用于看日常趋势，不等于会计净利润；未包含房租、水电、税费、社保公积金、平台扣点等。收入为查询期内全部订单金额（含状态为退款的源订单），退款为状态=退款的订单金额之和；估算按收入减去退款，避免同一笔退款订单先从收入排除再扣一次。退款订单的成本仍计入。订单按录入的业务日归属，没有独立退款日或部分退款字段。"
       });
     } catch (error) {
       next(error);
@@ -131,35 +132,3 @@ export function createDashboardRouter(db: Pool, config: AppConfig): Router {
   return router;
 }
 
-function allocateSalaries(
-  rows: { monthly_amount: string; effective_from: string; effective_to: string | null }[],
-  from: string,
-  to: string
-): string {
-  let cents = 0n;
-  for (const row of eachDate(from, to)) {
-    const daily = rows
-      .filter((item) => item.effective_from <= row && (!item.effective_to || item.effective_to >= row))
-      .reduce((sum, item) => {
-        const dim = BigInt(daysInMonth(row));
-        return sum + moneyToCents(money(item.monthly_amount)) / dim;
-      }, 0n);
-    cents += daily;
-  }
-  return centsToMoney(cents);
-}
-
-function eachDate(from: string, to: string): string[] {
-  const dates: string[] = [];
-  let current = from;
-  while (current <= to) {
-    dates.push(current);
-    const [year, month, day] = current.split("-").map(Number);
-    current = new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
-  }
-  return dates;
-}
-
-function money(value: string): string {
-  return Number(value).toFixed(2);
-}

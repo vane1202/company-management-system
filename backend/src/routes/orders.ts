@@ -3,7 +3,7 @@ import type { Pool } from "pg";
 import { writeAudit } from "../audit.js";
 import { query, queryOne } from "../db.js";
 import { businessToday, isIsoDate, toDateOnly } from "../lib/dates.js";
-import { parseMoney } from "../lib/money.js";
+import { formatMoney, parseMoney } from "../lib/money.js";
 import { HttpError, type OrderStatus } from "../types.js";
 import { isBossOrAdmin, type Actor } from "../users.js";
 import type { AppConfig } from "../config.js";
@@ -262,7 +262,7 @@ function emptyDate(value: unknown): string | null {
 }
 
 function money(value: unknown): string {
-  return Number(value).toFixed(2);
+  return formatMoney(value);
 }
 
 function csv(value: string): string {

@@ -104,7 +104,6 @@ export async function membersOnDate(
       WHERE m.team_id = $1
         AND m.start_date <= $2::date
         AND (m.end_date IS NULL OR m.end_date >= $2::date)
-        AND u.is_active = TRUE
       ORDER BY u.display_name, u.username`,
     [teamId, businessDate]
   );

@@ -2,6 +2,7 @@ import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { canQueryByDate, isIsoDate } from "./dates";
 import { labelOrderStatus } from "./labels";
 import { createRequestGate } from "./requestGate";
+import { toErrorMessage } from "./errors";
 import { readSessionMeta, type SessionMeta } from "./sessionMeta";
 import {
   api,
@@ -164,7 +165,7 @@ function Login({ onLogin }: { onLogin: (user: User, extras?: SessionMeta) => voi
       const data = await api.login(username, password);
       await onLogin(data.user, data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "登录失败");
+      setError(toErrorMessage(err, "登录失败"));
     } finally {
       setPending(false);
     }
@@ -206,7 +207,7 @@ function ChangePassword({ user, onDone }: { user: User; onDone: () => void }) {
             await api.changePassword(currentPassword, newPassword);
             onDone();
           } catch (err) {
-            setError(err instanceof Error ? err.message : "修改失败");
+            setError(toErrorMessage(err, "修改失败"));
           }
         }}
       >
@@ -263,7 +264,7 @@ function FanForm({ today, onError }: { today: string; onError: (value: string) =
     if (isIsoDate(today)) setBusinessDate(today);
   }, [today]);
   useEffect(() => {
-    refresh().catch((err) => onError(err.message));
+    refresh().catch((err) => onError(toErrorMessage(err)));
   }, []);
 
   return (
@@ -281,7 +282,7 @@ function FanForm({ today, onError }: { today: string; onError: (value: string) =
             onError("");
             await refresh();
           } catch (err) {
-            onError(err instanceof Error ? err.message : "保存失败");
+            onError(toErrorMessage(err, "保存失败"));
           }
         }}
       >
@@ -332,7 +333,7 @@ function FanSummaryPage({ today, onError }: { today: string; onError: (value: st
       onError("");
     } catch (err) {
       if (!ticket.isCurrent()) return;
-      onError(err instanceof Error ? err.message : "加载失败");
+      onError(toErrorMessage(err, "加载失败"));
     }
   }
   useEffect(() => {
@@ -402,7 +403,7 @@ function OrdersPage({ today, onError }: { today: string; onError: (value: string
     if (isIsoDate(today)) setForm((current) => ({ ...current, businessDate: current.businessDate || today }));
   }, [today]);
   useEffect(() => {
-    refresh().catch((err) => onError(err.message));
+    refresh().catch((err) => onError(toErrorMessage(err)));
   }, []);
 
   return (
@@ -418,7 +419,7 @@ function OrdersPage({ today, onError }: { today: string; onError: (value: string
             setForm({ ...form, orderRef: "", customerLabel: "" });
             await refresh();
           } catch (err) {
-            onError(err instanceof Error ? err.message : "保存失败");
+            onError(toErrorMessage(err, "保存失败"));
           }
         }}
       >
@@ -476,7 +477,7 @@ function OpsPage({ today, onError }: { today: string; onError: (value: string) =
     if (isIsoDate(today)) setForm((current) => ({ ...current, businessDate: current.businessDate || today }));
   }, [today]);
   useEffect(() => {
-    api.opsReports().then((data) => setReports(data.reports)).catch((err) => onError(err.message));
+    api.opsReports().then((data) => setReports(data.reports)).catch((err) => onError(toErrorMessage(err)));
   }, []);
   return (
     <section className="card">
@@ -492,7 +493,7 @@ function OpsPage({ today, onError }: { today: string; onError: (value: string) =
             setReports((await api.opsReports()).reports);
             onError("");
           } catch (err) {
-            onError(err instanceof Error ? err.message : "保存失败");
+            onError(toErrorMessage(err, "保存失败"));
           }
         }}
       >
@@ -538,7 +539,7 @@ function EditorPage({ today, onError }: { today: string; onError: (value: string
     if (isIsoDate(today)) setForm((current) => ({ ...current, businessDate: current.businessDate || today }));
   }, [today]);
   useEffect(() => {
-    refresh().catch((err) => onError(err.message));
+    refresh().catch((err) => onError(toErrorMessage(err)));
   }, []);
   return (
     <section className="card">
@@ -558,7 +559,7 @@ function EditorPage({ today, onError }: { today: string; onError: (value: string
             await refresh();
             onError("");
           } catch (err) {
-            onError(err instanceof Error ? err.message : "保存失败");
+            onError(toErrorMessage(err, "保存失败"));
           }
         }}
       >
@@ -597,6 +598,7 @@ function DashboardPage({ onError }: { onError: (value: string) => void }) {
   const [meta, setMeta] = useState({ disclaimer: "", formula: "", from: "", to: "" });
   const [notes, setNotes] = useState<Note[]>([]);
   const [note, setNote] = useState("");
+  const [loadError, setLoadError] = useState("");
   const gate = useState(() => createRequestGate())[0];
 
   async function load(next = preset) {
@@ -609,17 +611,27 @@ function DashboardPage({ onError }: { onError: (value: string) => void }) {
       const notesData = await api.notes(data.period.to);
       if (!ticket.isCurrent()) return;
       setNotes(notesData.notes);
+      setLoadError("");
       onError("");
     } catch (err) {
       if (!ticket.isCurrent()) return;
-      onError(err instanceof Error ? err.message : "加载失败");
+      const message = toErrorMessage(err, "加载经营估算失败");
+      setLoadError(message);
+      onError(message);
     }
   }
   useEffect(() => {
     load("day");
   }, []);
 
-  if (!metrics) return <section className="card">加载经营估算…</section>;
+  if (!metrics) {
+    return (
+      <section className="card">
+        <h2>经营估算</h2>
+        {loadError ? <p className="error">{loadError}</p> : <p>加载经营估算…</p>}
+      </section>
+    );
+  }
   return (
     <section className="card">
       <h2>经营估算</h2>
@@ -685,7 +697,7 @@ function PeoplePage({ today, onError }: { today: string; onError: (value: string
     if (isIsoDate(today)) setForm((current) => ({ ...current, membershipStart: current.membershipStart || today }));
   }, [today]);
   useEffect(() => {
-    refresh().catch((err) => onError(err.message));
+    refresh().catch((err) => onError(toErrorMessage(err)));
   }, []);
 
   return (
@@ -718,7 +730,7 @@ function PeoplePage({ today, onError }: { today: string; onError: (value: string
               await refresh();
               onError("");
             } catch (err) {
-              onError(err instanceof Error ? err.message : "创建失败");
+              onError(toErrorMessage(err, "创建失败"));
             }
           }}
         >
@@ -766,7 +778,7 @@ function SalaryPage({ onError }: { onError: (value: string) => void }) {
     Promise.all([api.users(), api.salaries()]).then(([people, pay]) => {
       setUsers(people.users);
       setSalaries(pay.salaries);
-    }).catch((err) => onError(err.message));
+    }).catch((err) => onError(toErrorMessage(err)));
   }, []);
   return (
     <section className="card">
@@ -785,7 +797,7 @@ function SalaryPage({ onError }: { onError: (value: string) => void }) {
             setSalaries((await api.salaries()).salaries);
             onError("");
           } catch (err) {
-            onError(err instanceof Error ? err.message : "保存失败");
+            onError(toErrorMessage(err, "保存失败"));
           }
         }}
       >

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { canQueryByDate, isIsoDate, pickBusinessDate } from "./dates";
 import { labelOrderStatus } from "./labels";
 import { createRequestGate } from "./requestGate";
+import { toErrorMessage } from "./errors";
 import { readSessionMeta } from "./sessionMeta";
 
 describe("前端日期默认值与请求守卫", () => {
@@ -40,5 +41,13 @@ describe("周期切换时旧请求不能覆盖新选择", () => {
     }
     await Promise.all([load("day", 30), load("week", 20), load("month", 5)]);
     expect(seen).toEqual(["month"]);
+  });
+});
+
+describe("前端错误信息", () => {
+  it("能从 Error 或字符串取出可读消息，空值时用回退文案", () => {
+    expect(toErrorMessage(new Error("无权查看"))).toBe("无权查看");
+    expect(toErrorMessage("网络中断")).toBe("网络中断");
+    expect(toErrorMessage({}, "加载失败")).toBe("加载失败");
   });
 });
