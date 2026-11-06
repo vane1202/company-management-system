@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # 在 Linux 打包机构建 Windows 本机内测 zip。不包含 node_modules、.git、.env 或密钥。
+# 告警未复核前不要重新执行本脚本生成新的可运行安装包。
+# 更换启动命令、增加启动器或重新打包，都不能当作火绒告警已经解决。
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

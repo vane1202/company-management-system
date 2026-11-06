@@ -14,7 +14,8 @@
     "test": "npm test -w backend && npm test -w frontend",
     "migrate": "npm run migrate -w backend",
     "init-admin": "npm run init-admin -w backend",
-    "seed-demo": "npm run seed-demo -w backend"
+    "seed-demo": "npm run seed-demo -w backend",
+    "preflight": "npm run preflight -w backend --"
   },
   "engines": {
     "node": ">=20"

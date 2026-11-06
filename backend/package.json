@@ -10,7 +10,8 @@
     "migrate": "tsx src/migrate-cli.ts",
     "init-admin": "tsx src/scripts/init-admin.ts",
     "seed-demo": "tsx src/scripts/seed-demo.ts",
-    "test": "vitest run --config vitest.config.ts"
+    "test": "vitest run --config vitest.config.ts",
+    "preflight": "tsx -- src/scripts/preflight-cli.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",

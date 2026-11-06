@@ -29,17 +29,24 @@
 
 ## 本地启动
 
-需要 Node.js 20+ 和 PostgreSQL 16+（推荐 Docker Compose）。
+需要 Node.js 20+ 和 PostgreSQL 16+（推荐 Docker Compose）。更完整的前提、回滚、备份恢复和验收清单见 [docs/LOCAL_DEPLOY.md](docs/LOCAL_DEPLOY.md)。该文档是部署准备，不代表已经部署或验收完成。
 
 ```bash
 cp .env.example .env
 # 编辑 .env：填写 DATABASE_URL、SESSION_SECRET、POSTGRES_PASSWORD
 # 不要把填好的 .env 提交到 Git
 
+# 启动前只读预检。默认不读取 .env；只有显式指定文件时才检查该文件。
+# 预检不会安装软件、改库、跑迁移或启动服务，也不能代替任何启动脚本。
+npm run preflight -- --env-file .env
+
 docker compose up -d db
 # 或使用已有 PostgreSQL，并把 DATABASE_URL 指过去（本项目示例端口 15432）
+# 可选：npm run preflight -- --env-file .env --check-db
 
-npm install
+# 正式或可复现安装优先使用锁定文件：
+npm ci
+# 日常开发也可以 npm install
 npm run migrate
 npm run init-admin
 # 交互输入管理员账号，或设置：
@@ -70,7 +77,9 @@ SEED_DEMO=1 npm run seed-demo
 
 ## Windows 本机内测包
 
-`scripts/windows/` 提供不依赖 Docker、也不需要开发仓库 checkout 的本机安装脚本。`scripts/package-windows-release.sh` 在 Linux 打包机上构建前端 `dist`、编译后端 JS，并生成 zip（含 `package-lock.json`，不含 `node_modules`、`.git`、已填写的 `.env` 或任何真实口令）。
+**当前暂停，尚未验收。** 火绒曾以 `HEUR:TrojanDownloader/PS.NetLoader.ae` 删除 `Start-Cms.ps1`。当时不知情恢复该脚本属于错误；现在停止等待安全厂商复核。禁止恢复、改名、绕过或关闭防护，也禁止增加另一个 PowerShell、bat 或 Node 启动器来替代被拦截的启动操作。换一条启动命令或重新打包，都不能当作告警已经解决。仓库仍保留原脚本，是为了记录当时的安装设计并标明该事件未解决，不是授权现在执行它们。
+
+`scripts/windows/` 提供不依赖 Docker、也不需要开发仓库 checkout 的本机安装脚本。`scripts/package-windows-release.sh` 在 Linux 打包机上构建前端 `dist`、编译后端 JS，并生成 zip（含 `package-lock.json`，不含 `node_modules`、`.git`、已填写的 `.env` 或任何真实口令）。告警复核完成前，不要重新执行该打包脚本生成新的可运行 Windows 安装包。
 
 目标机器需要已安装的 Node.js 22 与本机 PostgreSQL。安装脚本在 Windows 上执行 `npm ci --omit=dev --ignore-scripts`，依赖均为纯 JavaScript（含 bcryptjs），无需编译原生模块。默认绑定 `127.0.0.1`。这不是生产安装，演示数据为虚构，备份不加密，也没有 Cloudflare 同步。
 
@@ -79,7 +88,10 @@ SEED_DEMO=1 npm run seed-demo
 ## 测试
 
 ```bash
-# 先有可用的 PostgreSQL，并导出 TEST_DATABASE_URL 或 DATABASE_URL、SESSION_SECRET、APP_ORIGIN
+# 只读预检的单元测试不需要数据库，包含在 backend 测试中：
+npm test -w backend -- tests/preflight.test.ts
+
+# 完整测试先有可用的 PostgreSQL，并导出 TEST_DATABASE_URL 或 DATABASE_URL、SESSION_SECRET、APP_ORIGIN
 # 集成测试会清空目标库的业务表。若地址指向 cms_demo 或端口 15433（演示库），测试会直接拒绝。
 npm test
 ```
