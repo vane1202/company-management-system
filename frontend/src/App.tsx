@@ -102,6 +102,10 @@ export function App() {
   }
 
   const items = navItems(user.role);
+  function goTo(next: Page) {
+    setError("");
+    setPage(next);
+  }
   return (
     <div className="page">
       <header className="topbar">
@@ -116,6 +120,7 @@ export function App() {
           onClick={async () => {
             await api.logout();
             await api.loadCsrf();
+            setError("");
             setUser(null);
           }}
         >
@@ -124,7 +129,7 @@ export function App() {
       </header>
       <nav className="nav">
         {items.map((item) => (
-          <button key={item.id} className={page === item.id ? "active" : ""} onClick={() => setPage(item.id)}>
+          <button key={item.id} className={page === item.id ? "active" : ""} onClick={() => goTo(item.id)}>
             {item.label}
           </button>
         ))}
@@ -141,7 +146,7 @@ export function App() {
       {page === "salaries" && <SalaryPage onError={setError} />}
       <nav className="bottom-nav">
         {items.slice(0, 5).map((item) => (
-          <button key={item.id} className={page === item.id ? "active" : ""} onClick={() => setPage(item.id)}>
+          <button key={item.id} className={page === item.id ? "active" : ""} onClick={() => goTo(item.id)}>
             {item.label}
           </button>
         ))}
@@ -384,6 +389,7 @@ function FanSummaryPage({ today, onError }: { today: string; onError: (value: st
 
 function OrdersPage({ today, onError }: { today: string; onError: (value: string) => void }) {
   const [orders, setOrders] = useState<Order[]>([]);
+  const [pending, setPending] = useState(false);
   const [form, setForm] = useState({
     businessDate: today,
     orderRef: "",
@@ -413,6 +419,8 @@ function OrdersPage({ today, onError }: { today: string; onError: (value: string
       <form
         onSubmit={async (event) => {
           event.preventDefault();
+          if (pending) return;
+          setPending(true);
           try {
             await api.createOrder({ ...form, isCustom: form.isCustom });
             onError("");
@@ -420,6 +428,8 @@ function OrdersPage({ today, onError }: { today: string; onError: (value: string
             await refresh();
           } catch (err) {
             onError(toErrorMessage(err, "保存失败"));
+          } finally {
+            setPending(false);
           }
         }}
       >
@@ -446,7 +456,7 @@ function OrdersPage({ today, onError }: { today: string; onError: (value: string
           <Field label="工费"><input value={form.laborCost} onChange={(e) => setForm({ ...form, laborCost: e.target.value })} /></Field>
           <Field label="运费"><input value={form.shippingCost} onChange={(e) => setForm({ ...form, shippingCost: e.target.value })} /></Field>
         </div>
-        <button type="submit">录入订单</button>
+        <button type="submit" disabled={pending}>{pending ? "提交中…" : "录入订单"}</button>
       </form>
       <div className="table-wrap">
         <table>
@@ -628,7 +638,14 @@ function DashboardPage({ onError }: { onError: (value: string) => void }) {
     return (
       <section className="card">
         <h2>经营估算</h2>
-        {loadError ? <p className="error">{loadError}</p> : <p>加载经营估算…</p>}
+        {loadError ? (
+          <>
+            <p className="error">{loadError}</p>
+            <button type="button" onClick={() => load(preset)}>重新加载</button>
+          </>
+        ) : (
+          <p>加载经营估算…</p>
+        )}
       </section>
     );
   }
@@ -659,9 +676,14 @@ function DashboardPage({ onError }: { onError: (value: string) => void }) {
       <form
         onSubmit={async (event) => {
           event.preventDefault();
-          await api.createNote({ targetDate: meta.to, content: note, targetType: "day" });
-          setNote("");
-          await load(preset);
+          try {
+            await api.createNote({ targetDate: meta.to, content: note, targetType: "day" });
+            setNote("");
+            onError("");
+            await load(preset);
+          } catch (err) {
+            onError(toErrorMessage(err, "保存批注失败"));
+          }
         }}
       >
         <Field label="批注">

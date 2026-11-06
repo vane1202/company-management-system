@@ -501,6 +501,105 @@ describe("公司内部管理系统集成测试", () => {
       .expect(403);
   });
 
+  it("三部门提交后能读回本人数据，且不会串到他人", async () => {
+    const cs = await login("cs_a2");
+    const fan = await write(cs.agent, cs.csrf, "put", "/api/fan-reports")
+      .send({ addedCount: 3, businessDate: today })
+      .expect(200);
+    expect(fan.body.report.userId).toBe(ids.cs_a2);
+    expect(fan.body.report.addedCount).toBe(3);
+    const mine = await cs.agent.get("/api/fan-reports/me").expect(200);
+    expect(mine.body.reports.every((item: { userId: string }) => item.userId === ids.cs_a2)).toBe(true);
+
+    const order = await write(cs.agent, cs.csrf, "post", "/api/orders")
+      .send({
+        businessDate: today,
+        orderRef: "ORD-OWN-A2",
+        amount: "12.00",
+        status: "placed"
+      })
+      .expect(201);
+    expect(order.body.order.orderRef).toBe("ORD-OWN-A2");
+    const orders = await cs.agent.get("/api/orders").expect(200);
+    expect(orders.body.orders.some((item: { orderRef: string }) => item.orderRef === "ORD-OWN-A2")).toBe(true);
+    expect(orders.body.orders.some((item: { orderRef: string }) => item.orderRef === "ORD-1")).toBe(false);
+
+    const ops = await login("ops1");
+    const opsList = await ops.agent.get("/api/ops-reports").expect(200);
+    expect(opsList.body.reports.length).toBeGreaterThan(0);
+    expect(opsList.body.reports.every((item: { userId: string }) => item.userId === ids.ops1)).toBe(true);
+    const promo = opsList.body.reports.find((item: { platform: string }) => item.platform === "账户A");
+    expect(promo.promoVideoCount).toBe(5);
+    expect(promo.promoCost).toBe("88.00");
+
+    const editor = await login("edit1");
+    const editorList = await editor.agent.get("/api/editor-reports").expect(200);
+    expect(editorList.body.reports.every((item: { userId: string }) => item.userId === ids.edit1)).toBe(true);
+    const todayRow = editorList.body.reports.find((item: { businessDate: string }) => item.businessDate === today);
+    expect(todayRow.shootCount).toBe(3);
+    expect(todayRow.finishedCount).toBe(4);
+    expect(todayRow.inventorySnapshot).toBe(13);
+  });
+
+  it("主管不能代报未授权组，本人填报仍受补报窗口限制", async () => {
+    const hash = await hashPassword(PASSWORD);
+    const teamC = await db.query("INSERT INTO teams (name) VALUES ('三组') RETURNING id");
+    const csC = await db.query(
+      `INSERT INTO users (username, password_hash, display_name, role, must_change_password)
+       VALUES ('cs_c1', $1, 'cs_c1', 'cs', FALSE) RETURNING id`,
+      [hash]
+    );
+    ids.teamC = teamC.rows[0].id;
+    ids.cs_c1 = csC.rows[0].id;
+    await db.query("INSERT INTO team_memberships (user_id, team_id, start_date) VALUES ($1, $2, $3)", [
+      ids.cs_c1,
+      ids.teamC,
+      addDays(today, -10)
+    ]);
+
+    const sup = await login("sup_a");
+    await sup.agent.get(`/api/fan-reports/summary?date=${today}&teamId=${ids.teamC}`).expect(403);
+    await write(sup.agent, sup.csrf, "put", "/api/fan-reports")
+      .send({ addedCount: 6, businessDate: today, userId: ids.cs_c1 })
+      .expect(403);
+
+    const ownOld = addDays(today, -3);
+    await write(sup.agent, sup.csrf, "put", "/api/fan-reports")
+      .send({ addedCount: 1, businessDate: ownOld })
+      .expect(403);
+  });
+
+  it("Boss 与主管导出 CSV 的人员和加粉数与汇总一致", async () => {
+    const boss = await login("boss");
+    const summary = await boss.agent.get(`/api/fan-reports/summary?date=${today}`).expect(200);
+    const exported = await boss.agent.get(`/api/fan-reports/export?date=${today}`).expect(200);
+    const lines = String(exported.text).replace(/^\uFEFF/, "").split(/\r?\n/).filter(Boolean);
+    expect(lines[0]).toBe("业务日,小组,姓名,登录名,加粉数,状态");
+    let detailCount = 0;
+    for (const team of summary.body.teams) {
+      for (const item of team.details) {
+        detailCount += 1;
+        const status = item.status === "reported" ? "已报" : "未报";
+        const count = item.addedCount === null ? "" : String(item.addedCount);
+        const match = lines.find((line: string) => line.split(",")[3] === item.username && line.includes(team.teamName));
+        expect(match).toBeTruthy();
+        expect(match).toContain(`,${count},${status}`);
+      }
+    }
+    expect(lines.length - 1).toBe(detailCount);
+
+    const sup = await login("sup_a");
+    const supSummary = await sup.agent.get(`/api/fan-reports/summary?date=${today}`).expect(200);
+    const supExport = await sup.agent.get(`/api/fan-reports/export?date=${today}`).expect(200);
+    expect(supExport.text).not.toContain("三组");
+    for (const team of supSummary.body.teams) {
+      expect(team.teamName).not.toBe("三组");
+      for (const item of team.details) {
+        expect(supExport.text).toContain(item.username);
+      }
+    }
+  });
+
   it("健康检查可用", async () => {
     const res = await request(app).get("/health").expect(200);
     expect(res.body.status).toBe("ok");
