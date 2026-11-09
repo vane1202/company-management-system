@@ -10,11 +10,19 @@ const app = createApp(pool, config);
 const server = app.listen(config.port, config.host, () => {
   console.log(`CMS listening on http://${config.host}:${config.port}`);
 });
+const lanServer = config.lanHost ? app.listen(config.port, config.lanHost, () => {
+  console.log(`CMS LAN listening on http://${config.lanHost}:${config.port}`);
+}) : undefined;
+for (const listener of [server, lanServer]) listener?.on("error", (error: NodeJS.ErrnoException) => {
+  console.error("CMS listener failed:", error.code);
+  void shutdown(1);
+});
 
-async function shutdown() {
-  server.close();
+async function shutdown(code = 0) {
+  if (server.listening) server.close();
+  if (lanServer?.listening) lanServer.close();
   await pool.end();
-  process.exit(0);
+  process.exit(code);
 }
-process.on("SIGTERM", shutdown);
-process.on("SIGINT", shutdown);
+process.on("SIGTERM", () => void shutdown());
+process.on("SIGINT", () => void shutdown());

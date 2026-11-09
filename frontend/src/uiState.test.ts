@@ -5,7 +5,6 @@ import { createRequestGate } from "./requestGate";
 import { toErrorMessage } from "./errors";
 import { readSessionMeta } from "./sessionMeta";
 import { canAccessDashboard, canAccessSalaries, canReviewDaily, navItems, roleLabel } from "./access";
-import { emptyDailyMetrics, labelReviewStatus, pickDailyByStatus, shouldShowStatusNetProfit } from "./reviewUi";
 
 describe("前端日期默认值与请求守卫", () => {
   it("登录后的 today 才允许作为 date input 初始值", () => {
@@ -56,29 +55,17 @@ describe("前端错误信息", () => {
 
 
 describe("助理审核与手机状态展示", () => {
-  it("助理中文名称是助理，只能进入审核不能看工资和经营估算", () => {
-    expect(roleLabel.assistant).toBe("助理");
+  it("助理流程停用，不能进入业务页面", () => {
+    expect(roleLabel.assistant).toBe("助理（已停用）");
     const items = navItems("assistant").map((item) => item.id);
-    expect(items).toContain("review");
+    expect(items).not.toContain("review");
     expect(items).not.toContain("salaries");
     expect(items).not.toContain("dashboard");
     expect(items).not.toContain("people");
-    expect(canReviewDaily("assistant")).toBe(true);
+    expect(canReviewDaily("assistant")).toBe(false);
     expect(canAccessSalaries("assistant")).toBe(false);
     expect(canAccessDashboard("assistant")).toBe(false);
     expect(canAccessSalaries("boss")).toBe(true);
   });
 
-  it("审核状态有中文，且不会把三态混成一个净利润", () => {
-    expect(labelReviewStatus("pending")).toBe("待审");
-    expect(labelReviewStatus("rejected")).toBe("退回");
-    expect(labelReviewStatus("approved")).toBe("通过");
-    expect(shouldShowStatusNetProfit()).toBe(false);
-    const pending = { ...emptyDailyMetrics(), revenue: "10.00" };
-    const approved = { ...emptyDailyMetrics(), revenue: "20.00" };
-    const rejected = { ...emptyDailyMetrics(), revenue: "3.00" };
-    const picked = pickDailyByStatus({ pending, approved, rejected }, "approved");
-    expect(picked.revenue).toBe("20.00");
-    expect(picked.revenue).not.toBe("33.00");
-  });
 });

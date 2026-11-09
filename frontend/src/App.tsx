@@ -1,14 +1,27 @@
+import { SalaryWorkspace } from "./SalaryWorkspace";
+import { OrderWorkspace } from "./OrderWorkspace";
+import { FinanceWorkspace } from "./FinanceWorkspace";
+import { DailyForm } from "./DailyForms";
+import { detailLines } from "./dailyDetail";
+import { ModuleSettings } from "./ModuleSettings";
+import { SystemSettings } from "./SystemSettings";
+import { DashboardHome } from "./DashboardHome";
+import { AdminHome, SupervisorHome } from "./RoleHomes";
+import { DashboardIcon } from "./DashboardIcon";
+import { CsDeviceRegistration } from "./CsDeviceRegistration";
+import { CsAccountsPage } from "./CsAccountsPage";
+import { fillEntries, fillEntryFromPath, canUseFillEntry } from "./fillEntries";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { canQueryByDate, isIsoDate } from "./dates";
 import { labelOrderStatus } from "./labels";
 import { navItems, roleLabel, type Page } from "./access";
-import { labelReviewStatus, pickDailyByStatus, type ReviewStatus } from "./reviewUi";
 import { createRequestGate } from "./requestGate";
 import { toErrorMessage } from "./errors";
 import { readSessionMeta, type SessionMeta } from "./sessionMeta";
 import {
   api,
   type AdminUser,
+  type CsAccount,
   type EditorReport,
   type FanReport,
   type FanSummary,
@@ -16,20 +29,28 @@ import {
   type Note,
   type OpsReport,
   type Order,
-  type ReviewItem,
   type Salary,
   type Team,
   type User
 } from "./api";
 
 export function App() {
+  const [modules, setModules] = useState<Record<string, boolean> | null>(null);
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState<User | null>(null);
-  const [page, setPage] = useState<Page>("home");
+  const [page, setPage] = useState<Page>(() => fillEntryFromPath(window.location.pathname) ?? "home");
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [error, setError] = useState("");
   const [today, setToday] = useState("");
   const [backfillDays, setBackfillDays] = useState(3);
   const [disclaimer, setDisclaimer] = useState("");
+  const entry = fillEntryFromPath(window.location.pathname);
+
+  useEffect(() => {
+    const onPopState = () => { setError(""); setPage(fillEntryFromPath(window.location.pathname) ?? "home"); };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
 
   function applySession(nextUser: User, payload?: SessionMeta) {
     const meta = readSessionMeta(payload);
@@ -50,6 +71,10 @@ export function App() {
   }
 
   useEffect(() => {
+    if (user) api.modules().then((data) => setModules(data.modules)).catch((err) => setError(toErrorMessage(err, "加载模块配置失败")));
+  }, [user?.id]);
+
+  useEffect(() => {
     (async () => {
       try {
         await api.loadCsrf();
@@ -64,60 +89,82 @@ export function App() {
   }, []);
 
   if (!ready) return <div className="page">加载中…</div>;
-  if (!user) return <Login onLogin={hydrateUser} />;
+  if (!user) return <Login onLogin={hydrateUser} entry={entry} />;
   if (!today) return <div className="page">加载中…</div>;
   if (user.mustChangePassword) {
     return <ChangePassword user={user} onDone={() => setUser({ ...user, mustChangePassword: false })} />;
   }
 
-  const items = navItems(user.role);
+  if (entry && !canUseFillEntry(user.role, entry)) {
+    return <section className="page"><div className="card"><h2>{fillEntries[entry].title}</h2>
+      <p>此入口用于客服本人填报。当前登录身份为{roleLabel[user.role]}，请使用相应的客服账号。</p>
+      <a className="btn secondary" href="/">返回管理首页</a>
+      <button type="button" onClick={async () => { await api.logout(); setUser(null); setModules(null); }}>退出并切换账号</button>
+    </div></section>;
+  }
+  if (entry && !modules) return <div className="page"><p>正在确认填报入口…</p>{error && <p className="error">{error}</p>}<button type="button" onClick={() => api.modules().then((data) => { setModules(data.modules); setError(""); }).catch((err) => setError(toErrorMessage(err)))}>重新加载</button></div>;
+  if (entry && modules?.[entry] === false) return <section className="page"><div className="card"><h2>{fillEntries[entry].title}已停用</h2><p>请联系管理员重新启用，历史数据仍保留。</p><a className="btn secondary" href="/">返回首页</a></div></section>;
+
+  const managementRole = ["boss", "admin", "cs_supervisor", "finance"].includes(user.role);
+  const items = navItems(user.role).filter((item) => managementRole || !["fans", "orders", "ops", "editor"].includes(item.id) || modules?.[item.id] === true);
+  const activePage = items.some((item) => item.id === page) ? page : "home";
   function goTo(next: Page) {
     setError("");
+    setMobileNavOpen(false);
     setPage(next);
+    const nextPath = (next === "fans" || next === "orders") && canUseFillEntry(user!.role, next) ? fillEntries[next].path : "/";
+    if (window.location.pathname !== nextPath) window.history.pushState(null, "", nextPath);
+  }
+  async function logout() {
+    await api.logout();
+    await api.loadCsrf();
+    setError(""); setMobileNavOpen(false); setUser(null); setModules(null);
   }
   return (
-    <div className="page">
-      <header className="topbar">
-        <div className="brand">
-          <b>内部管理系统</b>
-          <span>
-            {user.displayName} · {roleLabel[user.role]}
-          </span>
-        </div>
+    <div className={`page app-shell ${managementRole ? "management-shell" : ""} ${user.role === "boss" ? "boss-shell" : ""}`}>
+      <a className="skip-link" href="#main-content">跳到主要内容</a>
+      <aside className={`app-sidebar ${mobileNavOpen ? "mobile-nav-open" : ""}`}>
+        <div className="sidebar-brand-row"><a href="/" className="sidebar-brand"><span className="sidebar-brand-mark"><DashboardIcon name="home" /></span><span><b>内部管理系统</b><small>公司日常工作台</small></span></a>{managementRole && <button type="button" className="mobile-menu-toggle secondary" aria-expanded={mobileNavOpen} aria-controls="workspace-navigation" onClick={() => setMobileNavOpen(open => !open)}>{mobileNavOpen ? "收起菜单" : "全部菜单"}</button>}</div>
+        <span className="nav-section-label">工作空间</span>
+        <nav id="workspace-navigation" className="nav" aria-label="主要导航">
+          {items.map((item) => <button key={item.id} aria-current={activePage === item.id ? "page" : undefined} className={activePage === item.id ? "active" : ""} onClick={() => goTo(item.id)}><DashboardIcon name={item.id} /><span>{item.label}</span></button>)}
+          {managementRole && <button type="button" className="mobile-menu-logout" onClick={logout}>退出登录</button>}
+        </nav>
+        <div className="sidebar-footer"><span className="sidebar-avatar">{user.displayName.slice(0, 1)}</span><span><strong>{user.displayName}</strong><small>{roleLabel[user.role]} · 数据按权限展示</small></span></div>
+      </aside>
+      <div className="app-main">
+      <header className="topbar app-toolbar">
+        <div className="toolbar-breadcrumb">工作台 <span>/</span> <strong>{items.find((item) => item.id === activePage)?.label}</strong></div>
+        <div className="toolbar-account"><span>{user.displayName}</span>
         <button
           className="secondary"
-          onClick={async () => {
-            await api.logout();
-            await api.loadCsrf();
-            setError("");
-            setUser(null);
-          }}
+          onClick={logout}
         >
           退出
         </button>
+        </div>
       </header>
-      <nav className="nav">
-        {items.map((item) => (
-          <button key={item.id} className={page === item.id ? "active" : ""} onClick={() => goTo(item.id)}>
-            {item.label}
-          </button>
-        ))}
-      </nav>
+      <main id="main-content" tabIndex={-1}>
       {error && <p className="error">{error}</p>}
-      {page === "home" && <Home user={user} today={today} backfillDays={backfillDays} disclaimer={disclaimer} />}
-      {page === "fans" && <FanForm today={today} onError={setError} />}
-      {page === "summary" && <FanSummaryPage today={today} onError={setError} />}
-      {page === "orders" && <OrdersPage today={today} onError={setError} />}
-      {page === "ops" && <OpsPage today={today} onError={setError} />}
-      {page === "editor" && <EditorPage today={today} onError={setError} />}
-      {page === "review" && <ReviewPage onError={setError} />}
-      {page === "dashboard" && <DashboardPage onError={setError} />}
-      {page === "people" && <PeoplePage today={today} onError={setError} />}
-      {page === "salaries" && <SalaryPage onError={setError} />}
-      <nav className="bottom-nav">
+      {user.accountKind === "cs_wechat" && <p className="notice">当前填报微信：<strong>{user.wechatId}</strong>{user.phoneLabel ? `（${user.phoneLabel}）` : ""}。加粉与订单长期归属于此微信号；退出后需管理员重新发码。</p>}
+      {activePage === "home" && <Home user={user} today={today} backfillDays={backfillDays} disclaimer={disclaimer} onNavigate={goTo} />}
+      {activePage === "fans" && <FanForm today={today} onError={setError} />}
+      {activePage === "summary" && <FanSummaryPage today={today} onError={setError} />}
+      {activePage === "orders" && <OrderWorkspace today={today} user={user} />}
+      {activePage === "ops" && <OpsPage today={today} onError={setError} readOnly={user.role === "boss"} />}
+      {activePage === "editor" && <EditorPage today={today} onError={setError} readOnly={user.role === "boss"} />}
+      {activePage === "dashboard" && <DashboardPage onError={setError} />}
+      {activePage === "modules" && <><ModuleSettings onError={setError} onChange={setModules} /><SystemSettings defaultDays={backfillDays} /></>}
+      {activePage === "people" && <PeoplePage today={today} onError={setError} />}
+      {activePage === "csAccounts" && <CsAccountsPage supervisor={user.role === "cs_supervisor"} />}
+      {activePage === "finance" && <FinanceWorkspace today={today} readOnly />}
+      {activePage === "salaries" && <SalaryWorkspace today={today} readOnly={user.role !== "finance"} />}
+      </main>
+      </div>
+      <nav className="bottom-nav" aria-label="底部导航">
         {items.slice(0, 5).map((item) => (
-          <button key={item.id} className={page === item.id ? "active" : ""} onClick={() => goTo(item.id)}>
-            {item.label}
+          <button key={item.id} aria-current={activePage === item.id ? "page" : undefined} className={activePage === item.id ? "active" : ""} onClick={() => goTo(item.id)}>
+            {item.id === "csAccounts" ? "客服微信" : item.label}
           </button>
         ))}
       </nav>
@@ -125,12 +172,9 @@ export function App() {
   );
 }
 
-function ReviewStatusBadge({ status }: { status?: string | null }) {
-  if (!status) return <span className="chip">—</span>;
-  return <span className={`chip ${status}`}>{labelReviewStatus(status)}</span>;
-}
 
-function Login({ onLogin }: { onLogin: (user: User, extras?: SessionMeta) => void | Promise<void> }) {
+function Login({ onLogin, entry }: { onLogin: (user: User, extras?: SessionMeta) => void | Promise<void>; entry: keyof typeof fillEntries | null }) {
+  const [employeeLogin, setEmployeeLogin] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -151,12 +195,13 @@ function Login({ onLogin }: { onLogin: (user: User, extras?: SessionMeta) => voi
     }
   }
 
+  if (entry && !employeeLogin) return <CsDeviceRegistration title={fillEntries[entry].title} onRegistered={onLogin} onEmployeeLogin={() => setEmployeeLogin(true)} />;
   return (
     <div className="login-wrap">
       <form className="card login-card" onSubmit={submit}>
         <div className="brand">
-          <b>公司内部管理系统</b>
-          <span>账号由行政开通，不能自行注册</span>
+          <b>{entry ? fillEntries[entry].title : "公司内部管理系统"}</b>
+          <span>{entry ? fillEntries[entry].description : "账号由行政开通，不能自行注册"}</span>
         </div>
         <div className="row">
           <label htmlFor="username">登录名</label>
@@ -168,6 +213,7 @@ function Login({ onLogin }: { onLogin: (user: User, extras?: SessionMeta) => voi
         </div>
         {error && <p className="error">{error}</p>}
         <button type="submit" disabled={pending}>{pending ? "登录中…" : "登录"}</button>
+        {entry && <button type="button" className="secondary" onClick={() => setEmployeeLogin(false)}>返回客服微信登记</button>}
       </form>
     </div>
   );
@@ -212,96 +258,37 @@ function Home({
   user,
   today,
   backfillDays,
-  disclaimer
+  disclaimer,
+  onNavigate
 }: {
   user: User;
   today: string;
   backfillDays: number;
   disclaimer: string;
+  onNavigate: (page: Page) => void;
 }) {
+  if (user.role === "finance") return <FinanceWorkspace today={today} />;
+  if (user.role === "boss") return <DashboardHome today={today} onNavigate={onNavigate} />;
+  if (user.role === "admin") return <AdminHome onNavigate={onNavigate} />;
+  if (user.role === "cs_supervisor") return <SupervisorHome today={today} onNavigate={onNavigate} />;
   return (
     <section className="card">
       <h2>今日 {today || "—"}</h2>
       <p className="notice">业务日按东八区计算。客服加粉入口可放进微信群公告，每天打开同一链接即可，系统不会自动往群里发消息。</p>
       {user.role === "cs" && <p className="notice">你只能填报并查看自己的加粉与订单。补报窗口为近 {backfillDays} 个业务日（含今天）。填写 0 表示当天已报零粉，未提交则是未报。</p>}
-      {user.role === "cs_supervisor" && <p className="notice">你可以查看负责小组的加粉汇总、未报名单和逐人明细，不能查看工资或客户消费。汇总里的加粉数是已填报数据，已按待审/退回/通过分开计数，不把未审核当成已通过。</p>}
-      {user.role === "assistant" && <p className="notice">你负责审核运营、拍剪、加粉和订单的日常填报：通过或退回（退回必须填写原因），不能改业务数字，也不能查看或审核工资和经营估算。</p>}
-      {(user.role === "boss" || user.role === "admin") && <p className="notice">{disclaimer}</p>}
+      {user.role === "assistant" && <p className="notice">原助理流程已停用，请由后台管理员调整账号角色。</p>}
     </section>
   );
 }
 
 function FanForm({ today, onError }: { today: string; onError: (value: string) => void }) {
-  const [addedCount, setAddedCount] = useState("0");
-  const [businessDate, setBusinessDate] = useState(today);
-  const [reports, setReports] = useState<FanReport[]>([]);
-  const [message, setMessage] = useState("");
-
-  async function refresh() {
-    const data = await api.myFanReports();
-    setReports(data.reports);
-  }
-  useEffect(() => {
-    if (isIsoDate(today)) setBusinessDate(today);
-  }, [today]);
-  useEffect(() => {
-    refresh().catch((err) => onError(toErrorMessage(err)));
-  }, []);
-
-  return (
-    <section className="card">
-      <h2>每日加粉</h2>
-      <form
-        onSubmit={async (event) => {
-          event.preventDefault();
-          try {
-            const result = await api.saveFanReport({
-              addedCount: Number(addedCount),
-              businessDate
-            });
-            setMessage(result.revised ? "已覆盖更新并留痕，不会累加。" : "已保存。");
-            onError("");
-            await refresh();
-          } catch (err) {
-            onError(toErrorMessage(err, "保存失败"));
-          }
-        }}
-      >
-        <div className="grid two">
-          <div className="row">
-            <label>业务日</label>
-            <input type="date" value={businessDate} onChange={(e) => setBusinessDate(e.target.value)} />
-          </div>
-          <div className="row">
-            <label>加粉人数（可填 0）</label>
-            <input inputMode="numeric" value={addedCount} onChange={(e) => setAddedCount(e.target.value)} />
-          </div>
-        </div>
-        <button type="submit">提交</button>
-        {message && <p className="ok">{message}</p>}
-      </form>
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr><th>日期</th><th>加粉数</th><th>审核</th></tr>
-          </thead>
-          <tbody>
-            {reports.map((item) => (
-              <tr key={item.id}>
-                <td>{item.businessDate}</td>
-                <td>{item.addedCount}</td>
-                <td><ReviewStatusBadge status={item.reviewStatus} />{item.reviewStatus === "rejected" && item.reviewReason ? <div className="notice">退回：{item.reviewReason}</div> : null}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
+  return <DailyForm kind="fan_report" today={today} onError={onError} />;
 }
 
 function FanSummaryPage({ today, onError }: { today: string; onError: (value: string) => void }) {
   const [date, setDate] = useState(today);
+  const [accounts, setAccounts] = useState<CsAccount[]>([]);
+  const [accountId, setAccountId] = useState("");
   const [teams, setTeams] = useState<FanSummary[]>([]);
   const gate = useState(() => createRequestGate())[0];
 
@@ -309,9 +296,10 @@ function FanSummaryPage({ today, onError }: { today: string; onError: (value: st
     if (!canQueryByDate(next)) return;
     const ticket = gate.next();
     try {
-      const data = await api.fanSummary(next);
+      const [data, choices] = await Promise.all([api.fanSummary(next, undefined, accountId), api.csAccounts(next)]);
       if (!ticket.isCurrent()) return;
       setTeams(data.teams);
+      setAccounts(choices.accounts);
       onError("");
     } catch (err) {
       if (!ticket.isCurrent()) return;
@@ -323,32 +311,31 @@ function FanSummaryPage({ today, onError }: { today: string; onError: (value: st
   }, [today]);
   useEffect(() => {
     if (canQueryByDate(date)) load(date);
-  }, [date]);
+  }, [date, accountId]);
 
   return (
     <section className="card">
       <h2>加粉日报汇总</h2>
       <div className="actions" style={{ marginBottom: 12 }}>
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        <input aria-label="汇总业务日" type="date" value={date} onChange={(e) => { setDate(e.target.value); setAccountId(""); }} />
+        <select aria-label="按客服微信号筛选加粉" value={accountId} onChange={(e) => setAccountId(e.target.value)}><option value="">全部客服微信及原员工账号</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.wechatId}{account.phoneLabel ? ` · ${account.phoneLabel}` : ""}</option>)}</select>
         <button type="button" onClick={() => load(date)}>查询</button>
-        <a className="btn secondary" href={api.fanExportUrl(date)}>导出 CSV</a>
+        <a className="btn secondary" href={api.fanExportUrl(date, accountId)}>导出 CSV</a>
       </div>
       {teams.map((team) => (
         <div key={team.teamId} className="card">
           <h3>{team.teamName}</h3>
           <div className="metrics">
             <div className="metric"><b>{team.totalAdded}</b><span>加粉总数</span></div>
-            <div className="metric"><b>{team.expectedCount}</b><span>应报</span></div>
-            <div className="metric"><b>{team.reportedCount}</b><span>已报</span></div>
-            <div className="metric"><b>{team.missingCount}</b><span>未报</span></div>
-            <div className="metric"><b>{team.reviewCounts?.pending ?? 0}</b><span>待审</span></div>
-            <div className="metric"><b>{team.reviewCounts?.rejected ?? 0}</b><span>退回</span></div>
-            <div className="metric"><b>{team.reviewCounts?.approved ?? 0}</b><span>通过</span></div>
+            <div className="metric"><b>{team.validToday ?? "—"}</b><span>今日有效</span></div>
+            <div className="metric"><b>{team.commReplied ?? "—"}</b><span>取得沟通</span></div>
+            <div className="metric"><b>{team.commInvalid ?? "—"}</b><span>无效客源</span></div>
           </div>
+          <FanDetailCards team={team} />
           <div className="table-wrap">
             <table>
               <thead>
-                <tr><th>姓名</th><th>人数</th><th>填报</th><th>审核</th></tr>
+                <tr><th>客服微信 / 原账号</th><th>加粉数</th><th>填报</th></tr>
               </thead>
               <tbody>
                 {team.details.map((item) => (
@@ -356,7 +343,6 @@ function FanSummaryPage({ today, onError }: { today: string; onError: (value: st
                     <td>{item.displayName}</td>
                     <td>{item.addedCount === null ? "—" : item.addedCount}</td>
                     <td><span className={`badge ${item.status}`}>{item.status === "reported" ? (item.addedCount === 0 ? "已报 0" : "已报") : "未报"}</span></td>
-                    <td><ReviewStatusBadge status={item.reviewStatus} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -368,482 +354,52 @@ function FanSummaryPage({ today, onError }: { today: string; onError: (value: st
   );
 }
 
-function OrdersPage({ today, onError }: { today: string; onError: (value: string) => void }) {
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [pending, setPending] = useState(false);
-  const [form, setForm] = useState({
-    businessDate: today,
-    orderRef: "",
-    customerLabel: "",
-    amount: "0.00",
-    status: "placed",
-    isCustom: false,
-    customProductCost: "0.00",
-    laborCost: "0.00",
-    shippingCost: "0.00"
-  });
-
-  async function refresh() {
-    setOrders((await api.orders()).orders);
-  }
-  useEffect(() => {
-    if (isIsoDate(today)) setForm((current) => ({ ...current, businessDate: current.businessDate || today }));
-  }, [today]);
-  useEffect(() => {
-    refresh().catch((err) => onError(toErrorMessage(err)));
-  }, []);
-
-  return (
-    <section className="card">
-      <h2>客户消费订单</h2>
-      <p className="notice">填写订单标识即可去重，客户备注用昵称或内部编号，不要把手机号当必填项。</p>
-      <form
-        onSubmit={async (event) => {
-          event.preventDefault();
-          if (pending) return;
-          setPending(true);
-          try {
-            await api.createOrder({ ...form, isCustom: form.isCustom });
-            onError("");
-            setForm({ ...form, orderRef: "", customerLabel: "" });
-            await refresh();
-          } catch (err) {
-            onError(toErrorMessage(err, "保存失败"));
-          } finally {
-            setPending(false);
-          }
-        }}
-      >
-        <div className="grid two">
-          <Field label="业务日"><input type="date" value={form.businessDate} onChange={(e) => setForm({ ...form, businessDate: e.target.value })} /></Field>
-          <Field label="订单标识"><input value={form.orderRef} onChange={(e) => setForm({ ...form, orderRef: e.target.value })} /></Field>
-          <Field label="客户备注（可选）"><input value={form.customerLabel} onChange={(e) => setForm({ ...form, customerLabel: e.target.value })} /></Field>
-          <Field label="消费金额"><input value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></Field>
-          <Field label="状态">
-            <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-              <option value="placed">下单</option>
-              <option value="in_production">制作中</option>
-              <option value="shipped">已发货</option>
-              <option value="refunded">退款</option>
-            </select>
-          </Field>
-          <Field label="定制商品">
-            <select value={form.isCustom ? "1" : "0"} onChange={(e) => setForm({ ...form, isCustom: e.target.value === "1" })}>
-              <option value="0">否</option>
-              <option value="1">是</option>
-            </select>
-          </Field>
-          <Field label="定制商品成本"><input value={form.customProductCost} onChange={(e) => setForm({ ...form, customProductCost: e.target.value })} /></Field>
-          <Field label="工费"><input value={form.laborCost} onChange={(e) => setForm({ ...form, laborCost: e.target.value })} /></Field>
-          <Field label="运费"><input value={form.shippingCost} onChange={(e) => setForm({ ...form, shippingCost: e.target.value })} /></Field>
-        </div>
-        <button type="submit" disabled={pending}>{pending ? "提交中…" : "录入订单"}</button>
-      </form>
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr><th>日期</th><th>标识</th><th>金额</th><th>订单状态</th><th>成本/工费/运费</th><th>审核</th></tr>
-          </thead>
-          <tbody>
-            {orders.map((item) => (
-              <tr key={item.id}>
-                <td>{item.businessDate}</td>
-                <td>{item.orderRef}</td>
-                <td>{item.amount}</td>
-                <td>{labelOrderStatus(item.status)}</td>
-                <td>{item.customProductCost} / {item.laborCost} / {item.shippingCost}</td>
-                <td><ReviewStatusBadge status={item.reviewStatus} /></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
+function OpsPage({ today, onError, readOnly }: { today: string; onError: (value: string) => void; readOnly?: boolean }) {
+  return <DailyForm kind="ops_report" today={today} onError={onError} readOnly={readOnly} />;
 }
 
-function OpsPage({ today, onError }: { today: string; onError: (value: string) => void }) {
-  const [reports, setReports] = useState<OpsReport[]>([]);
-  const [form, setForm] = useState({ businessDate: today, platform: "", promoVideoCount: "0", promoCost: "0.00", note: "" });
-  useEffect(() => {
-    if (isIsoDate(today)) setForm((current) => ({ ...current, businessDate: current.businessDate || today }));
-  }, [today]);
-  useEffect(() => {
-    api.opsReports().then((data) => setReports(data.reports)).catch((err) => onError(toErrorMessage(err)));
-  }, []);
-  return (
-    <section className="card">
-      <h2>推广日报</h2>
-      <form
-        onSubmit={async (event) => {
-          event.preventDefault();
-          try {
-            await api.saveOps({
-              ...form,
-              promoVideoCount: Number(form.promoVideoCount)
-            });
-            setReports((await api.opsReports()).reports);
-            onError("");
-          } catch (err) {
-            onError(toErrorMessage(err, "保存失败"));
-          }
-        }}
-      >
-        <div className="grid two">
-          <Field label="业务日"><input type="date" value={form.businessDate} onChange={(e) => setForm({ ...form, businessDate: e.target.value })} /></Field>
-          <Field label="平台/账号（可选）"><input value={form.platform} onChange={(e) => setForm({ ...form, platform: e.target.value })} /></Field>
-          <Field label="推广视频数"><input value={form.promoVideoCount} onChange={(e) => setForm({ ...form, promoVideoCount: e.target.value })} /></Field>
-          <Field label="推广费用"><input value={form.promoCost} onChange={(e) => setForm({ ...form, promoCost: e.target.value })} /></Field>
-        </div>
-        <Field label="备注"><textarea value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} /></Field>
-        <button type="submit">保存</button>
-      </form>
-      <div className="table-wrap">
-        <table>
-          <thead><tr><th>日期</th><th>平台</th><th>视频数</th><th>费用</th><th>审核</th></tr></thead>
-          <tbody>
-            {reports.map((item) => (
-              <tr key={item.id}><td>{item.businessDate}</td><td>{item.platform || "—"}</td><td>{item.promoVideoCount}</td><td>{item.promoCost}</td><td><ReviewStatusBadge status={item.reviewStatus} /></td></tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
-
-function EditorPage({ today, onError }: { today: string; onError: (value: string) => void }) {
-  const [reports, setReports] = useState<EditorReport[]>([]);
-  const [summary, setSummary] = useState("");
-  const [form, setForm] = useState({
-    businessDate: today,
-    shootCount: "0",
-    finishedCount: "0",
-    publishedCount: "0",
-    inventorySnapshot: "0"
-  });
-  async function refresh() {
-    setReports((await api.editorReports()).reports);
-    const result = await api.editorSummary();
-    setSummary(`区间拍摄 ${result.shootCount}，成片 ${result.finishedCount}，已发布 ${result.publishedCount}，期末囤量 ${result.endingInventory}。${result.note}`);
-  }
-  useEffect(() => {
-    if (isIsoDate(today)) setForm((current) => ({ ...current, businessDate: current.businessDate || today }));
-  }, [today]);
-  useEffect(() => {
-    refresh().catch((err) => onError(toErrorMessage(err)));
-  }, []);
-  return (
-    <section className="card">
-      <h2>拍剪日报</h2>
-      <p className="notice">{summary}</p>
-      <form
-        onSubmit={async (event) => {
-          event.preventDefault();
-          try {
-            await api.saveEditor({
-              ...form,
-              shootCount: Number(form.shootCount),
-              finishedCount: Number(form.finishedCount),
-              publishedCount: Number(form.publishedCount),
-              inventorySnapshot: Number(form.inventorySnapshot)
-            });
-            await refresh();
-            onError("");
-          } catch (err) {
-            onError(toErrorMessage(err, "保存失败"));
-          }
-        }}
-      >
-        <div className="grid two">
-          <Field label="业务日"><input type="date" value={form.businessDate} onChange={(e) => setForm({ ...form, businessDate: e.target.value })} /></Field>
-          <Field label="拍摄数"><input value={form.shootCount} onChange={(e) => setForm({ ...form, shootCount: e.target.value })} /></Field>
-          <Field label="成片数"><input value={form.finishedCount} onChange={(e) => setForm({ ...form, finishedCount: e.target.value })} /></Field>
-          <Field label="已发布数"><input value={form.publishedCount} onChange={(e) => setForm({ ...form, publishedCount: e.target.value })} /></Field>
-          <Field label="当日囤量快照"><input value={form.inventorySnapshot} onChange={(e) => setForm({ ...form, inventorySnapshot: e.target.value })} /></Field>
-        </div>
-        <button type="submit">保存</button>
-      </form>
-      <div className="table-wrap">
-        <table>
-          <thead><tr><th>日期</th><th>拍摄</th><th>成片</th><th>发布</th><th>囤量快照</th><th>审核</th></tr></thead>
-          <tbody>
-            {reports.map((item) => (
-              <tr key={item.id}>
-                <td>{item.businessDate}</td>
-                <td>{item.shootCount}</td>
-                <td>{item.finishedCount}</td>
-                <td>{item.publishedCount}</td>
-                <td>{item.inventorySnapshot}{item.inventoryAdjusted ? "（已校正）" : ""}</td>
-                <td><ReviewStatusBadge status={item.reviewStatus} /></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
+function EditorPage({ today, onError, readOnly }: { today: string; onError: (value: string) => void; readOnly?: boolean }) {
+  return <DailyForm kind="editor_report" today={today} onError={onError} readOnly={readOnly} />;
 }
 
 function DashboardPage({ onError }: { onError: (value: string) => void }) {
   const [preset, setPreset] = useState("day");
-  const [reviewStatus, setReviewStatus] = useState<ReviewStatus>("approved");
-  const [metrics, setMetrics] = useState<Metrics | null>(null);
-  const [dailyByStatus, setDailyByStatus] = useState<Record<ReviewStatus, ReturnType<typeof pickDailyByStatus>> | null>(null);
-  const [meta, setMeta] = useState({ disclaimer: "", formula: "", from: "", to: "", estimateNote: "", salaryNote: "" });
-  const [notes, setNotes] = useState<Note[]>([]);
-  const [note, setNote] = useState("");
-  const [loadError, setLoadError] = useState("");
+  const [data, setData] = useState<Awaited<ReturnType<typeof api.dashboard>> | null>(null);
+  const [loading, setLoading] = useState(false);
   const gate = useState(() => createRequestGate())[0];
-
   async function load(next = preset) {
-    const ticket = gate.next();
-    try {
-      const data = await api.dashboard(next, reviewStatus);
-      if (!ticket.isCurrent()) return;
-      setMetrics(data.metrics);
-      setDailyByStatus(data.dailyByReviewStatus ?? null);
-      setMeta({
-        disclaimer: data.disclaimer,
-        formula: data.formula,
-        from: data.period.from,
-        to: data.period.to,
-        estimateNote: data.estimateNote ?? "",
-        salaryNote: data.overallSalary?.note ?? ""
-      });
-      const notesData = await api.notes(data.period.to);
-      if (!ticket.isCurrent()) return;
-      setNotes(notesData.notes);
-      setLoadError("");
-      onError("");
-    } catch (err) {
-      if (!ticket.isCurrent()) return;
-      const message = toErrorMessage(err, "加载经营估算失败");
-      setLoadError(message);
-      onError(message);
-    }
+    const ticket = gate.next(); setLoading(true); setData(null);
+    try { const result = await api.dashboard(next); if (ticket.isCurrent()) { setData(result); onError(""); } }
+    catch (err) { if (ticket.isCurrent()) onError(toErrorMessage(err, "加载经营估算失败")); }
+    finally { if (ticket.isCurrent()) setLoading(false); }
   }
-  useEffect(() => {
-    load("day");
-  }, []);
-
-  if (!metrics) {
-    return (
-      <section className="card">
-        <h2>经营估算</h2>
-        {loadError ? (
-          <>
-            <p className="error">{loadError}</p>
-            <button type="button" onClick={() => load(preset)}>重新加载</button>
-          </>
-        ) : (
-          <p>加载经营估算…</p>
-        )}
-      </section>
-    );
-  }
-  const selectedDaily = pickDailyByStatus(dailyByStatus ?? undefined, reviewStatus);
-  return (
-    <section className="card">
-      <h2>经营估算</h2>
-      <div className="actions" style={{ marginBottom: 12 }}>
-        {["day", "week", "month"].map((item) => (
-          <button key={item} className={preset === item ? "" : "secondary"} type="button" onClick={() => { setPreset(item); load(item); }}>
-            {item === "day" ? "今日" : item === "week" ? "本周" : "本月"}
-          </button>
-        ))}
-      </div>
-      <p className="notice">{meta.from} 至 {meta.to}</p>
-      <div className="status-tabs">
-        {(["pending", "rejected", "approved"] as ReviewStatus[]).map((status) => (
-          <button key={status} type="button" className={reviewStatus === status ? `chip ${status} active` : `chip ${status}`} onClick={() => setReviewStatus(status)}>
-            {labelReviewStatus(status)}日常
-          </button>
-        ))}
-      </div>
-      <p className="notice">默认查看已通过日常指标。三个审核状态分开汇总，不会混成一个日常总数。这里不算分状态净利润。</p>
-      {(["pending", "rejected", "approved"] as ReviewStatus[]).map((status) => {
-        const item = pickDailyByStatus(dailyByStatus ?? undefined, status);
-        return (
-          <div key={status} className="review-card">
-            <div className="review-card-head">
-              <strong>{labelReviewStatus(status)}日常汇总</strong>
-              <ReviewStatusBadge status={status} />
-            </div>
-            <div className="metrics">
-              <div className="metric"><b>{item.revenue}</b><span>收入</span></div>
-              <div className="metric"><b>{item.refunds}</b><span>退款</span></div>
-              <div className="metric"><b>{item.promoCost}</b><span>推广费</span></div>
-              <div className="metric"><b>{item.customProductCost}</b><span>定制成本</span></div>
-              <div className="metric"><b>{item.laborCost}</b><span>工费</span></div>
-              <div className="metric"><b>{item.shippingCost}</b><span>运费</span></div>
-              <div className="metric"><b>{item.fanAddedTotal}</b><span>加粉</span></div>
-              <div className="metric"><b>{item.shootCount}/{item.finishedCount}</b><span>拍摄/成片</span></div>
-            </div>
-          </div>
-        );
-      })}
-      <h3>{labelReviewStatus(reviewStatus)}明细卡片</h3>
-      <div className="metrics">
-        <div className="metric"><b>{selectedDaily.revenue}</b><span>收入</span></div>
-        <div className="metric"><b>{selectedDaily.refunds}</b><span>退款</span></div>
-        <div className="metric"><b>{selectedDaily.promoCost}</b><span>推广费</span></div>
-        <div className="metric"><b>{selectedDaily.customProductCost}</b><span>定制成本</span></div>
-        <div className="metric"><b>{selectedDaily.laborCost}</b><span>工费</span></div>
-        <div className="metric"><b>{selectedDaily.shippingCost}</b><span>运费</span></div>
-        <div className="metric"><b>{selectedDaily.endingInventory}</b><span>期末囤量</span></div>
-        <div className="metric"><b>{selectedDaily.fanAddedTotal}</b><span>加粉合计</span></div>
-      </div>
-      <div className="review-card">
-        <strong>整体工资（无审核状态）</strong>
-        <div className="metrics">
-          <div className="metric"><b>{metrics.salaryAllocated}</b><span>工资分摊</span></div>
-        </div>
-        <p className="notice">{meta.salaryNote || "工资按整体成本单独展示，不拆进待审/退回/通过。"}</p>
-      </div>
-      <div className="review-card">
-        <strong>整体估算（不是某一审核状态的净利润）</strong>
-        <div className="metrics">
-          <div className="metric"><b>{metrics.estimate}</b><span>经营估算</span></div>
-        </div>
-        <p className="notice">{meta.formula}</p>
-        <p className="notice">{meta.estimateNote}</p>
-      </div>
-      <p className="notice">{meta.disclaimer}</p>
-      <form
-        onSubmit={async (event) => {
-          event.preventDefault();
-          try {
-            await api.createNote({ targetDate: meta.to, content: note, targetType: "day" });
-            setNote("");
-            onError("");
-            await load(preset);
-          } catch (err) {
-            onError(toErrorMessage(err, "保存批注失败"));
-          }
-        }}
-      >
-        <Field label="批注">
-          <textarea value={note} onChange={(e) => setNote(e.target.value)} />
-        </Field>
-        <button type="submit">写下批注</button>
-      </form>
-      {notes.map((item) => (
-        <p key={item.id} className="notice">{item.authorName}：{item.content}</p>
-      ))}
-    </section>
-  );
+  useEffect(() => { load("day"); }, []);
+  const m = data?.metrics;
+  return <section className="card"><h2>经营估算</h2><div className="actions">{[["day","今日"],["week","本周"],["month","本月"]].map(([key,label]) => <button key={key} type="button" className={preset === key ? "" : "secondary"} onClick={() => { setPreset(key); load(key); }}>{label}</button>)}<button type="button" className="secondary" onClick={() => load()}>刷新</button></div>
+    {loading && <p role="status">读取中…</p>}
+    {data && m && <><p className="notice">{data.period.from} 至 {data.period.to}</p><div className="metrics">{Object.entries({revenue:"订单金额（含退款源订单）",refunds:"退款金额",promoCost:"历史推广费（币种未知）",salaryAllocated:"工资分摊",customProductCost:"定制成本",laborCost:"工费",shippingCost:"运费",estimate:"经营估算"}).map(([key,label]) => <div className="metric" key={key}><b>{String(m[key as keyof Metrics])}</b><span>{label}</span></div>)}</div><DailyDetailMetrics item={m} /><article className="review-card"><h3>运营投放 · USD</h3><p>花费 {data.opsUsd.spendUsd} · 咨询 {data.opsUsd.consultCount} · 点击 {data.opsUsd.clickCount}</p><p>区间末次余额 {data.opsUsd.endingBalanceUsd ?? "未记录"} USD</p></article><p className="notice">{data.formula}</p><p className="notice">{data.estimateNote}</p><p className="notice">{data.disclaimer}</p></>}
+  </section>;
 }
-
-function payloadLines(item: ReviewItem): string[] {
-  const payload = item.payload ?? {};
-  if (item.entityType === "fan_report") return [`加粉 ${payload.addedCount ?? "—"}`];
-  if (item.entityType === "ops_report") return [`平台 ${payload.platform || "—"}`, `视频 ${payload.promoVideoCount ?? "—"}`, `推广费 ${payload.promoCost ?? "—"}`];
-  if (item.entityType === "editor_report") return [`拍摄 ${payload.shootCount ?? "—"}`, `成片 ${payload.finishedCount ?? "—"}`, `发布 ${payload.publishedCount ?? "—"}`, `囤量 ${payload.inventorySnapshot ?? "—"}`];
-  return [`标识 ${payload.orderRef ?? "—"}`, `金额 ${payload.amount ?? "—"}`, `订单状态 ${labelOrderStatus(String(payload.status ?? ""))}`, `成本 ${payload.customProductCost ?? "—"} / ${payload.laborCost ?? "—"} / ${payload.shippingCost ?? "—"}`];
-}
-
-function ReviewPage({ onError }: { onError: (value: string) => void }) {
-  const [status, setStatus] = useState<ReviewStatus>("pending");
-  const [items, setItems] = useState<ReviewItem[]>([]);
-  const [reasonById, setReasonById] = useState<Record<string, string>>({});
-  const [pendingId, setPendingId] = useState("");
-
-  async function refresh(next = status) {
-    const data = await api.reviews(next);
-    setItems(data.items);
-  }
-  useEffect(() => {
-    refresh().catch((err) => onError(toErrorMessage(err, "加载审核列表失败")));
-  }, []);
-
-  async function decide(item: ReviewItem, action: "approve" | "reject") {
-    const reason = (reasonById[item.id] ?? "").trim();
-    if (action === "reject" && !reason) {
-      onError("退回必须填写原因");
-      return;
-    }
-    setPendingId(item.id);
-    try {
-      await api.decideReview({
-        entityType: item.entityType,
-        entityId: item.id,
-        action,
-        version: item.reviewVersion,
-        reason
-      });
-      onError("");
-      await refresh(status);
-    } catch (err) {
-      onError(toErrorMessage(err, "审核失败"));
-    } finally {
-      setPendingId("");
-    }
-  }
-
-  return (
-    <section className="card">
-      <h2>日常审核</h2>
-      <p className="notice">只能通过或退回，不能改业务数字。工资和经营估算不在助理范围内。</p>
-      <div className="status-tabs">
-        {(["pending", "rejected", "approved"] as ReviewStatus[]).map((item) => (
-          <button
-            key={item}
-            type="button"
-            className={status === item ? `chip ${item} active` : `chip ${item}`}
-            onClick={() => {
-              setStatus(item);
-              refresh(item).catch((err) => onError(toErrorMessage(err, "加载审核列表失败")));
-            }}
-          >
-            {labelReviewStatus(item)}
-          </button>
-        ))}
-      </div>
-      {items.length === 0 && <p className="notice">当前没有{labelReviewStatus(status)}记录。</p>}
-      {items.map((item) => (
-        <article key={`${item.entityType}-${item.id}`} className="review-card">
-          <div className="review-card-head">
-            <strong>{item.entityLabel} · {item.displayName || item.username || "员工"}</strong>
-            <ReviewStatusBadge status={item.reviewStatus} />
-          </div>
-          <p>{item.businessDate}</p>
-          {payloadLines(item).map((line) => <p key={line}>{line}</p>)}
-          {item.reviewReason && <p className="notice">上次原因：{item.reviewReason}</p>}
-          {item.reviewStatus === "pending" && (
-            <>
-              <Field label="退回原因">
-                <textarea value={reasonById[item.id] ?? ""} onChange={(e) => setReasonById({ ...reasonById, [item.id]: e.target.value })} />
-              </Field>
-              <div className="actions">
-                <button type="button" disabled={pendingId === item.id} onClick={() => decide(item, "approve")}>通过</button>
-                <button type="button" className="danger" disabled={pendingId === item.id} onClick={() => decide(item, "reject")}>退回</button>
-              </div>
-            </>
-          )}
-        </article>
-      ))}
-    </section>
-  );
-}
-
 
 function PeoplePage({ today, onError }: { today: string; onError: (value: string) => void }) {
   const [teams, setTeams] = useState<Team[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [teamName, setTeamName] = useState("");
+  const [scopeUser, setScopeUser] = useState<AdminUser | null>(null);
+  const [scopeIds, setScopeIds] = useState<string[]>([]);
+  const [savingUser, setSavingUser] = useState("");
   const [form, setForm] = useState({
     username: "",
     displayName: "",
     password: "",
-    role: "cs",
+    role: "ops",
     teamId: "",
     membershipStart: today
   });
 
   async function refresh() {
     setTeams((await api.teams()).teams);
-    setUsers((await api.users()).users);
+    setUsers((await api.users()).users.filter((item) => item.accountKind !== "cs_wechat"));
   }
   useEffect(() => {
     if (isIsoDate(today)) setForm((current) => ({ ...current, membershipStart: current.membershipStart || today }));
@@ -872,7 +428,9 @@ function PeoplePage({ today, onError }: { today: string; onError: (value: string
         </ul>
       </div>
       <div className="card">
-        <h2>员工账号</h2>
+        <h2>员工账号与权限</h2>
+        {scopeUser && <form className="review-card" onSubmit={async (e) => { e.preventDefault(); setSavingUser(scopeUser.id); try { await api.setSupervisorTeams(scopeUser.id, scopeIds); setScopeUser(null); await refresh(); onError(""); } catch (err) { onError(toErrorMessage(err)); } finally { setSavingUser(""); } }}><h3>设置 {scopeUser.displayName} 的负责小组</h3><p className="notice">未勾选任何小组时，主管不能查看业务数据或登记客服微信。</p>{teams.map((team) => <label className="row" key={team.id}><input type="checkbox" checked={scopeIds.includes(team.id)} onChange={(e) => setScopeIds(e.target.checked ? [...scopeIds,team.id] : scopeIds.filter((id) => id !== team.id))} />{team.name}</label>)}<div className="actions"><button disabled={!!savingUser}>保存负责小组</button><button type="button" className="secondary" onClick={() => setScopeUser(null)}>取消</button></div></form>}
+        <p className="notice">管理、运营、拍剪等人员在这里开通。固定客服手机请到“客服微信号”发放登记码，无需为每位轮班客服创建员工账号。</p>
         <form
           onSubmit={async (event) => {
             event.preventDefault();
@@ -891,7 +449,7 @@ function PeoplePage({ today, onError }: { today: string; onError: (value: string
           <Field label="初始密码"><input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></Field>
           <Field label="角色">
             <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
-              {Object.entries(roleLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              {Object.entries(roleLabel).filter(([key]) => key !== "assistant").map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
           </Field>
           <Field label="所属/负责小组">
@@ -904,82 +462,20 @@ function PeoplePage({ today, onError }: { today: string; onError: (value: string
         </form>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>姓名</th><th>登录名</th><th>角色</th><th>小组</th></tr></thead>
+            <thead><tr><th>姓名</th><th>登录名</th><th>角色</th><th>小组 / 管理范围</th><th>状态</th></tr></thead>
             <tbody>
               {users.map((item) => (
                 <tr key={item.id}>
                   <td>{item.displayName}</td>
                   <td>{item.username}</td>
-                  <td>{roleLabel[item.role]}</td>
-                  <td>{item.currentTeam?.name ?? "—"}</td>
+                  <td><select aria-label={`${item.username}角色`} disabled={savingUser === item.id} value={item.role} onChange={async (e) => { setSavingUser(item.id); try { await api.updateUser(item.id, { role: e.target.value }); await refresh(); onError(""); } catch (err) { onError(toErrorMessage(err)); } finally { setSavingUser(""); } }}>{Object.entries(roleLabel).filter(([key]) => key !== "assistant" || item.role === "assistant").map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></td>
+                  <td>{item.role === "cs_supervisor" ? <><p>{(item.managedTeamIds ?? []).map((id) => teams.find((team) => team.id === id)?.name || id).join("、") || "暂未分配小组"}</p><button className="secondary" type="button" onClick={() => { setScopeUser(item); setScopeIds(item.managedTeamIds ?? []); }}>设置负责小组</button></> : item.currentTeam?.name ?? "—"}</td>
+                  <td><button className="secondary" type="button" disabled={savingUser === item.id} onClick={async () => { setSavingUser(item.id); try { await api.updateUser(item.id, { isActive: !item.isActive }); await refresh(); } catch (err) { onError(toErrorMessage(err)); } finally { setSavingUser(""); } }}>{item.isActive ? "停用账号" : "启用账号"}</button></td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-      </div>
-    </section>
-  );
-}
-
-function SalaryPage({ onError }: { onError: (value: string) => void }) {
-  const [users, setUsers] = useState<AdminUser[]>([]);
-  const [salaries, setSalaries] = useState<Salary[]>([]);
-  const [form, setForm] = useState({ userId: "", monthlyAmount: "0.00", effectiveFrom: "", effectiveTo: "" });
-  useEffect(() => {
-    Promise.all([api.users(), api.salaries()]).then(([people, pay]) => {
-      setUsers(people.users);
-      setSalaries(pay.salaries);
-    }).catch((err) => onError(toErrorMessage(err)));
-  }, []);
-  return (
-    <section className="card">
-      <h2>岗位基本工资</h2>
-      <p className="notice">按生效区间维护月薪，系统按当月天数分摊到每一天，不需要每天重复录入。</p>
-      <form
-        onSubmit={async (event) => {
-          event.preventDefault();
-          try {
-            await api.createSalary({
-              userId: form.userId,
-              monthlyAmount: form.monthlyAmount,
-              effectiveFrom: form.effectiveFrom,
-              effectiveTo: form.effectiveTo || null
-            });
-            setSalaries((await api.salaries()).salaries);
-            onError("");
-          } catch (err) {
-            onError(toErrorMessage(err, "保存失败"));
-          }
-        }}
-      >
-        <div className="grid two">
-          <Field label="员工">
-            <select value={form.userId} onChange={(e) => setForm({ ...form, userId: e.target.value })}>
-              <option value="">请选择</option>
-              {users.map((item) => <option key={item.id} value={item.id}>{item.displayName}</option>)}
-            </select>
-          </Field>
-          <Field label="月基本工资"><input value={form.monthlyAmount} onChange={(e) => setForm({ ...form, monthlyAmount: e.target.value })} /></Field>
-          <Field label="生效开始日"><input type="date" value={form.effectiveFrom} onChange={(e) => setForm({ ...form, effectiveFrom: e.target.value })} /></Field>
-          <Field label="生效结束日（可空）"><input type="date" value={form.effectiveTo} onChange={(e) => setForm({ ...form, effectiveTo: e.target.value })} /></Field>
-        </div>
-        <button type="submit">保存工资</button>
-      </form>
-      <div className="table-wrap">
-        <table>
-          <thead><tr><th>员工</th><th>月薪</th><th>开始</th><th>结束</th></tr></thead>
-          <tbody>
-            {salaries.map((item) => (
-              <tr key={item.id}>
-                <td>{item.displayName}</td>
-                <td>{item.monthlyAmount}</td>
-                <td>{item.effectiveFrom}</td>
-                <td>{item.effectiveTo ?? "长期"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
       </div>
     </section>
   );
@@ -992,4 +488,18 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       {children}
     </div>
   );
+}
+
+function FanDetailCards({ team }: { team: FanSummary }) {
+  return <><p className="notice">月累计为当日已填主页的累计快照；未填主页不在此汇总内。{team.statsIncomplete ? "含历史未分类记录，统计不完整。" : ""}</p>
+    {team.details.map((member) => <article className="review-card" key={member.userId}><strong>{member.wechatId || member.displayName}</strong><span className="chip">{member.accountKind === "cs_wechat" ? "客服微信" : "原员工账号"}</span>
+      {(member.pages ?? []).map((page) => <div key={page.reportId}>{detailLines("fan_report", page).map((line) => <p key={line}>{line}</p>)}</div>)}
+    </article>)}
+  </>;
+}
+function DailyDetailMetrics({ item }: { item: Metrics }) {
+ const fields = {msToday:"Messenger 区间新增",wsToday:"WhatsApp 区间新增",msMonth:"Messenger 月累计快照",wsMonth:"WhatsApp 月累计快照",validToday:"区间有效",commReplied:"正常沟通回复",commReadNoReply:"已读不回",commUnread:"未读",commInvalid:"无效粉",legacyUnclassifiedAdded:"未分类旧加粉",editCount:"剪辑",sentToOpsCount:"发给运营"};
+ return <><div className="metrics">{Object.entries(fields).map(([key,label]) => <div className="metric" key={key}><b>{String((item as unknown as Record<string, unknown>)[key] ?? "未记录")}</b><span>{label}</span></div>)}</div>
+ {item.statsIncomplete && <p className="notice">含历史未分类数据，渠道统计不完整。</p>}
+</>;
 }

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { writeAudit } from "../audit.js";
 import { query, queryOne } from "../db.js";
 import { isIsoDate } from "../lib/dates.js";
@@ -7,14 +7,14 @@ import { hashPassword, validatePassword } from "../lib/password.js";
 import { HttpError, type UserRole } from "../types.js";
 import { isBossOrAdmin } from "../users.js";
 
-const ROLES: UserRole[] = ["boss", "admin", "assistant", "ops", "editor", "cs", "cs_supervisor"];
+const ROLES: UserRole[] = ["boss", "admin", "finance", "assistant", "ops", "editor", "cs", "cs_supervisor"];
 
 export function createAdminRouter(db: Pool): Router {
   const router = Router();
 
   router.use((req, _res, next) => {
-    if (!req.actor || !isBossOrAdmin(req.actor)) {
-      next(new HttpError(403, "仅 Boss 或行政可管理编制"));
+    if (!req.actor || req.actor.role !== "admin") {
+      next(new HttpError(403, "仅后台管理员可管理账号和小组"));
       return;
     }
     next();
@@ -88,7 +88,7 @@ export function createAdminRouter(db: Pool): Router {
     try {
       const users = await query(
         db,
-        `SELECT u.id, u.username, u.display_name, u.role, u.is_active, u.must_change_password, u.created_at,
+        `SELECT u.id, u.username, u.display_name, u.role, u.is_active, u.must_change_password, u.created_at, u.account_kind, u.wechat_id, u.phone_label,
                 (
                   SELECT json_build_object('id', t.id, 'name', t.name)
                     FROM team_memberships m
@@ -100,16 +100,21 @@ export function createAdminRouter(db: Pool): Router {
            FROM users u
           ORDER BY u.display_name`
       );
+      const scopes = await query<{ supervisor_id: string; team_id: string }>(db, "SELECT supervisor_id,team_id FROM supervisor_scopes");
       res.json({
         users: users.map((user) => ({
           id: user.id,
           username: user.username,
           displayName: user.display_name,
           role: user.role,
+          accountKind: user.account_kind,
+          wechatId: user.wechat_id,
+          phoneLabel: user.phone_label,
           isActive: user.is_active,
           mustChangePassword: user.must_change_password,
           createdAt: user.created_at,
-          currentTeam: user.current_team
+          currentTeam: user.current_team,
+          managedTeamIds: scopes.filter((scope) => scope.supervisor_id === user.id).map((scope) => scope.team_id)
         }))
       });
     } catch (error) {
@@ -133,6 +138,7 @@ export function createAdminRouter(db: Pool): Router {
       }
       if (!displayName || displayName.length > 64) throw new HttpError(400, "姓名无效");
       if (!ROLES.includes(role)) throw new HttpError(400, "角色无效");
+      if (role === "assistant") throw new HttpError(400, "助理审核流程已停用，请选择其他角色");
       validatePassword(password, username);
       const passwordHash = await hashPassword(password);
       const client = await db.connect();
@@ -194,23 +200,35 @@ export function createAdminRouter(db: Pool): Router {
   });
 
   router.patch("/users/:id", async (req, res, next) => {
+    let client: PoolClient | undefined;
     try {
-      const user = await queryOne<{ id: string; display_name: string; role: UserRole; is_active: boolean }>(
-        db,
-        "SELECT id, display_name, role, is_active FROM users WHERE id = $1",
+      client = await db.connect();
+      await client.query("BEGIN");
+      // Serialize employee role/status changes so the last active admin is preserved.
+      await client.query("SELECT pg_advisory_xact_lock(13080, 5)");
+      const user = await queryOne<{ id: string; display_name: string; role: UserRole; is_active: boolean; account_kind: string }>(
+        client,
+        "SELECT id, display_name, role, is_active, account_kind FROM users WHERE id = $1 FOR UPDATE",
         [req.params.id]
       );
       if (!user) throw new HttpError(404, "员工不存在");
+      if (user.account_kind === "cs_wechat") throw new HttpError(400, "客服微信请在客服微信号页面管理，不可修改为员工或其他角色");
       const displayName = req.body?.displayName !== undefined ? String(req.body.displayName).trim() : user.display_name;
       const role = req.body?.role !== undefined ? (String(req.body.role) as UserRole) : user.role;
-      const isActive = req.body?.isActive !== undefined ? Boolean(req.body.isActive) : user.is_active;
+      if (req.body?.isActive !== undefined && typeof req.body.isActive !== "boolean") throw new HttpError(400, "账号状态无效");
+      const isActive = req.body?.isActive !== undefined ? req.body.isActive : user.is_active;
       if (!displayName) throw new HttpError(400, "姓名无效");
       if (!ROLES.includes(role)) throw new HttpError(400, "角色无效");
-      await db.query(
+      if (role === "assistant" && user.role !== "assistant") throw new HttpError(400, "助理审核流程已停用，请选择其他角色");
+      if (user.role === "admin" && user.is_active && (role !== "admin" || !isActive)) {
+        const other = await queryOne(client, "SELECT id FROM users WHERE role='admin' AND is_active=TRUE AND id<>$1 LIMIT 1", [user.id]);
+        if (!other) throw new HttpError(400, "至少保留一个启用的后台管理员，不能停用或更改最后一个管理员的角色");
+      }
+      await client.query(
         "UPDATE users SET display_name = $1, role = $2, is_active = $3, updated_at = now() WHERE id = $4",
         [displayName, role, isActive, user.id]
       );
-      await writeAudit(db, {
+      await writeAudit(client, {
         actorId: req.actor!.id,
         action: "user_update",
         entityType: "user",
@@ -219,10 +237,11 @@ export function createAdminRouter(db: Pool): Router {
         after: { displayName, role, isActive },
         ip: req.ip
       });
-      res.json({ ok: true });
+      await client.query("COMMIT"); res.json({ ok: true });
     } catch (error) {
+      if (client) await client.query("ROLLBACK");
       next(error);
-    }
+    } finally { client?.release(); }
   });
 
   router.post("/users/:id/transfer", async (req, res, next) => {
@@ -302,6 +321,27 @@ export function createAdminRouter(db: Pool): Router {
     } catch (error) {
       next(error);
     }
+  });
+  router.put("/users/:id/scopes", async (req, res, next) => {
+    try {
+      const teamIds = req.body?.teamIds;
+      if (!Array.isArray(teamIds) || teamIds.some((id) => typeof id !== "string" || !/^[a-f0-9-]{36}$/i.test(id))) throw new HttpError(400, "小组范围无效");
+      const unique = [...new Set(teamIds)] as string[];
+      const client = await db.connect();
+      try {
+        await client.query("BEGIN");
+        const user = await queryOne(client, "SELECT id,role FROM users WHERE id=$1 AND account_kind='employee' FOR UPDATE", [req.params.id]);
+        if (!user || user.role !== "cs_supervisor") throw new HttpError(400, "只能为客服主管设置负责小组");
+        const teams = await query(client, "SELECT id FROM teams WHERE id=ANY($1::uuid[]) AND is_active=TRUE", [unique]);
+        if (teams.length !== unique.length) throw new HttpError(400, "包含无效小组");
+        const before = await query(client, "SELECT team_id FROM supervisor_scopes WHERE supervisor_id=$1", [user.id]);
+        await client.query("DELETE FROM supervisor_scopes WHERE supervisor_id=$1", [user.id]);
+        for (const id of unique) await client.query("INSERT INTO supervisor_scopes(supervisor_id,team_id,granted_by) VALUES($1,$2,$3)", [user.id,id,req.actor!.id]);
+        await writeAudit(client, { actorId: req.actor!.id, action: "supervisor_scopes_update", entityType: "user", entityId: String(user.id), before: { scopes: before }, after: { teamIds: unique }, ip: req.ip });
+        await client.query("COMMIT"); res.json({ ok: true });
+      } catch (error) { await client.query("ROLLBACK"); throw error; }
+      finally { client.release(); }
+    } catch (error) { next(error); }
   });
 
   router.delete("/users/:id/scopes/:teamId", async (req, res, next) => {

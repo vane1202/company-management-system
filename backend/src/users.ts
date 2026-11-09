@@ -10,6 +10,10 @@ export type DbUser = {
   role: UserRole;
   is_active: boolean;
   must_change_password: boolean;
+  account_kind?: "employee" | "cs_wechat";
+  wechat_id?: string | null;
+  phone_label?: string | null;
+  device_version?: number;
 };
 
 export type Actor = PublicUser;
@@ -21,7 +25,11 @@ export function toPublicUser(row: DbUser): PublicUser {
     displayName: row.display_name,
     role: row.role,
     isActive: row.is_active,
-    mustChangePassword: row.must_change_password
+    mustChangePassword: row.must_change_password,
+    accountKind: row.account_kind ?? "employee",
+    wechatId: row.wechat_id ?? null,
+    phoneLabel: row.phone_label ?? null,
+    deviceVersion: row.device_version ?? 0
   };
 }
 
@@ -95,10 +103,10 @@ export async function membersOnDate(
   db: Pool | PoolClient,
   teamId: string,
   businessDate: string
-): Promise<{ user_id: string; display_name: string; username: string }[]> {
+): Promise<{ user_id: string; display_name: string; username: string; wechat_id: string | null; account_kind: string }[]> {
   return query(
     db,
-    `SELECT u.id AS user_id, u.display_name, u.username
+    `SELECT u.id AS user_id, u.display_name, u.username, u.wechat_id, u.account_kind
        FROM team_memberships m
        JOIN users u ON u.id = m.user_id
       WHERE m.team_id = $1

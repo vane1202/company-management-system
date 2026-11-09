@@ -18,7 +18,7 @@ function rewriteDatabaseName(url: string, name: string): string {
   return url.replace(/([/])([^/?#]+)(\?.*)?$/, `$1${name}$3`);
 }
 
-describe("助理审核流程", () => {
+describe("直接统计与旧审核记录保留", () => {
   let db: Pool;
   let app: Express;
   const ids: Record<string, string> = {};
@@ -109,226 +109,59 @@ describe("助理审核流程", () => {
     return agent[method](url).set("Origin", ORIGIN).set("X-CSRF-Token", csrf);
   }
 
-  it("助理不能查看工资或经营估算，也不能改业务值或管理编制", async () => {
+
+  it("助理入口关闭，不能读写业务；BOSS 也不能恢复审核", async () => {
     const asst = await login("assistant");
-    await asst.agent.get("/api/salaries").expect(403);
-    await asst.agent.get("/api/dashboard/summary?preset=day").expect(403);
-    await write(asst.agent, asst.csrf, "post", "/api/salaries")
-      .send({ userId: ids.cs_a1, monthlyAmount: "1000.00", effectiveFrom: today })
-      .expect(403);
-    await write(asst.agent, asst.csrf, "put", "/api/ops-reports")
-      .send({ businessDate: today, platform: "X", promoVideoCount: 1, promoCost: "1.00" })
-      .expect(403);
-    await write(asst.agent, asst.csrf, "put", "/api/editor-reports")
-      .send({
-        businessDate: today,
-        shootCount: 1,
-        finishedCount: 1,
-        publishedCount: 0,
-        inventorySnapshot: 1
-      })
-      .expect(403);
-    await write(asst.agent, asst.csrf, "put", "/api/fan-reports")
-      .send({ addedCount: 1, businessDate: today })
-      .expect(403);
-    await write(asst.agent, asst.csrf, "post", "/api/orders")
-      .send({ businessDate: today, orderRef: "NOPE", amount: "1.00", status: "placed" })
-      .expect(403);
-    await write(asst.agent, asst.csrf, "post", "/api/admin/users")
-      .send({ username: "hacker3", password: PASSWORD, displayName: "x", role: "boss" })
-      .expect(403);
-    await write(asst.agent, asst.csrf, "patch", `/api/admin/users/${ids.cs_a1}`)
-      .send({ role: "boss" })
-      .expect(403);
-  });
-
-  it("员工不能越权审核，提交后为待审；助理可退回并留原因", async () => {
-    const ops = await login("ops1");
-    const saved = await write(ops.agent, ops.csrf, "put", "/api/ops-reports")
-      .send({ businessDate: today, platform: "账户A", promoVideoCount: 5, promoCost: "88.00" })
-      .expect(200);
-    expect(saved.body.report.reviewStatus).toBe("pending");
-    expect(saved.body.report.reviewVersion).toBe(1);
-
-    const cs = await login("cs_a1");
-    await write(cs.agent, cs.csrf, "post", "/api/reviews")
-      .send({
-        entityType: "ops_report",
-        entityId: saved.body.report.id,
-        action: "approve",
-        version: 1
-      })
-      .expect(403);
-
-    const asst = await login("assistant");
-    await write(asst.agent, asst.csrf, "post", "/api/reviews")
-      .send({
-        entityType: "ops_report",
-        entityId: saved.body.report.id,
-        action: "reject",
-        version: 1
-      })
-      .expect(400);
-    const rejected = await write(asst.agent, asst.csrf, "post", "/api/reviews")
-      .send({
-        entityType: "ops_report",
-        entityId: saved.body.report.id,
-        action: "reject",
-        version: 1,
-        reason: "推广费需补充说明"
-      })
-      .expect(200);
-    expect(rejected.body.item.reviewStatus).toBe("rejected");
-    expect(rejected.body.item.reviewReason).toBe("推广费需补充说明");
-
-    const history = await asst.agent
-      .get(`/api/reviews/ops_report/${saved.body.report.id}/history`)
-      .expect(200);
-    expect(history.body.history.some((item: { action: string; reason: string }) => item.action === "rejected" && item.reason === "推广费需补充说明")).toBe(true);
-  });
-
-  it("修改已审数据会回到待审，旧版本审核会冲突", async () => {
-    const edit = await login("edit1");
-    const created = await write(edit.agent, edit.csrf, "put", "/api/editor-reports")
-      .send({
-        businessDate: today,
-        shootCount: 3,
-        finishedCount: 4,
-        publishedCount: 1,
-        inventorySnapshot: 13
-      })
-      .expect(200);
-    const asst = await login("assistant");
-    const approved = await write(asst.agent, asst.csrf, "post", "/api/reviews")
-      .send({
-        entityType: "editor_report",
-        entityId: created.body.report.id,
-        action: "approve",
-        version: created.body.report.reviewVersion
-      })
-      .expect(200);
-    expect(approved.body.item.reviewStatus).toBe("approved");
-
-    const revised = await write(edit.agent, edit.csrf, "put", "/api/editor-reports")
-      .send({
-        businessDate: today,
-        shootCount: 6,
-        finishedCount: 4,
-        publishedCount: 1,
-        inventorySnapshot: 13
-      })
-      .expect(200);
-    expect(revised.body.report.reviewStatus).toBe("pending");
-    expect(revised.body.report.reviewVersion).toBeGreaterThan(created.body.report.reviewVersion);
-
-    const stale = await write(asst.agent, asst.csrf, "post", "/api/reviews")
-      .send({
-        entityType: "editor_report",
-        entityId: created.body.report.id,
-        action: "approve",
-        version: created.body.report.reviewVersion
-      })
-      .expect(409);
-    expect(stale.body.code).toBe("review_version_conflict");
-
-    const again = await write(asst.agent, asst.csrf, "post", "/api/reviews")
-      .send({
-        entityType: "editor_report",
-        entityId: created.body.report.id,
-        action: "approve",
-        version: revised.body.report.reviewVersion
-      })
-      .expect(200);
-    expect(again.body.item.reviewStatus).toBe("approved");
-  });
-
-  it("Boss 按待审/退回/通过分开展示日常指标，工资保持整体且不生成分状态净利润", async () => {
-    const cs = await login("cs_a1");
-    const fan = await write(cs.agent, cs.csrf, "put", "/api/fan-reports")
-      .send({ addedCount: 9, businessDate: today })
-      .expect(200);
-    expect(fan.body.report.reviewStatus).toBe("pending");
-    const order = await write(cs.agent, cs.csrf, "post", "/api/orders")
-      .send({
-        businessDate: today,
-        orderRef: "REV-1",
-        amount: "100.00",
-        status: "placed",
-        customProductCost: "10.00",
-        laborCost: "5.00",
-        shippingCost: "2.00"
-      })
-      .expect(201);
-    expect(order.body.order.reviewStatus).toBe("pending");
-
+    for (const path of ["/api/reviews", "/api/orders", "/api/fan-reports/summary", "/api/ops-reports", "/api/salaries", "/api/dashboard/summary"]) await asst.agent.get(path).expect(403);
+    await write(asst.agent, asst.csrf, "post", "/api/reviews").send({action:"approve"}).expect(403);
     const boss = await login("boss");
-    await write(boss.agent, boss.csrf, "post", "/api/salaries")
-      .send({ userId: ids.cs_a1, monthlyAmount: daysInMonthSafe(today) + ".00", effectiveFrom: today })
-      .expect(201);
-    const summary = await boss.agent.get("/api/dashboard/summary?preset=day&reviewStatus=approved").expect(200);
-    expect(summary.body.selectedReviewStatus).toBe("approved");
-    expect(summary.body.dailyByReviewStatus.pending).toBeTruthy();
-    expect(summary.body.dailyByReviewStatus.approved).toBeTruthy();
-    expect(summary.body.dailyByReviewStatus.rejected).toBeTruthy();
-    expect(summary.body.dailyByReviewStatus.pending.revenue).toBe("100.00");
-    expect(summary.body.dailyByReviewStatus.approved.revenue).toBe("0.00");
-    expect(summary.body.dailyByReviewStatus.rejected.revenue).toBe("0.00");
-    expect(summary.body.dailyByReviewStatus.pending.fanAddedTotal).toBe(9);
-    expect(summary.body.metrics.revenue).toBe("100.00");
-    expect(summary.body.overallSalary.allocated).toBe(summary.body.metrics.salaryAllocated);
-    expect(summary.body.dailyByReviewStatus.pending).not.toHaveProperty("estimate");
-    expect(summary.body.dailyByReviewStatus.approved).not.toHaveProperty("salaryAllocated");
-    expect(summary.body.estimateScope).toBe("all_daily_minus_overall_salary");
-
-    const asst = await login("assistant");
-    await write(asst.agent, asst.csrf, "post", "/api/reviews")
-      .send({
-        entityType: "order",
-        entityId: order.body.order.id,
-        action: "approve",
-        version: order.body.order.reviewVersion
-      })
-      .expect(200);
-    const after = await boss.agent.get("/api/dashboard/summary?preset=day").expect(200);
-    expect(after.body.dailyByReviewStatus.approved.revenue).toBe("100.00");
-    expect(after.body.dailyByReviewStatus.pending.revenue).toBe("0.00");
-    expect(after.body.metrics.revenue).toBe("100.00");
+    await boss.agent.get("/api/reviews").expect(410);
+    await write(boss.agent, boss.csrf, "post", "/api/reviews").send({action:"approve"}).expect(403);
   });
-
-  it("不能审核自己名下的数据，审核记录写入审计", async () => {
-    await db.query(
-      `INSERT INTO ops_reports (user_id, business_date, platform, promo_video_count, promo_cost, last_submitted_by)
-       VALUES ($1, $2, 'self', 1, 1, $1)`,
-      [ids.assistant, today]
-    );
-    const own = await db.query("SELECT id, review_version FROM ops_reports WHERE platform = 'self'");
-    const asst = await login("assistant");
-    await write(asst.agent, asst.csrf, "post", "/api/reviews")
-      .send({
-        entityType: "ops_report",
-        entityId: own.rows[0].id,
-        action: "approve",
-        version: own.rows[0].review_version
-      })
-      .expect(403);
-    const other = await login("assistant2");
-    await write(other.agent, other.csrf, "post", "/api/reviews")
-      .send({
-        entityType: "ops_report",
-        entityId: own.rows[0].id,
-        action: "approve",
-        version: own.rows[0].review_version
-      })
-      .expect(200);
-    const audits = await db.query(
-      "SELECT action FROM audit_logs WHERE entity_id = $1 AND action LIKE 'review_%'",
-      [own.rows[0].id]
-    );
-    expect(audits.rows.some((row: { action: string }) => row.action === "review_approved")).toBe(true);
+  it("新填报即时计入汇总，不创建审核动作或伪造通过记录", async () => {
+    const ops = await login("ops1");
+    const saved = (await write(ops.agent,ops.csrf,"put","/api/ops-reports").send({businessDate:today,platform:"direct",promoVideoCount:5,promoCost:"88.00"}).expect(200)).body.report;
+    expect(saved).not.toHaveProperty("reviewStatus");
+    expect(saved.recordVersion).toBe(1);
+    const boss = await login("boss");
+    const data = (await boss.agent.get("/api/dashboard/summary?preset=day").expect(200)).body;
+    expect(data.metrics.promoCost).toBe("88.00");
+    expect(data.reviewRequired).toBe(false);
+    expect(data.dataCounts).toEqual({fans:0,ops:1,editor:0});
+    expect(data).not.toHaveProperty("dailyByReviewStatus");
+    const raw=(await db.query("SELECT reviewed_by,reviewed_at FROM ops_reports WHERE id=$1",[saved.id])).rows[0];
+    expect(raw).toEqual({reviewed_by:null,reviewed_at:null});
+    expect((await db.query("SELECT * FROM review_actions")).rowCount).toBe(0);
+  });
+  it("修改原记录直接更新统计并保留既有历史审核证据", async () => {
+    const ops=await login("ops1");
+    const row=(await db.query("SELECT id FROM ops_reports WHERE platform='direct'")).rows[0];
+    await db.query("UPDATE ops_reports SET review_status='rejected',reviewed_by=$2,reviewed_at=now(),review_reason='历史说明' WHERE id=$1",[row.id,ids.assistant]);
+    await db.query("INSERT INTO review_actions(entity_type,entity_id,review_version,action,reason,actor_id,before_status,after_status) VALUES('ops_report',$1,1,'rejected','历史说明',$2,'pending','rejected')",[row.id,ids.assistant]);
+    const before=(await db.query("SELECT reviewed_by,reviewed_at,review_reason,review_status FROM ops_reports WHERE id=$1",[row.id])).rows[0];
+    const saved=(await write(ops.agent,ops.csrf,"put","/api/ops-reports").send({businessDate:today,platform:"direct",promoVideoCount:6,promoCost:"90.00"}).expect(200)).body.report;
+    expect(saved.recordVersion).toBe(2);
+    expect((await db.query("SELECT reviewed_by,reviewed_at,review_reason,review_status FROM ops_reports WHERE id=$1",[row.id])).rows[0]).toEqual(before);
+    expect((await db.query("SELECT * FROM review_actions")).rowCount).toBe(1);
+    expect((await (await login("boss")).agent.get("/api/dashboard/summary")).body.metrics.promoCost).toBe("90.00");
+    expect((await db.query("SELECT * FROM audit_logs WHERE entity_id=$1 AND action NOT LIKE 'review_%'",[row.id])).rowCount).toBeGreaterThan(0);
+  });
+  it("历史三种状态全部纳入加粉与订单，退款只扣一次", async () => {
+    for (const [index,status] of ["pending","approved","rejected"].entries()) {
+      await db.query("INSERT INTO orders(user_id,business_date,order_ref,amount,status,review_status) VALUES($1,$2,$3,$4,$5,$6)",[ids.cs_a1,today,"DIRECT-"+index,(index+1)+"0.00",index===2?"refunded":"placed",status]);
+      await db.query("INSERT INTO fan_reports(user_id,business_date,page_name,added_count,ms_today,ws_today,review_status) VALUES($1,$2,$3,$4,$4,0,$5)",[ids.cs_a1,today,"page-"+index,index+1,status]);
+    }
+    const boss=await login("boss");
+    const data=(await boss.agent.get("/api/dashboard/summary").expect(200)).body.metrics;
+    expect(data).toMatchObject({revenue:"60.00",refunds:"30.00",orderCount:2,fanAddedTotal:6});
+    expect((await boss.agent.get("/api/orders").expect(200)).body.orders).toHaveLength(3);
+    const team=(await boss.agent.get("/api/fan-reports/summary?date="+today).expect(200)).body.teams[0];
+    expect(team.totalAdded).toBe(6); expect(team).not.toHaveProperty("reviewCounts");
+    expect(team.details[0]).not.toHaveProperty("reviewStatus");
+  });
+  it("旧审核筛选明确拒绝，不能静默把新总数缩为旧已通过口径", async () => {
+    const boss=await login("boss");
+    await boss.agent.get("/api/dashboard/summary?reviewStatus=approved").expect(400);
+    await boss.agent.get("/api/orders?reviewStatus=pending").expect(400);
   });
 });
-
-function daysInMonthSafe(iso: string): number {
-  const [year, month] = iso.split("-").map(Number);
-  return new Date(year, month, 0).getDate();
-}

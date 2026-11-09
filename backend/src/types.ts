@@ -4,12 +4,14 @@ declare module "express-session" {
   interface SessionData {
     userId?: string;
     csrfToken?: string;
+    deviceVersion?: number;
   }
 }
 
 export type UserRole =
   | "boss"
   | "admin"
+  | "finance"
   | "assistant"
   | "ops"
   | "editor"
@@ -25,6 +27,10 @@ export type PublicUser = {
   role: UserRole;
   isActive: boolean;
   mustChangePassword: boolean;
+  accountKind?: "employee" | "cs_wechat";
+  wechatId?: string | null;
+  phoneLabel?: string | null;
+  deviceVersion?: number;
 };
 
 export class HttpError extends Error {

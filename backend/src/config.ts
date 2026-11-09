@@ -1,6 +1,10 @@
+import { parseLanConfig } from "./lib/lan.js";
+
 export type AppConfig = {
   nodeEnv: string;
   host: string;
+  lanHost?: string;
+  lanAllowedCidr?: string;
   port: number;
   databaseUrl: string;
   sessionSecret: string;
@@ -54,9 +58,14 @@ export function loadConfig(): AppConfig {
     throw new Error("FAN_REPORT_BACKFILL_DAYS 必须是 1 到 60 的整数");
   }
 
+  const host = (process.env.HOST ?? "127.0.0.1").trim() || "127.0.0.1";
+  const lan = parseLanConfig(process.env.LAN_HOST, process.env.LAN_ALLOWED_CIDR);
+  if (lan.lanHost && host !== "127.0.0.1") throw new Error("启用额外 LAN 入口时 HOST 须保持 127.0.0.1，避免重复或扩大监听");
+
   return {
     nodeEnv,
-    host: (process.env.HOST ?? "127.0.0.1").trim() || "127.0.0.1",
+    host,
+    ...lan,
     port: Number(process.env.PORT ?? "13080"),
     databaseUrl: required("DATABASE_URL"),
     sessionSecret,

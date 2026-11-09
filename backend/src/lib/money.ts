@@ -52,6 +52,24 @@ export function parseCount(input: unknown, field: string, max = 1_000_000): numb
   return value;
 }
 
+export function parsePercent(input: unknown, field = "百分比"): string {
+  if (typeof input === "number") {
+    throw new HttpError(400, `${field}请以字符串提交（例如 "1.25"），避免浮点误差`);
+  }
+  if (typeof input !== "string") {
+    throw new HttpError(400, `${field}不能为空`);
+  }
+  const value = input.trim();
+  if (!/^(0|[1-9]\d*)(\.\d{1,2})?$/.test(value)) {
+    throw new HttpError(400, `${field}格式无效，须为 0 到 100 且最多两位小数`);
+  }
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0 || n > 100) {
+    throw new HttpError(400, `${field}须为 0 到 100 的百分比`);
+  }
+  return value;
+}
+
 export function formatMoney(value: unknown): string {
   if (typeof value === "number") {
     if (!Number.isFinite(value)) {

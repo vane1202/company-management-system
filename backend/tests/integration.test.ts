@@ -52,6 +52,7 @@ describe("公司内部管理系统集成测试", () => {
     }
 
     await user("boss", "boss");
+    await user("admin", "admin");
     await user("sup_a", "cs_supervisor");
     await user("sup_b", "cs_supervisor");
     await user("cs_a1", "cs");
@@ -172,7 +173,7 @@ describe("公司内部管理系统集成测试", () => {
     await cs.agent.get(`/api/orders?userId=${ids.cs_b1}`).expect(403);
   });
 
-  it("主管只能看负责组，不能跨组，也不能看工资和订单", async () => {
+  it("主管只能看负责组的加粉与订单，不能跨组或看工资", async () => {
     const sup = await login("sup_a");
     const summary = await sup.agent.get(`/api/fan-reports/summary?date=${today}`).expect(200);
     expect(summary.body.teams).toHaveLength(1);
@@ -189,7 +190,7 @@ describe("公司内部管理系统集成测试", () => {
 
     await sup.agent.get(`/api/fan-reports/summary?date=${today}&teamId=${ids.teamB}`).expect(403);
     await sup.agent.get("/api/salaries").expect(403);
-    await sup.agent.get("/api/orders").expect(403);
+    await sup.agent.get("/api/orders").expect(200);
     await sup.agent.get("/api/dashboard/summary").expect(403);
 
     const exportRes = await sup.agent.get(`/api/fan-reports/export?date=${today}`).expect(200);
@@ -199,7 +200,7 @@ describe("公司内部管理系统集成测试", () => {
   });
 
   it("跨组需要显式授权后才能查看", async () => {
-    const boss = await login("boss");
+    const boss = await login("admin");
     await write(boss.agent, boss.csrf, "post", `/api/admin/users/${ids.sup_a}/scopes`)
       .send({ teamId: ids.teamB, crossGrant: true })
       .expect(201);
@@ -208,7 +209,7 @@ describe("公司内部管理系统集成测试", () => {
     expect(summary.body.teams[0].teamName).toBe("二组");
   });
 
-  it("补报窗口由服务端强制，主管可在范围内代为更正", async () => {
+  it("补报窗口由服务端强制，主管只读不能代为更正", async () => {
     const oldDate = addDays(today, -3);
     const cs = await login("cs_a1");
     await write(cs.agent, cs.csrf, "put", "/api/fan-reports")
@@ -223,7 +224,7 @@ describe("公司内部管理系统集成测试", () => {
     const sup = await login("sup_a");
     await write(sup.agent, sup.csrf, "put", "/api/fan-reports")
       .send({ addedCount: 8, businessDate: oldDate, userId: ids.cs_a1 })
-      .expect(200);
+      .expect(403);
   });
 
   it("调组不改写历史加粉归属", async () => {
@@ -233,7 +234,7 @@ describe("公司内部管理系统集成测试", () => {
       .send({ addedCount: 7, businessDate: hist })
       .expect(200);
 
-    const boss = await login("boss");
+    const boss = await login("admin");
     await write(boss.agent, boss.csrf, "post", `/api/admin/users/${ids.cs_a1}/transfer`)
       .send({ teamId: ids.teamB, effectiveDate: today })
       .expect(200);
@@ -336,13 +337,8 @@ describe("公司内部管理系统集成测试", () => {
 
   it("Boss 可看全局估算，工资按月薪分摊而不是每天整额累加", async () => {
     const boss = await login("boss");
-    await write(boss.agent, boss.csrf, "post", "/api/salaries")
-      .send({
-        userId: ids.ops1,
-        monthlyAmount: "3000.00",
-        effectiveFrom: addDays(today, -5)
-      })
-      .expect(201);
+    // Seed existing payroll through the isolated fixture: neither new admin nor BOSS may write payroll.
+    await db.query("INSERT INTO salaries(user_id,monthly_amount,effective_from,created_by) VALUES($1,3000,$2,$3)", [ids.ops1,addDays(today,-5),ids.admin]);
     const data = await boss.agent.get("/api/dashboard/summary?preset=day").expect(200);
     expect(data.body.metrics.revenue).toBe("130.50");
     expect(data.body.metrics.refunds).toBe("30.00");
@@ -451,7 +447,7 @@ describe("公司内部管理系统集成测试", () => {
 
   it("停用账号不改写历史应报，且导出人员与汇总一致", async () => {
     const hist = addDays(today, -1);
-    const boss = await login("boss");
+    const boss = await login("admin");
     await write(boss.agent, boss.csrf, "patch", `/api/admin/users/${ids.cs_a2}`)
       .send({ isActive: false })
       .expect(200);
@@ -471,7 +467,7 @@ describe("公司内部管理系统集成测试", () => {
   });
 
   it("后台设置的补报窗口对员工生效", async () => {
-    const boss = await login("boss");
+    const boss = await login("admin");
     await write(boss.agent, boss.csrf, "put", "/api/admin/settings")
       .send({ fan_report_backfill_days: 1 })
       .expect(200);
@@ -488,10 +484,7 @@ describe("公司内部管理系统集成测试", () => {
   });
 
   it("同一员工工资生效区间不能重叠", async () => {
-    const boss = await login("boss");
-    await write(boss.agent, boss.csrf, "post", "/api/salaries")
-      .send({ userId: ids.ops1, monthlyAmount: "1000.00", effectiveFrom: today })
-      .expect(409);
+    await expect(db.query("INSERT INTO salaries(user_id,monthly_amount,effective_from,created_by) VALUES($1,1000,$2,$3)", [ids.ops1,today,ids.admin])).rejects.toMatchObject({ code: "23P01" });
   });
 
   it("首次登录未改密时不能填报", async () => {

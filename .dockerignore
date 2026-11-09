@@ -6,3 +6,11 @@ backend/dist
 backups
 *.log
 .dev-progress.md
+.npm-cache
+.tmp
+.pg-test-pass
+.pgdata
+data
+logs
+.env.*
+!.env.example

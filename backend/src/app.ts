@@ -22,14 +22,21 @@ import { createOrderRouter } from "./routes/orders.js";
 import { createSalaryRouter } from "./routes/salaries.js";
 import { createDashboardRouter } from "./routes/dashboard.js";
 import { createNoteRouter } from "./routes/notes.js";
-import { createReviewRouter } from "./routes/reviews.js";
 import { requireAuth } from "./routes/auth.js";
+import { createModulesRouter } from "./routes/modules.js";
+import { guardModuleWrites } from "./lib/modules.js";
+import { createCsAccountsRouter, createCsDeviceRegistrationRouter } from "./routes/csAccounts.js";
+import { enforceRoleBoundary } from "./lib/access.js";
+import { restrictLanClients } from "./lib/lan.js";
+import { createOrderRecordsRouter } from "./routes/orderRecords.js";
+import { createFinanceRouter } from "./routes/finance.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PgSession = connectPgSimple(session);
 
 export function createApp(db: Pool, config: AppConfig) {
   const app = express();
+  app.use(restrictLanClients(config));
   if (config.trustProxy > 0) app.set("trust proxy", config.trustProxy);
 
   app.use(
@@ -105,18 +112,24 @@ export function createApp(db: Pool, config: AppConfig) {
   app.get("/api/health", health);
 
   app.use(csrfAndOriginGuard(config.appOrigins));
+  app.use("/api/auth/cs-device", createCsDeviceRegistrationRouter(db, config));
   app.use("/api/auth", createAuthRouter(db, config));
   app.use(requireAuthExcept(["/api/auth/login", "/api/auth/csrf", "/api/auth/logout"]));
   app.use(blockIfPasswordChangeRequired);
-  app.use("/api/fan-reports", createFanRouter(db, config));
+  app.use(enforceRoleBoundary);
+  app.use("/api/modules", createModulesRouter(db));
+  app.use("/api/cs-accounts", createCsAccountsRouter(db, config));
+  app.use("/api/fan-reports", guardModuleWrites(db, "fans"), createFanRouter(db, config));
   app.use("/api/admin", createAdminRouter(db));
-  app.use("/api/ops-reports", createOpsRouter(db, config));
-  app.use("/api/editor-reports", createEditorRouter(db, config));
-  app.use("/api/orders", createOrderRouter(db, config));
+  app.use("/api/ops-reports", guardModuleWrites(db, "ops"), createOpsRouter(db, config));
+  app.use("/api/editor-reports", guardModuleWrites(db, "editor"), createEditorRouter(db, config));
+  app.use("/api/orders", guardModuleWrites(db, "orders"), createOrderRouter(db, config));
+  app.use("/api/order-records", guardModuleWrites(db, "orders"), createOrderRecordsRouter(db, config));
+  app.use("/api/finance", createFinanceRouter(db, config));
   app.use("/api/salaries", createSalaryRouter(db));
   app.use("/api/dashboard", createDashboardRouter(db, config));
   app.use("/api/notes", createNoteRouter(db));
-  app.use("/api/reviews", createReviewRouter(db));
+  app.use("/api/reviews", (_req, res) => res.status(410).json({ error: "审核流程已停用，填报数据直接进入统计" }));
 
   app.use("/api", (_req, res) => {
     res.status(404).json({ error: "接口不存在" });
@@ -133,6 +146,7 @@ export function createApp(db: Pool, config: AppConfig) {
   }
 
   app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    if (typeof error === "object" && error && "status" in error && error.status === 413) { res.status(413).json({ error: "文件或请求过大，订单照片每张最多8MB" }); return; }
     if (error instanceof HttpError) {
       res.status(error.status).json({ error: error.message, code: error.code });
       return;

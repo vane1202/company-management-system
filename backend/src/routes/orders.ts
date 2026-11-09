@@ -3,10 +3,10 @@ import type { Pool } from "pg";
 import { writeAudit } from "../audit.js";
 import { query, queryOne } from "../db.js";
 import { businessToday, isIsoDate, toDateOnly } from "../lib/dates.js";
-import { formatMoney, parseMoney } from "../lib/money.js";
+import { addMoney, formatMoney, parseMoney } from "../lib/money.js";
 import { recordSubmission, reviewPublicFields } from "../lib/review.js";
 import { HttpError, type OrderStatus } from "../types.js";
-import { isBossOrAdmin, type Actor } from "../users.js";
+import { isBossOrAdmin, managedTeamIds, type Actor } from "../users.js";
 import type { AppConfig } from "../config.js";
 
 const STATUSES: OrderStatus[] = ["placed", "in_production", "shipped", "refunded"];
@@ -16,11 +16,7 @@ export function createOrderRouter(db: Pool, config: AppConfig): Router {
 
   router.use((req, _res, next) => {
     const actor = req.actor!;
-    if (actor.role === "cs_supervisor") {
-      next(new HttpError(403, "客服主管不能查看订单或消费数据"));
-      return;
-    }
-    if (!["cs", "boss", "admin"].includes(actor.role)) {
+    if (!["cs", "boss", "cs_supervisor"].includes(actor.role)) {
       next(new HttpError(403, "无权访问订单"));
       return;
     }
@@ -31,18 +27,22 @@ export function createOrderRouter(db: Pool, config: AppConfig): Router {
     try {
       const actor = req.actor!;
       const targetId = req.query.userId ? String(req.query.userId) : "";
-      if (targetId) assertCanViewOrders(actor, targetId);
-      const userFilter = isBossOrAdmin(actor) ? targetId : actor.id;
+      if (targetId && actor.role !== "cs_supervisor") assertCanViewOrders(actor, targetId);
+      const userFilter = actor.role === "cs" ? actor.id : targetId;
+      const scopes = actor.role === "cs_supervisor" ? await managedTeamIds(db, actor) : null;
+      const filters = readFilters(req.query);
       const rows = await query(
         db,
-        `SELECT * FROM orders
-          WHERE ($1 = '' OR user_id::text = $1)
-            AND ($2::date IS NULL OR business_date >= $2)
-            AND ($3::date IS NULL OR business_date <= $3)
-          ORDER BY business_date DESC, created_at DESC`,
-        [userFilter, emptyDate(req.query.from), emptyDate(req.query.to)]
+        `SELECT o.*,u.display_name,u.wechat_id,u.account_kind,EXISTS(SELECT 1 FROM order_details d WHERE d.order_id=o.id) AS workflow_enabled FROM orders o JOIN users u ON u.id=o.user_id
+          WHERE ($1 = '' OR o.user_id::text = $1)
+            AND ($2::date IS NULL OR o.business_date >= $2)
+            AND ($3::date IS NULL OR o.business_date <= $3)
+            AND ($4::uuid[] IS NULL OR EXISTS(SELECT 1 FROM team_memberships m WHERE m.user_id=o.user_id AND m.team_id=ANY($4::uuid[]) AND m.start_date<=o.business_date AND (m.end_date IS NULL OR m.end_date>=o.business_date)))
+            AND ($5='' OR o.status::text=$5)
+          ORDER BY o.business_date DESC, o.created_at DESC`,
+        [userFilter, filters.from, filters.to, scopes, filters.status]
       );
-      res.json({ orders: rows.map(serializeOrder) });
+      res.json({ orders: rows.map(serializeOrder), totals: { amount: addMoney(rows.map((row) => String(row.amount))), refunds: addMoney(rows.filter((row) => row.status === "refunded").map((row) => String(row.amount))) } });
     } catch (error) {
       next(error);
     }
@@ -51,7 +51,9 @@ export function createOrderRouter(db: Pool, config: AppConfig): Router {
   router.get("/export", async (req, res, next) => {
     try {
       const actor = req.actor!;
-      const userFilter = isBossOrAdmin(actor) ? String(req.query.userId ?? "") : actor.id;
+      const userFilter = actor.role === "cs" ? actor.id : String(req.query.userId ?? "");
+      const scopes = actor.role === "cs_supervisor" ? await managedTeamIds(db, actor) : null;
+      const filters = readFilters(req.query);
       const rows = await query(
         db,
         `SELECT o.*, u.display_name FROM orders o
@@ -59,8 +61,10 @@ export function createOrderRouter(db: Pool, config: AppConfig): Router {
           WHERE ($1 = '' OR o.user_id::text = $1)
             AND ($2::date IS NULL OR o.business_date >= $2)
             AND ($3::date IS NULL OR o.business_date <= $3)
+            AND ($4::uuid[] IS NULL OR EXISTS(SELECT 1 FROM team_memberships m WHERE m.user_id=o.user_id AND m.team_id=ANY($4::uuid[]) AND m.start_date<=o.business_date AND (m.end_date IS NULL OR m.end_date>=o.business_date)))
+            AND ($5='' OR o.status::text=$5)
           ORDER BY o.business_date, o.order_ref`,
-        [userFilter, emptyDate(req.query.from), emptyDate(req.query.to)]
+        [userFilter, filters.from, filters.to, scopes, filters.status]
       );
       const lines = ["业务日,订单标识,录入人,客户备注,金额,状态,定制,商品成本,工费,运费"];
       for (const row of rows) {
@@ -152,6 +156,7 @@ export function createOrderRouter(db: Pool, config: AppConfig): Router {
         req.params.id
       ]);
       if (!existing) throw new HttpError(404, "订单不存在");
+      if ((await db.query("SELECT 1 FROM order_details WHERE order_id=$1", [existing.id])).rowCount) throw new HttpError(409, "明细订单请使用订单档案操作，金额由料子明细自动计算");
       if (existing.user_id !== actor.id && !isBossOrAdmin(actor)) {
         throw new HttpError(403, "无权修改该订单");
       }
@@ -232,6 +237,16 @@ export function createOrderRouter(db: Pool, config: AppConfig): Router {
   return router;
 }
 
+function readFilters(query: Record<string, unknown>) {
+  const from = String(query.from ?? "");
+  const to = String(query.to ?? "");
+  const status = String(query.status ?? "");
+  if (query.reviewStatus) throw new HttpError(400, "审核筛选已停用");
+  if ((from && !isIsoDate(from)) || (to && !isIsoDate(to)) || (from && to && from > to)) throw new HttpError(400, "日期区间无效");
+  if (status && !STATUSES.includes(status as OrderStatus)) throw new HttpError(400, "订单状态无效");
+  return { from: from || null, to: to || null, status };
+}
+
 function assertCanViewOrders(actor: Actor, targetId: string) {
   if (actor.id !== targetId && !isBossOrAdmin(actor)) {
     throw new HttpError(403, "无权查看他人订单");
@@ -288,7 +303,11 @@ function serializeOrder(row: Record<string, unknown> | undefined) {
   if (!row) return null;
   return {
     id: row.id,
+    workflowEnabled: Boolean(row.workflow_enabled),
     userId: row.user_id,
+    displayName: row.display_name,
+    wechatId: row.wechat_id,
+    accountKind: row.account_kind,
     businessDate: toDateOnly(row.business_date),
     orderRef: row.order_ref,
     customerLabel: row.customer_label,

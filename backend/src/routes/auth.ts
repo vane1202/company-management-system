@@ -4,7 +4,7 @@ import type { Pool } from "pg";
 import { randomBytes } from "node:crypto";
 import type { AppConfig } from "../config.js";
 import { writeAudit } from "../audit.js";
-import { findUserByUsername, toPublicUser, type Actor } from "../users.js";
+import { findUserByUsername, toPublicUser, type Actor, type DbUser } from "../users.js";
 import { hashPassword, validatePassword, verifyPassword } from "../lib/password.js";
 import { HttpError } from "../types.js";
 import { businessToday } from "../lib/dates.js";
@@ -65,7 +65,7 @@ export function createAuthRouter(db: Pool, config: AppConfig): Router {
 
       const user = await findUserByUsername(db, username);
       const ok = user ? await verifyPassword(password, user.password_hash) : false;
-      if (!user || !user.is_active || !ok) {
+      if (!user || !user.is_active || !ok || user.account_kind === "cs_wechat") {
         await writeAudit(db, {
           actorId: user?.id ?? null,
           action: "login_failed",
@@ -76,11 +76,7 @@ export function createAuthRouter(db: Pool, config: AppConfig): Router {
         throw new HttpError(401, "登录名或密码不正确");
       }
 
-      await new Promise<void>((resolve, reject) => {
-        req.session.regenerate((error) => (error ? reject(error) : resolve()));
-      });
-      req.session.userId = user.id;
-      req.session.csrfToken = randomBytes(32).toString("hex");
+      await establishSession(req, user);
       await writeAudit(db, {
         actorId: user.id,
         action: "login",
@@ -120,6 +116,7 @@ export function createAuthRouter(db: Pool, config: AppConfig): Router {
     try {
       if (!req.actor) throw new HttpError(401, "未登录");
       const currentPassword = String(req.body?.currentPassword ?? "");
+      if (req.actor.accountKind === "cs_wechat") throw new HttpError(403, "客服微信通过管理员登记码重新登记，不使用员工密码");
       const newPassword = String(req.body?.newPassword ?? "");
       const user = await findUserByUsername(db, req.actor.username);
       if (!user || !(await verifyPassword(currentPassword, user.password_hash))) {
@@ -169,6 +166,16 @@ export function ensureCsrf(req: Request): string {
   return req.session.csrfToken;
 }
 
+export async function establishSession(req: Request, user: DbUser): Promise<void> {
+  await new Promise<void>((resolve, reject) => req.session.regenerate((error) => error ? reject(error) : resolve()));
+  req.session.userId = user.id;
+  req.session.csrfToken = randomBytes(32).toString("hex");
+  if (user.account_kind === "cs_wechat") {
+    req.session.deviceVersion = user.device_version ?? 0;
+    req.session.cookie.maxAge = 30 * 24 * 60 * 60 * 1000;
+  }
+}
+
 export function parseOrigin(value?: string): string | undefined {
   if (!value) return undefined;
   try {
@@ -209,7 +216,8 @@ export function attachActor(loader: (id: string) => Promise<Actor | undefined>) 
     try {
       if (req.session.userId) {
         const actor = await loader(req.session.userId);
-        if (actor && actor.isActive) req.actor = actor;
+        if (actor && actor.isActive && (actor.accountKind !== "cs_wechat" || req.session.deviceVersion === actor.deviceVersion)) req.actor = actor;
+        else { delete req.session.userId; delete req.session.deviceVersion; }
       }
       next();
     } catch (error) {

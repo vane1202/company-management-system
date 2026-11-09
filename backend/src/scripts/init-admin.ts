@@ -5,6 +5,7 @@ import { createPool } from "../db.js";
 import { migrate } from "../migrate.js";
 import { findUserByUsername } from "../users.js";
 import { hashPassword, validatePassword } from "../lib/password.js";
+import { promptSecret } from "../lib/secretPrompt.js";
 
 const config = loadConfig();
 const pool = createPool(config.databaseUrl);
@@ -26,8 +27,8 @@ if (!username || !password || !displayName) {
   const rl = readline.createInterface({ input: stdin, output: stdout });
   if (!username) username = (await rl.question("管理员登录名: ")).trim().toLowerCase();
   if (!displayName) displayName = (await rl.question("显示名称: ")).trim();
-  if (!password) password = (await rl.question("密码（不会回显到日志）: ")).trim();
   rl.close();
+  if (!password) password = await promptSecret(stdin, stdout, "密码（输入隐藏）: ");
 }
 
 if (!/^[a-z0-9][a-z0-9_-]{2,31}$/.test(username)) {
