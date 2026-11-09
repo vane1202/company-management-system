@@ -50,3 +50,37 @@ describe("工资单按状态拆分（只展示，不改合计口径）", () => {
     expect(payrollStatusSplit([], "0.00")).toEqual({ locked: { count: 0, net: "0.00" }, draft: { count: 0, net: "0.00" }, negatives: [], matchesTotal: true });
   });
 });
+
+import { fanStateSegments, monthGap, sparkReady, MONTH_GAP_MIN_ABS } from "./dashboardDisplay";
+describe("四种沟通状态占比", () => {
+  it("合计等于加粉总数时不补段", () => {
+    const r = fanStateSegments(7, { replied: 3, readNoReply: 1, unread: 2, invalid: 1 })!;
+    expect(r.segments.map(s => s.value)).toEqual([3, 1, 2, 1]);
+    expect(r.base).toBe(7); expect(r.overflow).toBe(0);
+  });
+  it("少于总数时补灰色未分类段，不按比例硬凑", () => {
+    const r = fanStateSegments(20, { replied: 3, readNoReply: 1, unread: 2, invalid: 1 })!;
+    expect(r.segments.at(-1)).toEqual({ key: "unclassified", label: "未分类", value: 13 });
+    expect(r.segments.reduce((n, s) => n + s.value, 0)).toBe(20);
+  });
+  it("多于总数时如实给出多出数量；缺字段不画", () => {
+    const r = fanStateSegments(5, { replied: 4, readNoReply: 1, unread: 1, invalid: 1 })!;
+    expect(r.overflow).toBe(2); expect(r.base).toBe(7); expect(r.segments).toHaveLength(4);
+    expect(fanStateSegments(5, { replied: 4, readNoReply: null, unread: 1, invalid: 1 })).toBeNull();
+    expect(fanStateSegments(null, { replied: 1, readNoReply: 1, unread: 1, invalid: 1 })).toBeNull();
+  });
+});
+describe("月累计（上报）与区间新增差异提示", () => {
+  it("保守阈值：小差异不提示，大差异提示", () => {
+    expect(monthGap(216, 9)).toEqual({ diff: 207, flagged: true });
+    expect(monthGap(100, 95)).toEqual({ diff: 5, flagged: false });
+    expect(monthGap(30, 30 - MONTH_GAP_MIN_ABS + 1)!.flagged).toBe(false);
+    expect(monthGap(60, 30)!.flagged).toBe(true);
+    expect(monthGap(200, 170)!.flagged).toBe(false);
+    expect(monthGap(null, 3)).toBeNull();
+  });
+  it("趋势线至少需要两个有填报的日子", () => {
+    expect(sparkReady([null, 3, null])).toBe(false);
+    expect(sparkReady([1, null, 0])).toBe(true);
+  });
+});

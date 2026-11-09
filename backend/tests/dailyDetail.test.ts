@@ -73,6 +73,29 @@ describe("日报明细与模块开关 PostgreSQL 集成", () => {
     await asst.post("/api/reviews",{action:"approve"}).expect(403);
     await asst.put("/api/fan-reports",{businessDate:today,...fan("C")}).expect(403);
   });
+  it("加粉 7 天日序列按业务日分组：无填报为 null、今日标记未完成、权限同经营汇总", async () => {
+    const boss = await login("boss");
+    const series = (await boss.agent.get(`/api/dashboard/series?to=${today}&days=7`).expect(200)).body;
+    expect(series).toMatchObject({ from: shiftDate(today, -6), to: today, today });
+    expect(series.days).toHaveLength(7);
+    const byDate = Object.fromEntries(series.days.map((d: any) => [d.date, d]));
+    // 今日：旧未分类 15 + 主页 A 5 + 主页 B 0 = 20，与汇总口径一致。
+    expect(byDate[today]).toMatchObject({ fanAdded: 20, reports: 3, partial: true, validToday: 18 });
+    expect(byDate[shiftDate(today, -2)]).toMatchObject({ fanAdded: 5, reports: 1, partial: false });
+    expect(byDate[shiftDate(today, -1)]).toMatchObject({ fanAdded: null, validToday: null, reports: 0 });
+    const summary = (await boss.agent.get(`/api/dashboard/summary?from=${today}&to=${today}`).expect(200)).body;
+    expect(summary.metrics.fanAddedTotal).toBe(byDate[today].fanAdded);
+    for (const bad of ["days=0", "days=32", "days=x", "to=2026-13-01"]) await boss.agent.get(`/api/dashboard/series?${bad}`).expect(400);
+    for (const name of ["admin", "staff", "supervisor", "ops", "editor", "assistant"]) await (await login(name)).agent.get("/api/dashboard/series").expect(403);
+  });
+  it("主管汇总返回当天四种沟通状态（含已读不回、未读），只含授权小组", async () => {
+    const sup = await login("supervisor");
+    expect((await sup.agent.get(`/api/fan-reports/summary?date=${today}`).expect(200)).body.teams).toEqual([]);
+    await db.query("INSERT INTO supervisor_scopes(supervisor_id,team_id,granted_by) VALUES($1,$2,$3)", [ids.supervisor, ids.team, ids.boss]);
+    const team = (await sup.agent.get(`/api/fan-reports/summary?date=${today}`).expect(200)).body.teams[0];
+    // 主页 A 已被改为未读 99；主页 B 为 6。旧未分类行不含状态，故四态合计可小于加粉总数。
+    expect(team).toMatchObject({ totalAdded: 20, commReplied: 16, commReadNoReply: 14, commUnread: 105, commInvalid: 10, statsIncomplete: true });
+  });
   it("运营成本独立上报且美元不进入原估算，拍剪多个人设不覆盖", async () => {
     const boss = await login("boss");
     const ops = await login("ops");

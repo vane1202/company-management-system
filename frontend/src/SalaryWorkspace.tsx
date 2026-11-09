@@ -5,6 +5,7 @@ import { createRequestGate } from "./requestGate";
 import { toErrorMessage } from "./errors";
 import { Field } from "./OrderWorkspace";
 import { PayrollMonth } from "./PayrollMonth";
+import { InfoTip } from "./InfoTip";
 
 function monthRange(today:string,offset=0) {
   const [year,month]=today.split("-").map(Number);
@@ -34,8 +35,7 @@ export function SalaryWorkspace({today,readOnly}:{today:string;readOnly:boolean}
   function startCreate(){setEditing(null);setForm({userId:"",monthlyAmount:"",effectiveFrom:today,effectiveTo:"",reason:""});setFormOpen(true);setFormError("");setTab("standards");setMessage("");}
   function startEdit(record:Salary){setEditing(record);setForm({userId:record.userId,monthlyAmount:record.monthlyAmount,effectiveFrom:record.effectiveFrom,effectiveTo:record.effectiveTo??"",reason:""});setFormOpen(true);setFormError("");setMessage("");}
   async function showHistory(id:string){setHistory({id,rows:[],loading:true,error:""});try{const d=await api.salaryHistory(id);setHistory(current=>current?.id===id?{id,rows:d.history,loading:false,error:""}:current);}catch(e){setHistory(current=>current?.id===id?{id,rows:[],loading:false,error:toErrorMessage(e)}:current);}}
-  return <div className="commerce-workspace payroll-workspace" aria-busy={loading||busy}><header className="commerce-heading"><div><p className="eyebrow">员工薪资 · 人民币</p><h1>{readOnly?"工资汇总":"工资核算"}</h1></div><button className="secondary" disabled={loading||busy} onClick={()=>void load()}>刷新</button></header>
-    <p className="notice">{readOnly?"BOSS只读查看工资汇总和明细，工资标准由财务维护。":"财务维护底薪标准，并按月录入提成、奖金、扣款，核对后锁定工资单。"}</p>
+  return <div className="commerce-workspace payroll-workspace" aria-busy={loading||busy}><header className="commerce-heading"><div><p className="eyebrow">员工薪资 · 人民币</p><h1>{readOnly?"工资汇总":"工资核算"}<InfoTip label="工资页说明" text={readOnly?"BOSS只读查看工资汇总和明细，工资标准由财务维护。":"财务维护底薪标准，并按月录入提成、奖金、扣款，核对后锁定工资单。"}/></h1></div><button className="secondary" disabled={loading||busy} onClick={()=>void load()}>刷新</button></header>
     {error&&<p className="error" role="alert">{error}</p>}{message&&<p className="success" role="status">{message}</p>}
     <div className="commerce-line payroll-tabs"><div role="tablist" aria-label="工资视图"><button role="tab" aria-selected={tab==="payroll"} className={tab==="payroll"?"":"secondary"} onClick={()=>setTab("payroll")}>月度工资单</button><button role="tab" aria-selected={tab==="summary"} className={tab==="summary"?"":"secondary"} onClick={()=>setTab("summary")}>底薪分摊</button><button role="tab" aria-selected={tab==="standards"} className={tab==="standards"?"":"secondary"} onClick={()=>setTab("standards")}>工资标准</button></div>{!readOnly&&tab==="standards"&&<button disabled={busy} onClick={startCreate}>＋ 新增工资</button>}</div>
     {tab==="payroll"&&<PayrollMonth today={today} readOnly={readOnly} employees={employees}/>}

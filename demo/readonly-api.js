@@ -22,9 +22,16 @@
   const staff = [...roles.map((r) => ({ id: "demo-" + r, username: usernames[r], displayName: names[r], role: r, isActive: true, accountKind: "employee", managedTeamIds: r === "cs_supervisor" ? [teams[0].id] : [], currentTeam: null })), ...["ops", "editor", "assistant"].map((r) => ({ id: "demo-" + r, username: "demo_" + r, displayName: {ops:"演示运营",editor:"演示拍剪",assistant:"演示助理"}[r], role: r, isActive: true, accountKind: "employee", currentTeam: null }))];
   const assetUsers = accounts.map((a) => ({ id: a.id, username: a.wechatId, displayName: a.wechatId, wechatId: a.wechatId, accountKind: "cs_wechat", role: "cs", isActive: true, currentTeam: { id: a.teamId, name: a.teamName } }));
   const fans = [
-    { id:"demo-fan-1", userId:accounts[0].id, businessDate:today, pageName:"演示主页 A", msToday:4, wsToday:3, msMonth:120, wsMonth:48, validToday:5, commReplied:3, commReadNoReply:1, commUnread:2, commInvalid:1, addedCount:7 },
+    { id:"demo-fan-1", userId:accounts[0].id, businessDate:today, pageName:"演示主页 A", msToday:4, wsToday:3, msMonth:120, wsMonth:48, validToday:5, commReplied:3, commReadNoReply:1, commUnread:1, commInvalid:1, addedCount:7 },
     { id:"demo-fan-2", userId:accounts[1].id, businessDate:today, pageName:"演示主页 B", msToday:3, wsToday:2, msMonth:96, wsMonth:35, validToday:4, commReplied:2, commReadNoReply:1, commUnread:1, commInvalid:1, addedCount:5 },
-    { id:"demo-fan-3", userId:accounts[0].id, businessDate:shift(today,-1), pageName:"演示主页 A", msToday:2, wsToday:2, msMonth:116, wsMonth:45, validToday:3, commReplied:2, commReadNoReply:0, commUnread:1, commInvalid:1, addedCount:4 }
+    { id:"demo-fan-3", userId:accounts[0].id, businessDate:shift(today,-1), pageName:"演示主页 A", msToday:2, wsToday:2, msMonth:116, wsMonth:45, validToday:3, commReplied:2, commReadNoReply:0, commUnread:1, commInvalid:1, addedCount:4 },
+    // 近 7 天趋势用的虚构历史日报；shift(today,-4) 故意没有任何填报，用来展示趋势线断开。
+    { id:"demo-fan-4", userId:accounts[0].id, businessDate:shift(today,-2), pageName:"演示主页 A", msToday:3, wsToday:2, msMonth:114, wsMonth:43, validToday:4, commReplied:2, commReadNoReply:1, commUnread:1, commInvalid:1, addedCount:5 },
+    { id:"demo-fan-5", userId:accounts[1].id, businessDate:shift(today,-2), pageName:"演示主页 B", msToday:2, wsToday:1, msMonth:93, wsMonth:33, validToday:2, commReplied:1, commReadNoReply:1, commUnread:0, commInvalid:1, addedCount:3 },
+    { id:"demo-fan-6", userId:accounts[0].id, businessDate:shift(today,-3), pageName:"演示主页 A", msToday:4, wsToday:2, msMonth:111, wsMonth:41, validToday:5, commReplied:3, commReadNoReply:1, commUnread:1, commInvalid:1, addedCount:6 },
+    { id:"demo-fan-7", userId:accounts[0].id, businessDate:shift(today,-5), pageName:"演示主页 A", msToday:2, wsToday:1, msMonth:105, wsMonth:39, validToday:2, commReplied:1, commReadNoReply:1, commUnread:0, commInvalid:1, addedCount:3 },
+    { id:"demo-fan-8", userId:accounts[1].id, businessDate:shift(today,-5), pageName:"演示主页 B", msToday:1, wsToday:1, msMonth:90, wsMonth:32, validToday:2, commReplied:1, commReadNoReply:0, commUnread:1, commInvalid:0, addedCount:2 },
+    { id:"demo-fan-9", userId:accounts[1].id, businessDate:shift(today,-6), pageName:"演示主页 B", msToday:3, wsToday:1, msMonth:88, wsMonth:31, validToday:3, commReplied:2, commReadNoReply:1, commUnread:0, commInvalid:1, addedCount:4 }
   ].map((row) => ({ ...row, note:"虚构演示记录", recordVersion:1, updatedAt:row.businessDate+"T02:00:00Z", isLegacyUnclassified:false }));
   const orders = [
     { id:"demo-order-1", userId:accounts[0].id, businessDate:today, orderRef:"DEMO-A-001", customerLabel:"演示客户甲", amount:"1290.50", status:"shipped", customProductCost:"900.00", laborCost:"50.00", shippingCost:"20.00" },
@@ -120,6 +127,14 @@
   function filteredOrders(query) {
     return visibleOrders().filter((o)=>(!query.get("userId")||o.userId===query.get("userId"))&&(!query.get("from")||o.businessDate>=query.get("from"))&&(!query.get("to")||o.businessDate<=query.get("to"))&&(!query.get("status")||o.status===query.get("status")));
   }
+  function dashboardSeries(query) {
+    const to=query.get("to")||today, n=query.get("days")==null?7:Number(query.get("days"));
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(to)||Number.isNaN(Date.parse(to+"T00:00:00Z")))return json({error:"日期格式无效"},400);
+    if(!Number.isInteger(n)||n<1||n>31)return json({error:"天数须为 1–31 的整数"},400);
+    const from=shift(to,-(n-1));
+    const days=Array.from({length:n},(_,i)=>{const date=shift(from,i),rows=fans.filter((f)=>f.businessDate===date);return {date,reports:rows.length,fanAdded:rows.length?sum(rows,"addedCount"):null,validToday:rows.length?sum(rows,"validToday"):null,partial:date===today};});
+    return json({from,to,today,days});
+  }
   function dashboard(query) {
     const preset=query.get("preset")||"day";
     const weekday=(new Date(today+"T00:00:00Z").getUTCDay()+6)%7;
@@ -173,6 +188,7 @@
     if(path==="/api/orders"&&role!=="admin"){const rows=filteredOrders(q);return json({orders:rows,totals:{amount:sumMoney(rows,"amount"),refunds:sumMoney(rows.filter((r)=>r.status==="refunded"),"amount")}});}
     if(role==="boss"){
       if(path==="/api/dashboard/summary")return json(dashboard(q));
+      if(path==="/api/dashboard/series")return dashboardSeries(q);
       if(path==="/api/ops-reports")return json({reports:ops});
       if(path==="/api/editor-reports")return json({reports:editors});
       if(path==="/api/notes")return json({notes:[{id:"demo-note-1",authorName:"演示说明",targetDate:today,content:"所有金额和客户记录均为虚构；本演示不会连接本地系统。"}]});
