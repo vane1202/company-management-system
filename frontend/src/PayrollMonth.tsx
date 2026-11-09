@@ -6,6 +6,7 @@ import { toErrorMessage } from "./errors";
 import { Field } from "./OrderWorkspace";
 import { submissionKey } from "./commerceUi";
 import { isPayMonth, payrollAmountError, payrollKindLabel, shiftMonth, signedLabel } from "./payrollUi";
+import { payrollStatusSplit } from "./dashboardDisplay";
 
 type ItemDraft = { kind: PayrollKind; amount: string; note: string };
 const emptyDraft = (): ItemDraft => ({ kind: "commission", amount: "", note: "" });
@@ -25,26 +26,43 @@ export function PayrollMonth({ today, readOnly, employees }: { today: string; re
   }
   useEffect(() => { setData(null); void load(); return () => { gate.current.next(); }; }, [month, userId]);
   const t = data?.totals;
+  const currentMonth = shiftMonth(today);
+  const selectedEmployee = employees.find(e => e.id === userId);
+  // 只做展示拆分：合计口径不变（负数仍按后端计入实发合计）。
+  const split = data ? payrollStatusSplit(data.employees, t?.net) : null;
   return <>
     <section className="card payroll-filter">
-      <div className="payroll-month-row">
-        <button type="button" className={month === shiftMonth(today) ? "" : "secondary"} onClick={() => setMonth(shiftMonth(today))}>本月</button>
-        <button type="button" className={month === shiftMonth(today, -1) ? "" : "secondary"} onClick={() => setMonth(shiftMonth(today, -1))}>上月</button>
-        <input aria-label="工资月份" type="month" value={month} onChange={e => { if (isPayMonth(e.target.value)) setMonth(e.target.value); }} />
+      <div className="payroll-month-row payroll-stepper">
+        <button type="button" className="secondary payroll-step" aria-label="上个月" onClick={() => setMonth(shiftMonth(`${month}-01`, -1))}>‹</button>
+        <strong className="payroll-month-label" aria-live="polite">{month}</strong>
+        <button type="button" className="secondary payroll-step" aria-label="下个月" onClick={() => setMonth(shiftMonth(`${month}-01`, 1))}>›</button>
+        {month !== currentMonth && <button type="button" className="secondary payroll-this-month" onClick={() => setMonth(currentMonth)}>本月</button>}
       </div>
-      <Field label="员工"><select value={userId} onChange={e => setUserId(e.target.value)}><option value="">全部员工</option>{employees.map(e => <option key={e.id} value={e.id}>{e.displayName} · {roleLabel[e.role]}{!e.isActive ? "（已停用）" : ""}</option>)}</select></Field>
+      <details className="payroll-filter-more">
+        <summary>{selectedEmployee ? `筛选 · ${selectedEmployee.displayName}` : "筛选员工"} ▾</summary>
+        <Field label="员工"><select value={userId} onChange={e => setUserId(e.target.value)}><option value="">全部员工</option>{employees.map(e => <option key={e.id} value={e.id}>{e.displayName} · {roleLabel[e.role]}{!e.isActive ? "（已停用）" : ""}</option>)}</select></Field>
+        <Field label="指定月份"><input aria-label="工资月份" type="month" value={month} onChange={e => { if (isPayMonth(e.target.value)) setMonth(e.target.value); }} /></Field>
+      </details>
     </section>
     {error && <p className="error" role="alert">{error} <button className="secondary" onClick={() => void load()}>重试</button></p>}
     {message && <p className="success" role="status">{message}</p>}
     <section className="card payroll-totals" aria-label="工资单合计">
       <div className="payroll-net"><small>{month} 实发合计 · 人民币</small><strong className={t?.netNegative ? "negative" : ""}>{t ? `¥ ${t.net}` : loading ? "核算中…" : "—"}</strong></div>
+      {split?.matchesTotal && <div className="payroll-status-split" aria-label="按工资单状态拆分">
+        <div><span>已锁定 {split.locked.count} 人</span><b>¥ {split.locked.net}</b></div>
+        <div><span>草稿 {split.draft.count} 人</span><b className={split.draft.net.startsWith("-") ? "negative" : ""}>¥ {split.draft.net}</b></div>
+      </div>}
+      {!!split?.negatives.length && <div className="payroll-negatives" aria-label="实发为负">
+        <span>实发为负 {split.negatives.length} 人 · 已计入上方合计，需财务核对</span>
+        {split.negatives.map(n => <b key={n.userId} className="negative-chip">{n.displayName} ¥ {n.net} · {n.status === "locked" ? "已锁定" : "草稿"}</b>)}
+      </div>}
       <dl className="payroll-breakdown">
         <div><dt>底薪</dt><dd>{t ? t.base : "—"}</dd></div>
         <div><dt>提成</dt><dd>{t ? `+${t.commission}` : "—"}</dd></div>
         <div><dt>奖金</dt><dd>{t ? `+${t.bonus}` : "—"}</dd></div>
         <div><dt>扣款</dt><dd>{t ? `−${t.deduction}` : "—"}</dd></div>
       </dl>
-      {t && <p className="notice">{t.employeeCount} 人 · 已锁定 {t.lockedCount} 人{t.negativeCount ? <> · <b className="negative">{t.negativeCount} 人实发为负，需财务核对</b></> : null}</p>}
+      {t && !split?.matchesTotal && <p className="notice">{t.employeeCount} 人 · 已锁定 {t.lockedCount} 人{t.negativeCount ? <> · <b className="negative">{t.negativeCount} 人实发为负，需财务核对</b></> : null}</p>}
     </section>
     {data && data.roles.length > 1 && <section className="card"><h2>各岗位合计</h2>{data.roles.map(r => <article key={r.role} className="commerce-record"><span><strong>{roleLabel[r.role]}</strong><small>{r.employeeCount} 人 · 底薪 {r.base} · 提成 {r.commission} · 奖金 {r.bonus} · 扣款 {r.deduction}</small></span><span className={`commerce-amount ${r.netNegative ? "negative" : ""}`}>¥ {r.net}<small>实发</small></span></article>)}</section>}
     <section className="card">
