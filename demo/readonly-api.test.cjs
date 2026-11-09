@@ -16,7 +16,7 @@ test('public preview identities are fictional and business access follows the pr
 });
 test('supervisor sees one fictional group and cannot query another fictional account',async()=>{
  const e=environment('cs_supervisor');const orders=await e.json('/api/orders');assert.equal(orders.body.orders.length,2);assert.ok(orders.body.orders.every(row=>row.userId==='demo-wechat-1'));assert.deepEqual(orders.body.totals,{amount:'1970.50',refunds:'0.00'});
- assert.deepEqual((await e.json('/api/orders?userId=demo-wechat-2')).body.orders,[]);assert.equal((await e.json('/api/cs-accounts')).body.accounts.length,1);assert.equal((await e.json('/api/fan-reports/summary')).body.teams.length,1);assert.equal((await e.json('/api/admin/users')).status,403);
+ assert.deepEqual((await e.json('/api/orders?userId=demo-wechat-2')).body.orders,[]);assert.equal((await e.json('/api/cs-accounts')).body.accounts.length,2);const fans=(await e.json('/api/fan-reports/summary')).body.teams;assert.equal(fans.length,1);assert.equal(fans[0].expectedCount,2);assert.equal(fans[0].reportedCount,1);assert.deepEqual(fans[0].missing.map(m=>m.displayName),['Demo_WeChat_03']);assert.equal(fans[0].totalAdded,7);assert.equal((await e.json('/api/admin/users')).status,403);
 });
 test('BOSS filters dates/statuses and uses the latest monthly snapshot rather than summing snapshots',async()=>{
  const e=environment('boss');const meta=(await e.json('/api/auth/me')).body;const today=meta.today;
@@ -47,4 +47,13 @@ test('fictional payroll: finance and BOSS read the same payslips; others refused
  for(const path of ['/api/salaries/payroll/items','/api/salaries/payroll/months/lock','/api/salaries'])assert.equal((await finance.json(path,'POST',{amount:'1.00'})).status,403);
  const dash=(await boss.json('/api/dashboard/summary?from='+month+'-01&to='+month+'-01')).body;assert.equal(dash.overallSalary.payrollItemsIncluded,false);
  assert.equal(finance.network()+boss.network(),0);
+});
+test('BOSS display inputs: effective order amount, missing reporters and payroll status split stay consistent',async()=>{
+ const e=environment('boss');const d=(await e.json('/api/dashboard/summary')).body;
+ const c=v=>Math.round(Number(v)*100);assert.equal(c(d.metrics.revenue)-c(d.metrics.refunds),197050);assert.equal(d.metrics.orderCount,2);
+ const fans=(await e.json('/api/fan-reports/summary')).body.teams;assert.equal(fans.reduce((n,t)=>n+t.missingCount,0),1);assert.equal(fans.reduce((n,t)=>n+t.expectedCount,0),3);
+ assert.equal(d.metrics.fanAddedTotal,12);
+ const month=(await e.json('/api/auth/me')).body.today.slice(0,7);const p=(await e.json('/api/salaries/payroll?month='+month)).body;
+ const sum=s=>p.employees.filter(x=>x.status===s).reduce((n,x)=>n+c(x.net),0);assert.equal(sum('locked'),718050);assert.equal(sum('draft'),530000);assert.equal(sum('locked')+sum('draft'),c(p.totals.net));
+ assert.equal(e.network(),0);
 });

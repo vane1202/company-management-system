@@ -563,3 +563,55 @@ progress::-moz-progress-bar { background: #4c7954; border-radius: 1rem; }
   .payroll-tabs [role=tablist] { width: 100%; }
   .payroll-tabs [role=tablist] button { flex: 1 1 0; padding-left: 6px; padding-right: 6px; }
 }
+
+/* P0 dashboard pass (2026-11-09): order effective amount, missing-report chips, desktop summary strip, payroll stepper/status split. */
+.brief-chip-warn { display: inline-block; margin-left: 6px; padding: 0 6px; border: 1px solid #ecd29a; border-radius: 999px; background: #fbf0d6; color: #7d5200; font-size: 11px; font-weight: 600; line-height: 16px; vertical-align: 1px; white-space: nowrap; }
+.brief-currency { margin: 0 2px 0 0 !important; }
+.boss-brief-money { white-space: nowrap; }
+@media (max-width: 799px) {
+  .boss-brief-label { min-width: 0; flex: 1 1 auto; }
+  .boss-brief-label strong, .boss-brief-label > small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .boss-brief-number { flex: none; }
+}
+@media (min-width: 800px) {
+  .boss-summary-strip { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid #dce3dc; border-radius: 16px; background: #fff; overflow: hidden; }
+  .boss-summary-strip .boss-brief { position: relative; display: grid; align-content: start; gap: 10px; min-width: 0; min-height: 108px; margin: 0; padding: 18px 44px 18px 20px; border: 0; border-radius: 0; background: #fff; color: #244b39; text-align: left; box-shadow: none; }
+  .boss-summary-strip .boss-brief:nth-child(even) { border-left: 1px solid #e6ebe5; }
+  .boss-summary-strip .boss-brief:nth-child(n+3) { border-top: 1px solid #e6ebe5; }
+  .boss-summary-strip .boss-brief-label { display: grid; gap: 4px; min-width: 0; }
+  .boss-summary-strip .boss-brief-label strong { font-size: 14px; font-weight: 600; }
+  .boss-summary-strip .boss-brief-label > small { font-size: 12px; color: #6b7b70; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .boss-summary-strip .boss-brief-number { font-size: clamp(24px, 2.3vw, 31px); font-weight: 600; letter-spacing: -.03em; line-height: 1.1; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .boss-summary-strip .boss-brief-number small { margin-left: 6px; font-size: 12px; font-weight: 500; letter-spacing: 0; color: #738176; }
+  .boss-summary-strip .boss-brief > .dashboard-icon { position: absolute; top: 19px; right: 18px; width: 15px; height: 15px; color: #8c9a90; }
+}
+@media (min-width: 1100px) {
+  .boss-summary-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .boss-summary-strip .boss-brief:nth-child(n) { border-top: 0; border-left: 1px solid #e6ebe5; }
+  .boss-summary-strip .boss-brief:first-child { border-left: 0; }
+}
+@media (hover: hover) and (pointer: fine) { .boss-summary-strip .boss-brief:hover { background: #f6f9f5; } }
+
+.role-missing { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 8px 12px; border: 1px solid #ecd29a; border-radius: 14px; background: #fffaf0; }
+.role-missing > strong { color: #7d5200; font-size: 14px; white-space: nowrap; }
+.role-missing > .text-action { margin-left: auto; }
+.missing-chips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.missing-chip { min-height: 32px; padding: 4px 10px; border: 1px solid #ecd29a; border-radius: 999px; background: #fbf0d6; color: #6b4600; font-size: 13px; font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (hover: hover) and (pointer: fine) { .missing-chip:hover { background: #f6e3b8; } }
+
+.payroll-filter.card { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding-top: 10px; padding-bottom: 10px; }
+.payroll-stepper { flex-wrap: nowrap; gap: 6px; margin: 0; }
+.payroll-step { min-width: 44px; min-height: 44px; padding: 0; font-size: 20px; line-height: 1; }
+.payroll-month-label { min-width: 72px; text-align: center; font-size: 17px; font-variant-numeric: tabular-nums; }
+.payroll-this-month { min-height: 44px; padding: 0 12px; }
+.payroll-filter-more { margin-left: auto; min-width: 0; }
+.payroll-filter-more[open] { flex-basis: 100%; margin-left: 0; }
+.payroll-filter-more > summary { cursor: pointer; list-style: none; min-height: 44px; display: flex; align-items: center; justify-content: flex-end; color: var(--muted); font-size: 13px; white-space: nowrap; }
+.payroll-filter-more > summary::-webkit-details-marker { display: none; }
+.payroll-filter-more[open] > summary { justify-content: flex-start; margin-bottom: 4px; }
+.payroll-status-split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: -4px 0 10px; font-variant-numeric: tabular-nums; }
+.payroll-status-split > div { display: grid; gap: 2px; min-width: 0; padding: 6px 10px; border: 1px solid #e2e8e1; border-radius: 10px; }
+.payroll-status-split span { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.payroll-status-split b { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.payroll-negatives { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 10px; font-size: 12px; color: var(--danger); }
+.negative-chip { padding: 2px 8px; border-radius: 999px; background: #fbe9e8; color: var(--danger); font-size: 12px; font-variant-numeric: tabular-nums; }

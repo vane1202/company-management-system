@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import type { Page } from "./access";
 import { DashboardIcon } from "./DashboardIcon";
 import { reportingOverview } from "./dashboardOverview";
+import { effectiveOrderAmount, missingReporters, yuan } from "./dashboardDisplay";
 import { toErrorMessage } from "./errors";
 import { loadAdminHome, loadSupervisorHome, loaded } from "./roleHomeData";
 
@@ -91,6 +92,8 @@ export function SupervisorHome({ today, onNavigate }: { today: string; onNavigat
   const reporting = teams ? reportingOverview(teams) : null;
   const noScope = teams?.length === 0;
   const total = (key: "totalAdded" | "validToday" | "commReplied" | "commInvalid") => teams && !noScope && teams.every(team => team[key] != null) ? teams.reduce((sum, team) => sum + (team[key] ?? 0), 0) : null;
+  const missingList = missingReporters(teams);
+  const effective = orders ? effectiveOrderAmount(orders.totals.amount, orders.totals.refunds) : null;
   const errors = sourceErrors([["本组加粉", data?.fans], ["本组订单", data?.orders], ["本组微信", data?.accounts]]);
   return <div className="management-dashboard role-home" aria-busy={loading}>
     <HomeHeading title="本组工作台" subtitle={`${today} · 今日数据`} loading={loading} refresh={refresh} />
@@ -101,7 +104,8 @@ export function SupervisorHome({ today, onNavigate }: { today: string; onNavigat
         <HomeMetric label="取得沟通" value={total("commReplied")} page="summary" onNavigate={onNavigate} />
         <HomeMetric label="无效客源" value={total("commInvalid")} page="summary" onNavigate={onNavigate} />
       </div>
-      <section className="role-home-panel role-order-preview"><div className="role-panel-title"><h2>今日订单概况</h2><button type="button" className="text-action" onClick={() => onNavigate("orders")}>全部消费<DashboardIcon name="arrow" /></button></div><div className="role-order-values"><div><span>订单金额</span><strong>{orders?.totals.amount ?? "—"}</strong></div><div><span>有效订单</span><strong>{orders ? orders.orders.filter(order => order.status !== "refunded").length : "—"}<small>笔</small></strong></div></div><p className="panel-note">金额含退款源订单；退款 {orders?.totals.refunds ?? "—"} 单列。按今日业务日统计。</p></section>
+      {missingList.length > 0 && <section className="role-missing" aria-label="今日未报账号"><strong>今日未报 {missingList.length}</strong><div className="missing-chips">{missingList.map(item => <button type="button" key={item.userId} className="missing-chip" title={`${item.teamName} · 今日未报，点击查看加粉明细`} onClick={() => onNavigate("summary")}>{item.displayName}</button>)}</div><button type="button" className="text-action" onClick={() => onNavigate("summary")}>明细<DashboardIcon name="arrow" /></button></section>}
+      <section className="role-home-panel role-order-preview"><div className="role-panel-title"><h2>今日订单概况</h2><button type="button" className="text-action" onClick={() => onNavigate("orders")}>全部消费<DashboardIcon name="arrow" /></button></div><div className="role-order-values"><div><span>有效金额</span><strong>{yuan(effective)}</strong></div><div><span>有效订单</span><strong>{orders ? orders.orders.filter(order => order.status !== "refunded").length : "—"}<small>笔</small></strong></div></div><p className="panel-note">有效金额 = 订单金额 {yuan(orders?.totals.amount)}（含退款源订单）− 退款 {yuan(orders?.totals.refunds)}。按今日业务日统计。</p></section>
     </>}
     <HomeErrors errors={errors} retry={refresh} />
     {!noScope && <section className="role-home-panel"><div className="role-panel-title"><h2>今日加粉填报</h2><button type="button" className="text-action" onClick={() => onNavigate("summary")}>查看明细<DashboardIcon name="arrow" /></button></div>
@@ -109,7 +113,6 @@ export function SupervisorHome({ today, onNavigate }: { today: string; onNavigat
       <progress className="reporting-progress" aria-label="本组今日加粉填报完成度" max={reporting?.expected || 1} value={reporting?.reported ?? 0} />
       {teams?.map(team => <div className="role-team-row" key={team.teamId}><div><strong>{team.teamName}</strong><small>已报 {team.reportedCount} / 应报 {team.expectedCount}</small></div><span>未报 {team.missingCount}</span></div>)}
       {!!teams?.some(team => team.statsIncomplete) && <p className="panel-note">含历史未分类记录，渠道及状态统计不完整。</p>}
-      {!!reporting?.missing && <p className="panel-note">未填报：{teams?.flatMap(team => team.missing.map(member => member.displayName)).join("、")}</p>}
       <p className="panel-note">按微信及原员工账号计数，多主页不重复计数。填报 0 仍计为已报。</p>
     </section>}
     <section className="role-home-panel"><div className="role-panel-title"><h2>本组客服微信</h2><span>{accounts ? `${accounts.length} 个已登记` : "—"}</span></div><p className="panel-note">{accounts ? `当前启用 ${accounts.filter(account => account.isActive).length} 个，停用 ${accounts.filter(account => !account.isActive).length} 个。` : loading ? "正在读取微信列表…" : "微信列表暂不可用。"}</p><div className="role-action-list"><HomeAction page="csAccounts" title="登记与维护微信" detail="发放一次性登记码、更新本组微信" onNavigate={onNavigate} /></div></section>

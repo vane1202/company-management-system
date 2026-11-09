@@ -17,7 +17,8 @@
   const usernames = { boss: "demo_boss", admin: "demo_admin", cs_supervisor: "demo_supervisor", finance:"demo_finance" };
   const currentUser = () => ({ id: "demo-" + role, username: usernames[role], displayName: names[role], role, isActive: true, mustChangePassword: false, accountKind: "employee" });
   const teams = [{ id: "demo-team-a", name: "演示一组" }, { id: "demo-team-b", name: "演示二组" }];
-  const accounts = teams.map((team, i) => ({ id: "demo-wechat-" + (i + 1), wechatId: "Demo_WeChat_0" + (i + 1), phoneLabel: "演示客服手机 0" + (i + 1), isActive: true, teamId: team.id, teamName: team.name, createdAt: today + "T01:00:00Z" }));
+  // 第 3 个虚构微信归演示一组、今日未报，用于展示“今日未报”提示；无订单、无加粉记录。
+  const accounts = [...teams, teams[0]].map((team, i) => ({ id: "demo-wechat-" + (i + 1), wechatId: "Demo_WeChat_0" + (i + 1), phoneLabel: "演示客服手机 0" + (i + 1), isActive: true, teamId: team.id, teamName: team.name, createdAt: today + "T01:00:00Z" }));
   const staff = [...roles.map((r) => ({ id: "demo-" + r, username: usernames[r], displayName: names[r], role: r, isActive: true, accountKind: "employee", managedTeamIds: r === "cs_supervisor" ? [teams[0].id] : [], currentTeam: null })), ...["ops", "editor", "assistant"].map((r) => ({ id: "demo-" + r, username: "demo_" + r, displayName: {ops:"演示运营",editor:"演示拍剪",assistant:"演示助理"}[r], role: r, isActive: true, accountKind: "employee", currentTeam: null }))];
   const assetUsers = accounts.map((a) => ({ id: a.id, username: a.wechatId, displayName: a.wechatId, wechatId: a.wechatId, accountKind: "cs_wechat", role: "cs", isActive: true, currentTeam: { id: a.teamId, name: a.teamName } }));
   const fans = [
