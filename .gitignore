@@ -1,0 +1,38 @@
+node_modules/
+dist/
+build/
+coverage/
+.env
+.env.local
+.env.*
+!.env.example
+*.log
+.DS_Store
+backend/dist/
+frontend/dist/
+.tmp/
+.pgdata/
+*.tsbuildinfo
+.vite/
+EOF
+.dev-progress.md
+.pg-test-pass
+
+# 本地生成的演示口令目录（不要提交）
+data/
+
+.npm-cache/
+/artifacts/
+
+# dumps / backups / keys
+*.dump
+*.sql.gz
+*.pem
+*.key
+*.bak
+backups/
+
+# Windows antivirus-flagged launchers (do not commit)
+Start-Cms.ps1
+Start-Cms*.ps1
+scripts/windows/
