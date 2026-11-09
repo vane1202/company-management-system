@@ -119,6 +119,8 @@ export const api = {
       overallSalary?: { allocated: string; note: string };
       estimateNote?: string;
     }>(`/api/dashboard/summary?preset=${preset}${range ? `&from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}` : ""}`),
+  dashboardSeries: (to: string, days = 7) =>
+    requestInner<FanSeries>(`/api/dashboard/series?${new URLSearchParams({ to, days: String(days) })}`),
   teams: () => requestInner<{ teams: Team[] }>("/api/admin/teams"),
   createTeam: (payload: Record<string, unknown>) =>
     requestInner("/api/admin/teams", { method: "POST", body: JSON.stringify(payload) }),
@@ -170,6 +172,9 @@ export type FanReport = {
   updatedAt: string;
 };
 
+/** 加粉按业务日序列：fanAdded 为 null 表示当天没有任何填报（不是 0）；partial 表示今天尚未结束。 */
+export type FanSeries = { from: string; to: string; today: string; days: { date: string; reports: number; fanAdded: number | null; validToday: number | null; partial: boolean }[] };
+
 export type FanSummary = {
   teamId: string;
   teamName: string;
@@ -177,7 +182,10 @@ export type FanSummary = {
   totalAdded: number;
   validToday?: number;
   commReplied?: number;
+  commReadNoReply?: number;
+  commUnread?: number;
   commInvalid?: number;
+  legacyUnclassifiedAdded?: number;
   expectedCount: number;
   reportedCount: number;
   missingCount: number;

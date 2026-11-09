@@ -1,7 +1,7 @@
 import { Router } from "express";
 import type { Pool } from "pg";
 import { query, queryOne } from "../db.js";
-import { businessToday, resolvePeriod } from "../lib/dates.js";
+import { addDays, businessToday, isIsoDate, resolvePeriod } from "../lib/dates.js";
 import {
   EDITOR_FIELD_NOTE,
   FAN_STATS_INCOMPLETE_NOTE,
@@ -200,6 +200,55 @@ export function createDashboardRouter(db: Pool, config: AppConfig): Router {
         estimateNote: "填报数据直接计入统计。估算中的推广费只含历史 promo_cost（币种未知/legacy），不含新的美元花费，也不会把美元与人民币工资相加或换汇。",
         disclaimer: "此结果为经营估算，用于看日常趋势，不等于会计净利润；未包含房租、水电、税费、社保公积金、平台扣点等。收入为查询期内全部订单金额（含状态为退款的源订单），退款为状态=退款的订单金额之和；估算按收入减去退款，避免同一笔退款订单先从收入排除再扣一次。退款订单的成本仍计入。订单按录入的业务日归属，没有独立退款日或部分退款字段。"
       });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /**
+   * 按业务日（Asia/Shanghai）的加粉日序列，供 7 天趋势线使用。权限与 /summary 相同。
+   * 只返回可按天相加的流量值（当日新增、当日有效）；余额、库存、月累计等快照不在这里求和。
+   * 某天没有任何加粉填报时 fanAdded 为 null（不是 0），前端据此断开线条。
+   */
+  router.get("/series", async (req, res, next) => {
+    try {
+      if (!req.actor || !isBossOrAdmin(req.actor)) {
+        throw new HttpError(403, "只有 Boss 或行政可以查看全局经营汇总");
+      }
+      const today = businessToday(new Date(), config.businessTimezone);
+      const to = req.query.to ? String(req.query.to) : today;
+      if (!isIsoDate(to)) throw new HttpError(400, "日期格式无效");
+      const days = req.query.days ? Number(req.query.days) : 7;
+      if (!Number.isInteger(days) || days < 1 || days > 31) throw new HttpError(400, "天数须为 1–31 的整数");
+      const from = addDays(to, -(days - 1));
+      const rows = await query<FanMetricRow>(
+        db,
+        `SELECT user_id, business_date::text, page_name, added_count, ms_today, ws_today,
+                ms_month, ws_month, valid_today, comm_replied, comm_read_no_reply, comm_unread, comm_invalid
+           FROM fan_reports
+          WHERE business_date BETWEEN $1 AND $2`,
+        [from, to]
+      );
+      const byDate = new Map<string, FanMetricRow[]>();
+      for (const row of rows) {
+        const date = String(row.business_date).slice(0, 10);
+        const list = byDate.get(date) ?? [];
+        list.push(row);
+        byDate.set(date, list);
+      }
+      const series = Array.from({ length: days }, (_, index) => {
+        const date = addDays(from, index);
+        const dayRows = byDate.get(date) ?? [];
+        const summary = summarizeFanRows(dayRows);
+        return {
+          date,
+          reports: dayRows.length,
+          fanAdded: dayRows.length ? summary.todayTotal : null,
+          validToday: dayRows.length ? summary.validToday : null,
+          partial: date === today
+        };
+      });
+      res.json({ from, to, today, days: series });
     } catch (error) {
       next(error);
     }

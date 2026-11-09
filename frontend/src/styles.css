@@ -615,3 +615,89 @@ progress::-moz-progress-bar { background: #4c7954; border-radius: 1rem; }
 .payroll-status-split b { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .payroll-negatives { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 10px; font-size: 12px; color: var(--danger); }
 .negative-chip { padding: 2px 8px; border-radius: 999px; background: #fbe9e8; color: var(--danger); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+/* P1 dashboard pass (2026-11-09): ⓘ popovers, 7-day 加粉 sparkline, merged BOSS header, supervisor four-state bar, compact mobile tiles. */
+.info-tip { display: inline-flex; align-items: center; vertical-align: middle; margin-left: 4px; position: relative; }
+.info-tip-button { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; min-height: 0; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #8c9a90; font-size: 15px; font-weight: 400; line-height: 1; letter-spacing: 0; cursor: pointer; }
+.info-tip-button::after { content: ""; position: absolute; inset: -9px; }
+.info-tip-button[aria-expanded="true"], .info-tip-button:focus-visible { color: #2e553b; background: #e8eee7; }
+.info-tip-pop { position: fixed; z-index: 1000; padding: 10px 12px; border-radius: 10px; background: #24332a; color: #fff; box-shadow: 0 6px 20px #12201833; font-size: 13px; font-weight: 400; line-height: 1.6; letter-spacing: 0; text-align: left; white-space: normal; }
+.data-flag { display: inline-block; margin: 12px 0 0; padding: 2px 9px; border-radius: 999px; background: #f0f2ee; color: #5d6b61; font-size: 12px; line-height: 1.7; }
+.gap-flag { display: inline-flex; align-items: center; margin-left: 6px; }
+.gap-flag-mark { display: inline-block; padding: 0 6px; border: 1px solid #ecd29a; border-radius: 999px; background: #fbf0d6; color: #7d5200; font-size: 12px; font-weight: 700; line-height: 16px; }
+.gap-flag .info-tip { margin-left: 0; }
+.sparkline { display: block; color: #8c9a90; overflow: visible; }
+.sparkline-dot { fill: #2e6b46; }
+.boss-brief-spark { display: flex; flex: none; align-items: center; }
+.boss-fan-trend { display: flex; align-items: center; gap: 12px; margin: 14px 0 2px; color: #7d8a80; font-size: 12px; }
+.boss-fan-trend .sparkline { flex: 1 1 auto; min-width: 0; max-width: 100%; height: 40px; }
+.panel-links { margin-top: 12px; }
+.boss-heading { flex-wrap: wrap; }
+.boss-period-controls { display: flex; align-items: center; gap: 8px; }
+.boss-updated { display: inline-flex; align-items: center; gap: 6px; }
+.overview-refresh.boss-refresh-icon { justify-content: center; min-width: 32px; min-height: 32px; margin: 0; padding: 6px; border-radius: 8px; }
+.overview-refresh.boss-refresh-icon .dashboard-icon { width: 15px; height: 15px; }
+.fan-state { padding: 10px 14px; border: 1px solid #dce3dc; border-radius: 14px; background: #fff; }
+.fan-state-title { display: flex; align-items: center; color: #53685b; font-size: 13px; }
+.fan-state-title strong { font-weight: 600; }
+.fan-state-bar { display: flex; gap: 2px; height: 10px; margin: 6px 0 7px; overflow: hidden; border-radius: 999px; background: #eef1ec; }
+.fan-seg { min-width: 3px; flex-basis: 0; }
+.fan-seg-replied { background: #2e6b46; }
+.fan-seg-readNoReply { background: #6fa383; }
+.fan-seg-unread { background: #b9d5c3; }
+.fan-seg-invalid { background: #d9a441; }
+.fan-seg-unclassified { background: #c9cfc9; }
+.fan-state-legend { display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 0; padding: 0; list-style: none; color: #5d6b61; font-size: 12px; }
+.fan-state-legend li { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.fan-state-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; }
+.fan-state-legend b { color: #244b39; font-variant-numeric: tabular-nums; }
+.fan-state .data-flag { margin-top: 6px; background: #fbf0d6; color: #7d5200; }
+.fan-state-empty { margin: 0; color: #7d8a80; font-size: 13px; }
+.role-home-heading-compact { justify-content: flex-start; flex-wrap: wrap; gap: 4px 10px; }
+.role-home-heading-compact h1 { margin: 0; }
+.role-heading-caption { color: #6c7a70; font-size: 13px; }
+.role-home-heading-compact .boss-refresh-icon { margin-left: auto; }
+.role-account-split { margin: 0 0 8px; color: #5d6b61; font-size: 13px; }
+.role-account-split b { color: #244b39; font-variant-numeric: tabular-nums; }
+.role-home-scope { display: flex; align-items: center; }
+@media (max-width: 799px) {
+  .boss-overview .boss-heading { flex-wrap: nowrap; gap: 8px; min-height: 44px; }
+  .boss-overview .boss-period-controls { margin-left: auto; gap: 4px; min-width: 0; }
+  .boss-overview .boss-period-controls .boss-range-toggle { margin-left: 0; }
+  .boss-overview .overview-segments button { padding: 8px 11px; }
+  .boss-overview .overview-refresh.boss-refresh-icon { min-height: 30px; min-width: 30px; padding: 4px; margin: 0; font-size: 12px; }
+  .boss-overview .boss-period-caption { align-items: center; }
+  /* 手机端：面板里与上方速览重复的大数字隐藏，只保留速览里没有的明细。桌面不变。 */
+  .boss-core-grid .boss-repeat { display: none; }
+  .boss-fan-headline { margin-top: 0; }
+  .role-home-heading.role-home-heading-compact { min-height: 40px; }
+  .role-home-heading-compact .role-heading-caption { font-size: 12px; }
+  .role-home-heading-compact .overview-refresh.boss-refresh-icon { min-height: 32px; padding: 6px; margin: 0; }
+  .supervisor-home .role-kpis { gap: 6px; }
+  .supervisor-home .role-metric { padding: 7px 12px; }
+  .supervisor-home .role-metric > span { font-size: 12px; }
+  .supervisor-home .role-metric > strong { font-size: 22px; margin-top: 1px; line-height: 1.15; }
+  .fan-state { padding: 8px 12px; border-radius: 12px; }
+}
+@media (min-width: 800px) {
+  .boss-summary-strip .boss-brief-spark { position: absolute; right: 20px; bottom: 22px; }
+  .boss-overview .boss-period { flex-wrap: nowrap; align-items: center; gap: 20px; padding: 14px 22px; }
+  .boss-overview .boss-period-caption { order: -1; width: auto; flex: 1 1 auto; justify-content: flex-start; align-items: center; gap: 16px; }
+}
+@media (max-width: 799px) {
+  /* 主管手机首屏：四个固定标题的指标改成单行（标题左、数字右），给占比条腾空间，订单数字回到底栏上方。 */
+  .supervisor-home .role-metric { flex-direction: row; align-items: center; gap: 6px; min-height: 44px; padding: 6px 12px; }
+  .supervisor-home .role-metric > span { gap: 4px; justify-content: flex-start; white-space: nowrap; }
+  .supervisor-home .role-metric > strong { margin: 0 0 0 auto; font-size: 22px; }
+  .fan-state-title { font-size: 12px; }
+  .fan-state-bar { margin: 4px 0 5px; height: 9px; }
+  .fan-state-legend { gap: 2px 8px; font-size: 11px; }
+  .fan-state-legend li { gap: 3px; }
+}
+.boss-fan-trend > span { white-space: nowrap; }
+.boss-channel-list > div > span:last-child { display: inline-flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 2px 4px; }
+@media (max-width: 540px) {
+  .boss-channel-list.is-month > div { flex-wrap: wrap; row-gap: 4px; }
+  .boss-channel-list.is-month small { display: inline; font-size: 11px; }
+  .boss-channel-list.is-month > div > span:last-child { flex-basis: 100%; }
+}

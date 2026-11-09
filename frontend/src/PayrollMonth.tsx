@@ -7,6 +7,7 @@ import { Field } from "./OrderWorkspace";
 import { submissionKey } from "./commerceUi";
 import { isPayMonth, payrollAmountError, payrollKindLabel, shiftMonth, signedLabel } from "./payrollUi";
 import { payrollStatusSplit } from "./dashboardDisplay";
+import { InfoTip } from "./InfoTip";
 
 type ItemDraft = { kind: PayrollKind; amount: string; note: string };
 const emptyDraft = (): ItemDraft => ({ kind: "commission", amount: "", note: "" });
@@ -66,10 +67,9 @@ export function PayrollMonth({ today, readOnly, employees }: { today: string; re
     </section>
     {data && data.roles.length > 1 && <section className="card"><h2>各岗位合计</h2>{data.roles.map(r => <article key={r.role} className="commerce-record"><span><strong>{roleLabel[r.role]}</strong><small>{r.employeeCount} 人 · 底薪 {r.base} · 提成 {r.commission} · 奖金 {r.bonus} · 扣款 {r.deduction}</small></span><span className={`commerce-amount ${r.netNegative ? "negative" : ""}`}>¥ {r.net}<small>实发</small></span></article>)}</section>}
     <section className="card">
-      <h2>员工工资单</h2>
+      <h2>员工工资单{data?.note && <InfoTip label="工资单口径" text={data.note} />}</h2>
       {data && !data.employees.length && <p>本月暂无工资标准或工资项目。{readOnly ? "" : "先在“工资标准”登记底薪，或选择员工后录入项目。"}</p>}
       {data?.employees.map(emp => <EmployeeSlip key={emp.userId} emp={emp} month={month} readOnly={readOnly} open={open === emp.userId} onToggle={() => setOpen(open === emp.userId ? "" : emp.userId)} onSaved={async text => { setMessage(text); await load(true); }} />)}
-      {data && <p className="notice">{data.note}</p>}
     </section>
   </>;
 }

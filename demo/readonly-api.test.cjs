@@ -57,3 +57,19 @@ test('BOSS display inputs: effective order amount, missing reporters and payroll
  const sum=s=>p.employees.filter(x=>x.status===s).reduce((n,x)=>n+c(x.net),0);assert.equal(sum('locked'),718050);assert.equal(sum('draft'),530000);assert.equal(sum('locked')+sum('draft'),c(p.totals.net));
  assert.equal(e.network(),0);
 });
+test('P1 fictional 7-day fan series: per business day, gap day is null, today partial, BOSS only',async()=>{
+ const e=environment('boss');const today=(await e.json('/api/auth/me')).body.today;
+ const r=await e.json('/api/dashboard/series?to='+today+'&days=7');assert.equal(r.status,200);
+ assert.equal(r.body.days.length,7);assert.equal(r.body.days.at(-1).date,today);assert.equal(r.body.days.at(-1).partial,true);
+ assert.deepEqual(r.body.days.map(d=>d.fanAdded),[4,5,null,6,8,4,12]);
+ assert.equal(r.body.days.at(-1).fanAdded,(await e.json('/api/dashboard/summary')).body.metrics.fanAddedTotal);
+ assert.equal(r.body.days.filter(d=>d.partial).length,1);
+ for(const q of ['days=0','days=32','days=x','to=2026-13-01'])assert.equal((await e.json('/api/dashboard/series?'+q)).status,400);
+ for(const role of ['admin','cs_supervisor','finance'])assert.equal((await environment(role).json('/api/dashboard/series')).status,403);
+ const from=today.slice(0,7)+'-01';const m=(await e.json('/api/dashboard/summary?from='+from+'&to='+today)).body.metrics;assert.equal(m.msMonth,216);assert.equal(m.wsMonth,83);
+ assert.equal(e.network(),0);
+});
+test('P1 supervisor four-state inputs: states never exceed 加粉总数, the gap is left for the grey 未分类 segment',async()=>{
+ const t=(await environment('cs_supervisor').json('/api/fan-reports/summary')).body.teams[0];
+ const states=t.commReplied+t.commReadNoReply+t.commUnread+t.commInvalid;assert.equal(t.totalAdded,7);assert.equal(states,6);assert.ok(states<=t.totalAdded);
+});
