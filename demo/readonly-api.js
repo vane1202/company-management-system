@@ -156,12 +156,13 @@
     const days=Array.from({length:n},(_,i)=>{const date=shift(from,i),rows=fans.filter((f)=>f.businessDate===date);return {date,reports:rows.length,fanAdded:rows.length?sum(rows,"addedCount"):null,validToday:rows.length?sum(rows,"validToday"):null,partial:date===today};});
     return json({from,to,today,days});
   }
+  const paidPerformanceRecords=[{id:'demo-paid-1',business_date:today,live_room_code:'DEMO-LIVE-01',host_name:'演示主播甲',amount_cny:'1290.50',note:'虚构财务专项核定，系统不计算主播提成',created_by_name:'演示财务',voided_at:null,void_reason:null}];
   function liveBusiness(query) {
     const period=dashboard(query).period,selected=Object.fromEntries(['room','host','persona','operator'].map(k=>[k,query.get(k)||'']));
     if(![period.from,period.to].every(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)&&Number.isFinite(Date.parse(d)))||period.from>period.to)return json({error:'日期范围无效'},400);
     const matchDate=d=>d>=period.from&&d<=period.to;
     const scoped=orders.filter(o=>(!selected.room||(selected.room==='__unassigned__'?!o.liveRoomCode:o.liveRoomCode===selected.room))&&(!selected.host||o.hostName===selected.host)&&(!selected.persona||o.personaCode===selected.persona)&&(!selected.operator||o.operatorName===selected.operator));
-    const empty=()=>({performanceCny:'0.00',newSalesCny:'0.00',additionalCny:'0.00',expenseCny:'0.00',supplierPaidCny:'0.00',companyReceivedCny:'0.00',excludedSourceCny:'0.00',newOrderCount:0,expenseCount:0,customerReceipts:{CNY:'0.00',TWD:'0.00',USD:'0.00'}});
+    const empty=()=>({performanceCny:'0.00',newSalesCny:'0.00',grossSalesCny:'0.00',cancelledSalesCny:'0.00',grossOrderCount:0,cancelledOrderCount:0,excludedAdditionalCny:'0.00',additionalCny:'0.00',expenseCny:'0.00',supplierPaidCny:'0.00',companyReceivedCny:'0.00',excludedSourceCny:'0.00',newOrderCount:0,expenseCount:0,customerReceipts:{CNY:'0.00',TWD:'0.00',USD:'0.00'}});
     const totals=empty(),rooms=new Map(),events=[];
     const plus=(t,k,v)=>{t[k]=money(cents(t[k])+cents(v));};
     function push(o,id,kind,date,amount,currency='CNY',label=kind,category='') {
@@ -171,7 +172,7 @@
       const key=o.liveRoomCode||'__unassigned__';if(!rooms.has(key))rooms.set(key,{key,roomCode:o.liveRoomCode||'未归属直播间',hosts:[],personas:[],totals:empty()});
       const r=rooms.get(key);if(o.hostName&&!r.hosts.includes(o.hostName))r.hosts.push(o.hostName);const persona=[o.personaCode,o.personaName].filter(Boolean).join(' · ');if(persona&&!r.personas.includes(persona))r.personas.push(persona);
       for(const t of [totals,r.totals]){
-        if(kind==='sale'||kind==='charge'){if(o.status==='refunded')plus(t,'excludedSourceCny',amount);else if(kind==='sale'){plus(t,'newSalesCny',amount);t.newOrderCount++;}else plus(t,'additionalCny',amount);}
+        if(kind==='sale'){plus(t,'grossSalesCny',amount);t.grossOrderCount++;if(o.cancelled||o.status==='refunded'){plus(t,'excludedSourceCny',amount);if(o.cancelled){plus(t,'cancelledSalesCny',amount);t.cancelledOrderCount++;}}else{plus(t,'newSalesCny',amount);t.newOrderCount++;}}else if(kind==='charge'){plus(t,o.cancelled||o.status==='refunded'?'excludedAdditionalCny':'additionalCny',amount);}
         if(kind==='expense'){plus(t,'expenseCny',amount);t.expenseCount++;}
         if(kind==='supplier')plus(t,'supplierPaidCny',amount);
         if(kind==='company')plus(t,'companyReceivedCny',amount);
@@ -186,10 +187,13 @@
       for(const s of settlements.filter(s=>!s.voided_at))for(const a of s.allocations){const p=payments.find(p=>p.id===a.paymentId&&p.order_id===o.id&&!p.voided_at);if(p)push(o,'settlement:'+s.id+':'+p.id,'company',s.settled_on,a.netCny,'CNY',s.channel);}
       for(const p of supplierPayments.filter(p=>!p.voided_at)){const e=d.expenses.find(e=>e.id===p.expense_id&&!e.voided_at);if(e)push(o,p.id,'supplier',p.paid_on,p.amount_cny,'CNY',p.payee,e.category);}
     }
-    for(const t of [totals,...[...rooms.values()].map(r=>r.totals)])t.performanceCny=money(cents(t.newSalesCny)+cents(t.additionalCny));
+    for(const t of [totals,...[...rooms.values()].map(r=>r.totals)])t.performanceCny=t.newSalesCny;
     const ads=ops.filter(r=>matchDate(r.businessDate)&&r.spendUsd!=null).map(r=>({id:r.id,date:r.businessDate,persona:r.personaName,account:r.adAccountRef||'历史未关联',amount:r.spendUsd}));
+    const paidRecords=paidPerformanceRecords.filter(r=>!r.voided_at&&matchDate(r.business_date)&&(!selected.room||r.live_room_code===selected.room)&&(!selected.host||r.host_name===selected.host));
+    const paidPerformance={amountCny:paidRecords.length?sumMoney(paidRecords,'amount_cny'):null,recordCount:paidRecords.length,scope:'room_host',records:paidRecords.map(r=>({...r,date:r.business_date}))};
+    const afterSales={receipts:{CNY:'0.00',TWD:'0.00',USD:'0.00'},recordCount:0,unclassifiedReceiptCount:events.filter(e=>e.kind==='receipt').length,records:[]};
     const legacy=scoped.filter(o=>!o.workflowEnabled&&cents(o.customProductCost)+cents(o.laborCost)+cents(o.shippingCost)>0n);
-    return json({period,selected,totals,rooms:[...rooms.values()].sort((a,b)=>Number(cents(b.totals.performanceCny)-cents(a.totals.performanceCny))),events,options:orders.map(o=>({room:o.liveRoomCode,host:o.hostName,persona:o.personaCode,persona_name:o.personaName,operator:o.operatorName})),ads:{scope:'company',spendUsd:sumMoney(ads,'amount'),records:ads,unknownCount:0},legacyCost:{count:legacy.length,amountCny:money(legacy.reduce((n,o)=>n+cents(o.customProductCost)+cents(o.laborCost)+cents(o.shippingCost),0n))},refundMethod:'current_refunded_orders_excluded_without_assumed_refund_date'});
+    return json({period,selected,totals,paidPerformance,afterSales,rooms:[...rooms.values()].sort((a,b)=>Number(cents(b.totals.performanceCny)-cents(a.totals.performanceCny))),events,options:orders.map(o=>({room:o.liveRoomCode,host:o.hostName,persona:o.personaCode,persona_name:o.personaName,operator:o.operatorName})),ads:{scope:'company',spendUsd:sumMoney(ads,'amount'),records:ads,unknownCount:0},legacyCost:{count:legacy.length,amountCny:money(legacy.reduce((n,o)=>n+cents(o.customProductCost)+cents(o.laborCost)+cents(o.shippingCost),0n))},refundMethod:'cancelled_and_legacy_refunded_orders_reverse_original_booking_day',turnoverMethod:'booking_price_plus_buying_fee_excludes_additional_charges'});
   }
   function dashboard(query) {
     const preset=query.get("preset")||"day";
@@ -233,6 +237,7 @@
     if(/^\/api\/finance\/payables\/[^/]+\/attachments$/.test(path))return ['boss','finance'].includes(role)&&payables().expenses.some(e=>path.includes('/'+e.id+'/'))?json({attachments:[]}):json({error:'无公司成本权限'},403);
     if(path==='/api/finance/payables')return ['boss','finance'].includes(role)?json(payables()):json({error:'无公司付款权限'},403);
     if(path==='/api/ad-accounts')return ['boss','finance'].includes(role)?json(adLedger):json({error:'无广告账户权限'},403);
+    if(path==="/api/finance/live-performance")return ['boss','finance'].includes(role)?json({records:paidPerformanceRecords}):json({error:'无财务核定权限'},403);
     if(role==='finance'&&path!=='/api/finance')return json({error:"演示财务仅可查看收款、结算与工资"},403);
     if(path==="/api/finance"&&["finance","boss"].includes(role))return json({payments,settlements,summary:{pending:{CNY:"0.00",TWD:"1200.00",USD:"90.00"},directCny:"1290.50",settledCny:"323.40",totalCny:"1613.90"}});
     if(path.startsWith("/api/order-records/")&&["boss","cs_supervisor"].includes(role)){const id=path.slice("/api/order-records/".length);const order=visibleOrders().find(o=>o.id===id);return order?json(orderRecord(order)):json({error:"订单不存在或不在演示可见范围"},404);}

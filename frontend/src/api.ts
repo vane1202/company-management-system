@@ -67,6 +67,7 @@ export async function loadCsrf(): Promise<void> {
 
 export const api = {
   orderRecord: (id: string) => requestInner<OrderRecord>(`/api/order-records/${encodeURIComponent(id)}`),
+  paidPerformance:()=>requestInner<{records:PaidPerformanceRecord[]}>('/api/finance/live-performance'),
   createOrderRecord: (payload: Record<string, unknown>) => requestInner<{id:string}>("/api/order-records", {method:"POST",body:JSON.stringify(payload)}),
   correctOrderRecord: (id: string, payload: Record<string, unknown>) => requestInner<{id:string}>(`/api/order-records/${encodeURIComponent(id)}`, {method:"PATCH",body:JSON.stringify(payload)}),
   orderAction: (id: string, action: string, payload: Record<string, unknown>) => requestInner<{id:string}>(`/api/order-records/${encodeURIComponent(id)}/${action}`, {method:"POST",body:JSON.stringify(payload)}),
@@ -126,7 +127,7 @@ export const api = {
     ),
   saveEditor: (payload: Record<string, unknown>) =>
     requestInner("/api/editor-reports", { method: "PUT", body: JSON.stringify(payload) }),
-  orders: (accountId?: string, filters?: { from?: string; to?: string; status?: string }) => requestInner<{ orders: Order[]; totals: { amount: string; refunds: string } }>(`/api/orders?${new URLSearchParams({ ...(accountId ? {userId:accountId} : {}), ...filters })}`),
+  orders: (accountId?: string, filters?: { from?: string; to?: string; status?: string }) => requestInner<{ orders: Order[]; totals: { amount: string; refunds: string; cancelled?:string } }>(`/api/orders?${new URLSearchParams({ ...(accountId ? {userId:accountId} : {}), ...filters })}`),
   settings: () => requestInner<{ settings: Record<string,string> }>("/api/admin/settings"),
   saveSettings: (fan_report_backfill_days: number) => requestInner("/api/admin/settings", { method: "PUT", body: JSON.stringify({ fan_report_backfill_days }) }),
   createOrder: (payload: Record<string, unknown>) =>
@@ -246,6 +247,7 @@ export type EditorReport = {
 };
 
 export type Order = {
+  cancelled?:boolean;
   id: string;
   workflowEnabled?: boolean;
   personaCode?:string;personaName?:string;liveRoomCode?:string;hostName?:string;customerCode?:string;operatorName?:string;
@@ -266,13 +268,14 @@ export type Order = {
 
 export type Currency = "CNY" | "TWD" | "USD";
 export type LiveBusinessFilters={room:string;host:string;persona:string;operator:string};
-export type LiveBusinessTotals={performanceCny:string;newSalesCny:string;additionalCny:string;expenseCny:string;supplierPaidCny:string;companyReceivedCny:string;excludedSourceCny:string;newOrderCount:number;expenseCount:number;customerReceipts:Record<Currency,string>};
-export type LiveBusinessOrder={id:string;status:string;order_ref:string;customer_label:string|null;persona_code:string;persona_name:string;live_room_code:string;host_name:string;customer_code:string;operator_name:string;wechat_id:string};
+export type LiveBusinessTotals={performanceCny:string;newSalesCny:string;grossSalesCny:string;cancelledSalesCny:string;grossOrderCount:number;cancelledOrderCount:number;additionalCny:string;excludedAdditionalCny:string;expenseCny:string;supplierPaidCny:string;companyReceivedCny:string;excludedSourceCny:string;newOrderCount:number;expenseCount:number;customerReceipts:Record<Currency,string>};
+export type LiveBusinessOrder={id:string;status:string;cancelled?:boolean;order_ref:string;customer_label:string|null;persona_code:string;persona_name:string;live_room_code:string;host_name:string;customer_code:string;operator_name:string;wechat_id:string};
 export type LiveBusinessEvent={id:string;order_id:string;kind:'sale'|'charge'|'expense'|'receipt'|'company'|'supplier';date:string;amount:string;currency:Currency;category:string;label:string;order:LiveBusinessOrder};
-export type LiveBusinessData={period:{from:string;to:string};selected:LiveBusinessFilters;totals:LiveBusinessTotals;rooms:{key:string;roomCode:string;hosts:string[];personas:string[];totals:LiveBusinessTotals}[];events:LiveBusinessEvent[];options:{room:string;host:string;persona:string;persona_name:string;operator:string}[];legacyCost:{count:number;amountCny:string};ads:{scope:'company';spendUsd:string;records:{id:string;date:string;persona:string;account:string;amount:string}[];unknownCount:number}};
-export type PaymentRecord = { id:string; payment_date:string; amount:string; currency:Currency; credit_amount:string; purpose:string; channel:string; third_party:boolean; reference:string; note?:string; voided_at:string|null; void_reason?:string; settled_amount:string };
-export type ExpenseRecord = {id:string;business_date:string;category:string;label:string;amount_cny:string;counterparty?:string;item_id?:string;note?:string;voided_at:string|null;void_reason?:string};
-export type ChargeRecord = {id:string;business_date:string;label:string;amount_cny:string;customer_amount:string;note:string;voided_at:string|null;void_reason?:string};
+export type LiveBusinessData={period:{from:string;to:string};selected:LiveBusinessFilters;totals:LiveBusinessTotals;paidPerformance:{amountCny:string|null;recordCount:number;scope:'room_host';records:{id:string;date:string;live_room_code:string;host_name:string;amount_cny:string;note:string}[]};afterSales:{receipts:Record<Currency,string>;recordCount:number;unclassifiedReceiptCount:number;records:{id:string;date:string;amount:string;currency:Currency;order_id:string;order_ref:string;customer_label:string;live_room_code:string;host_name:string;operator_name:string;charge_id:string;label:string;quoted_cny:string;cost_cny:string;costs_completed_at:string|null;margin_cny:string|null;charge_voided_at:string|null}[]};rooms:{key:string;roomCode:string;hosts:string[];personas:string[];totals:LiveBusinessTotals}[];events:LiveBusinessEvent[];options:{room:string;host:string;persona:string;persona_name:string;operator:string}[];legacyCost:{count:number;amountCny:string};ads:{scope:'company';spendUsd:string;records:{id:string;date:string;persona:string;account:string;amount:string}[];unknownCount:number}};
+export type PaidPerformanceRecord={id:string;business_date:string;live_room_code:string;host_name:string;amount_cny:string;note:string;created_by_name:string;voided_at:string|null;void_reason:string|null};
+export type PaymentRecord = { after_sale_charge_id?:string|null;id:string; payment_date:string; amount:string; currency:Currency; credit_amount:string; purpose:string; channel:string; third_party:boolean; reference:string; note?:string; voided_at:string|null; void_reason?:string; settled_amount:string };
+export type ExpenseRecord = {after_sale_charge_id?:string|null;id:string;business_date:string;category:string;label:string;amount_cny:string;counterparty?:string;item_id?:string;note?:string;voided_at:string|null;void_reason?:string};
+export type ChargeRecord = {cost_cny?:string;costs_completed_at?:string|null;margin_cny?:string|null;id:string;business_date:string;label:string;amount_cny:string;customer_amount:string;note:string;voided_at:string|null;void_reason?:string};
 export type CompanyExpense = ExpenseRecord & {order_id:string;order_ref:string;customer_label:string;persona_name:string;persona_code:string;live_room_code:string;host_name:string;customer_code:string;operator_name:string;wechat_id:string;material_ref:string;item_label:string;paid_cny:string;pending_cny:string|null;paymentState:string};
 export type SupplierPayment = {id:string;expense_id:string;paid_on:string;payee:string;account:string;reference:string;amount_cny:string;note:string;voided_at:string|null;void_reason?:string};
 export type PayablesData = {expenses:CompanyExpense[];payments:SupplierPayment[];summary:{costCny:string;paidCny:string;pendingCny:string;unknownCount:number}};
@@ -281,7 +284,8 @@ export type AdTopup = {id:string;account_ref:string;paid_on:string;credited_usd:
 export type AdAccountsData = {accounts:AdAccount[];topups:AdTopup[];summary:{paidCny:string;creditedUsd:string;spentUsd:string;balanceUsd:string}};
 export type OrderRecord = {
   legacy:boolean;
-  order:{id:string;order_ref:string;customer_label:string;business_date:string;amount:string;status:string;wechat_id?:string;display_name:string;note?:string;custom_product_cost:string;labor_cost:string;shipping_cost:string};
+  order:{id:string;order_ref:string;customer_label:string;business_date:string;amount:string;status:string;cancelled?:boolean;wechat_id?:string;display_name:string;note?:string;custom_product_cost:string;labor_cost:string;shipping_cost:string};
+  cancellations?:{id:string;booked_on:string;base_amount_cny:string;reason:string;created_at:string;created_by_name:string|null;voided_at:string|null;void_reason:string|null;voided_by_name:string|null}[];
   details?:{personaName:string;personaCode?:string;liveRoomCode?:string;hostName?:string;customerCode?:string;operatorName:string;source:string;customerCurrency:Currency;customerDue:string;baseCustomerDue?:string;shippedOn:string|null;version:number};
   items?:{id:string;label:string;material_ref:string;kind:string;price_cny:string;buying_fee_cny:string}[];
   payments?:PaymentRecord[]; expenses?:ExpenseRecord[]; charges?:ChargeRecord[];

@@ -20,6 +20,87 @@ describe("成交、客户付款与财务结算隔离",()=>{
  async function order(extra:object={},who="cashier"){return(await post(who,"/api/order-records",body(extra)).expect(200)).body.id as string;}
  async function payment(id:string,extra:object={}){const b={requestKey:randomUUID(),paymentDate:today,amount:"1000.00",currency:"TWD",purpose:"deposit",channel:"测试代收账户",thirdParty:true,reference:randomUUID(),...extra};return(await post("cashier",`/api/order-records/${id}/payments`,b).expect(200)).body.id as string;}
  const settlement=(paymentId:string,extra:object={})=>({requestKey:randomUUID(),reference:randomUUID(),channel:"测试代收账户",currency:"TWD",settledOn:today,feeAmount:"30.00",feeCurrency:"TWD",feePercent:"3",fxRate:"0.21",netCny:"203.70",allocations:[{paymentId,foreignAmount:"1000.00",netCny:"203.70"}],...extra});
+ it('售后实收600、跨日成本445形成同一业务毛利155；不并入开单营业额',async()=>{
+  const yesterday=new Date(Date.parse(today+'T00:00:00Z')-86400000).toISOString().slice(0,10),persona='AFTER-'+randomUUID();
+  const id=await order({businessDate:yesterday,personaCode:persona,customerCurrency:'CNY',items:[{kind:'material',label:'原开单料子',priceCny:'100.00'}]});
+  const charge=(await post('cashier',`/api/order-records/${id}/charges`,{requestKey:randomUUID(),businessDate:yesterday,label:'虚构售后关公配货费',amountCny:'600.00'}).expect(200)).body.id;
+  const payBody={requestKey:randomUUID(),paymentDate:yesterday,amount:'600.00',currency:'CNY',purpose:'full',channel:'测试支付宝',afterSaleChargeId:charge};
+  await post('cashier',`/api/order-records/${id}/payments`,payBody).expect(200);
+  await post('cashier',`/api/order-records/${id}/payments`,{...payBody,requestKey:randomUUID(),amount:'1.00'}).expect(409);
+  const other=await order({customerCurrency:'CNY'});
+  await post('cashier',`/api/order-records/${other}/payments`,{...payBody,requestKey:randomUUID(),paymentDate:today}).expect(400);
+  await post('cashier',`/api/order-records/${other}/expenses`,{requestKey:randomUUID(),businessDate:today,category:'goods',label:'错误关联',amountCny:'1.00',afterSaleChargeId:charge}).expect(400);
+  let expenseId='';
+  for(const [category,label,val]of [['sourcing','成品关公','400.00'],['certificate','证书','6.00'],['box','包装盒','9.00'],['shipping','运费','30.00']])expenseId=(await post('cashier',`/api/order-records/${id}/expenses`,{requestKey:randomUUID(),businessDate:today,category,label,amountCny:val,afterSaleChargeId:charge}).expect(200)).body.id;
+  let record=(await get('cashier','/api/order-records/'+id)).body;
+  expect(record.charges[0]).toMatchObject({cost_cny:'445.00',margin_cny:null});
+  await post('cashier',`/api/order-records/${id}/charges/${charge}/costs-complete`,{version:record.details.version,complete:true}).expect(200);
+  record=(await get('cashier','/api/order-records/'+id)).body;expect(record.charges[0].margin_cny).toBe('155.00');
+  const r=(await get('boss',`/api/dashboard/live-business?from=${yesterday}&to=${yesterday}&persona=${persona}`).expect(200)).body;
+  expect(r.totals).toMatchObject({performanceCny:'110.00',additionalCny:'600.00',expenseCny:'0.00'});
+  expect(r.afterSales).toMatchObject({receipts:{CNY:'600.00',TWD:'0.00',USD:'0.00'},recordCount:1,unclassifiedReceiptCount:0});
+  expect(r.afterSales.records[0]).toMatchObject({date:yesterday,cost_cny:'445.00',margin_cny:'155.00'});
+  expect((await get('boss',`/api/dashboard/live-business?from=${today}&to=${today}&persona=${persona}`)).body.totals).toMatchObject({performanceCny:'0.00',expenseCny:'445.00'});
+  await post('cashier',`/api/order-records/${id}/charges/${charge}/void`,{reason:'不可丢失关联收款与成本'}).expect(409);
+  await post('cashier',`/api/order-records/${id}/expenses/${expenseId}/void`,{reason:'运费登记待核对'}).expect(200);
+  expect((await get('cashier','/api/order-records/'+id)).body.charges[0].margin_cny).toBe(null);
+ });
+ it('财务核定业绩独立录入、零与未录区分、重复与纠错留痕；BOSS不可更改',async()=>{
+  const room='PAID-'+randomUUID().slice(0,8),entry={requestKey:randomUUID(),businessDate:today,liveRoomCode:room,hostName:'测试主播',amountCny:'0.00',note:'财务专项核算'};
+  const url='/api/finance/live-performance',home='/api/dashboard/live-business?from='+today+'&to='+today+'&room='+room;
+  expect((await get('boss',home).expect(200)).body.paidPerformance.amountCny).toBe(null);
+  const id=(await post('finance',url,entry).expect(200)).body.id;
+  expect((await post('finance',url,entry).expect(200)).body.id).toBe(id);
+  await post('finance',url,{...entry,requestKey:randomUUID()}).expect(409);
+  expect((await get('boss',home)).body.paidPerformance).toMatchObject({amountCny:'0.00',recordCount:1});
+  for(const who of ['cashier','supervisor','admin']){await get(who,url).expect(403);await post(who,url,entry).expect(403);}
+  await post('boss',url,entry).expect(403);
+  await post('finance',url+'/'+id+'/void',{reason:'核对后重录'}).expect(200);
+  await post('finance',url,{...entry,requestKey:randomUUID(),amountCny:'123.45'}).expect(200);
+  const r=(await get('boss',home)).body;expect(r.paidPerformance.amountCny).toBe('123.45');expect(r.totals.performanceCny).toBe('0.00');
+  expect((await get('finance',url)).body.records.filter((p:any)=>p.live_room_code===room)).toHaveLength(2);
+ });
+ it('跨日未付款开单计原日；跑单回冲原日，保留成本与审计，撤销可恢复',async()=>{
+  const yesterday=new Date(Date.parse(today+'T00:00:00Z')-86400000).toISOString().slice(0,10),persona='CANCEL-'+randomUUID();
+  const id=await order({businessDate:yesterday,personaCode:persona,customerCurrency:'CNY',items:[{kind:'material',label:'开单料子',priceCny:'10000.00'}]});
+  const read=async()=> (await get('cashier','/api/order-records/'+id).expect(200)).body;
+  const summary=async(day:string)=>(await get('boss','/api/dashboard/live-business?from='+day+'&to='+day+'&persona='+persona).expect(200)).body.totals;
+  expect(await summary(yesterday)).toMatchObject({performanceCny:'11000.00',companyReceivedCny:'0.00'});expect((await summary(today)).performanceCny).toBe('0.00');
+  await post('cashier',`/api/order-records/${id}/expenses`,{requestKey:randomUUID(),businessDate:today,category:'design',label:'已发生设计支出',amountCny:'50.00'}).expect(200);
+  const before=await read();const url=`/api/order-records/${id}/cancellations`;
+  const estimateBefore=(await get('boss',`/api/dashboard/summary?from=${yesterday}&to=${yesterday}`).expect(200)).body.metrics;
+  await post('cashier',url,{version:before.details.version-1,reason:'跑单'}).expect(409);
+  for(const who of ['boss','admin','finance','supervisor'])await post(who,url,{version:before.details.version,reason:'跑单'}).expect(403);
+  await post('othercs',url,{version:before.details.version,reason:'其他客服'}).expect(404);
+  await post('cashier',url,{version:before.details.version,reason:' '}).expect(400);
+  const cancellation=(await post('cashier',url,{version:before.details.version,reason:'客户跨日明确放弃付款'}).expect(200)).body.id;
+  const after=await read();expect(after.order.cancelled).toBe(true);expect(after.cancellations[0]).toMatchObject({booked_on:yesterday,base_amount_cny:'11000.00',reason:'客户跨日明确放弃付款'});
+  const archive=(await get('boss',`/api/orders?from=${yesterday}&to=${yesterday}`)).body;
+  expect(archive.orders.find((o:any)=>o.id===id).cancelled).toBe(true);expect(archive.totals.cancelled).toBe('11000.00');
+  const estimateAfter=(await get('boss',`/api/dashboard/summary?from=${yesterday}&to=${yesterday}`).expect(200)).body.metrics;
+  expect(Math.round((Number(estimateBefore.revenue)-Number(estimateAfter.revenue))*100)).toBe(1100000);
+  expect(after.payments).toHaveLength(0);expect(after.expenseTotal).toBe('50.00');
+  expect(await summary(yesterday)).toMatchObject({performanceCny:'0.00',grossSalesCny:'11000.00',cancelledSalesCny:'11000.00',newOrderCount:0});
+  expect(await summary(today)).toMatchObject({performanceCny:'0.00',expenseCny:'50.00',companyReceivedCny:'0.00'});
+  await post('cashier',url,{version:after.details.version,reason:'重复'}).expect(409);
+  await post('cashier',`/api/order-records/${id}/payments`,{requestKey:randomUUID(),paymentDate:today,amount:'100.00',currency:'CNY',purpose:'deposit',channel:'测试账户'}).expect(409);
+  await post('cashier',`/api/order-records/${id}/shipping`,{shippedOn:today}).expect(409);
+  await post('cashier',`/api/order-records/${id}/charges`,{requestKey:randomUUID(),businessDate:today,label:'追加',amountCny:'10.00'}).expect(409);
+  await post('cashier',`${url}/${cancellation}/void`,{version:before.details.version,reason:'误报'}).expect(409);
+  await post('cashier',`${url}/${cancellation}/void`,{version:after.details.version,reason:'客服误报，客户继续购买'}).expect(200);
+  expect((await summary(yesterday)).performanceCny).toBe('11000.00');expect((await read()).cancellations[0].void_reason).toBe('客服误报，客户继续购买');
+  expect((await db.query("SELECT count(*)::int AS n FROM audit_logs WHERE entity_id=$1 AND action IN ('order_cancellation_create','order_cancellation_void')",[id])).rows[0].n).toBe(2);
+ });
+ it('收款和跑单并发时只允许一种结果；已有定金不能伪造未付款跑单',async()=>{
+  const id=await order({customerCurrency:'CNY'}),version=(await get('cashier','/api/order-records/'+id)).body.details.version;
+  const blocker=await db.connect();await blocker.query('BEGIN');await blocker.query('SELECT id FROM orders WHERE id=$1 FOR UPDATE',[id]);
+  const pending=Promise.all([post('cashier',`/api/order-records/${id}/cancellations`,{version,reason:'客户放弃'}).then(r=>r),post('cashier',`/api/order-records/${id}/payments`,{requestKey:randomUUID(),paymentDate:today,amount:'10.00',currency:'CNY',purpose:'deposit',channel:'测试账户'}).then(r=>r)]);
+  try{const until=Date.now()+5000;let waiting=0;while(waiting<2&&Date.now()<until){waiting=Number((await db.query("SELECT count(*) AS n FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'SELECT o.%'")).rows[0].n);if(waiting<2)await new Promise(r=>setTimeout(r,20));}expect(waiting).toBe(2);}finally{await blocker.query('COMMIT');blocker.release();}
+  const responses=await pending;
+  expect(responses.map(r=>r.status).sort()).toEqual([200,409]);
+  const record=(await get('cashier','/api/order-records/'+id)).body;expect(record.order.cancelled?record.payments.length===0:record.payments.length===1).toBe(true);
+  if(!record.order.cancelled)await post('cashier',`/api/order-records/${id}/cancellations`,{version:record.details.version,reason:'已有定金'}).expect(409);
+ });
  beforeAll(async()=>{
   const url=process.env.TEST_DATABASE_URL??"",inspected=assertNotDemoDatabase(url);if(inspected.name!=="cms_commerce_test"||inspected.port!=="16542"||inspected.host!=="127.0.0.1")throw Error("只允许独立本地 cms_commerce_test:16542");
   process.env.DATABASE_URL=url;process.env.SESSION_SECRET="isolated-commerce-fixture-secret-not-for-production";process.env.APP_ORIGIN=origin;process.env.LOGIN_MAX_ATTEMPTS="200";
@@ -43,9 +124,9 @@ describe("成交、客户付款与财务结算隔离",()=>{
   await post('finance','/api/finance/payables/payments',{expenseId:oldCost,paidOn:today,payee:'商家',account:'测试公司',reference:randomUUID(),amountCny:'10.00',requestKey:randomUUID()}).expect(200);
   const url='/api/dashboard/live-business?from='+today+'&to='+today+'&persona='+persona;
   const r=(await get('boss',url).expect(200)).body;
-  expect(r.totals).toMatchObject({performanceCny:'390.00',newSalesCny:'330.00',additionalCny:'60.00',expenseCny:'45.00',supplierPaidCny:'10.00',companyReceivedCny:'100.00',newOrderCount:1,customerReceipts:{CNY:'100.00',TWD:'0.00',USD:'0.00'}});
-  expect(r.rooms.find((x:any)=>x.roomCode==='DATE-A').totals).toMatchObject({performanceCny:'20.00',expenseCny:'30.00',newOrderCount:0});
-  const filtered=(await get('boss',url+'&room=DATE-A').expect(200)).body;expect(filtered.totals.performanceCny).toBe('20.00');expect(filtered.totals.expenseCny).toBe('30.00');expect(filtered.ads.spendUsd).toBe(r.ads.spendUsd);
+  expect(r.totals).toMatchObject({performanceCny:'330.00',newSalesCny:'330.00',additionalCny:'60.00',expenseCny:'45.00',supplierPaidCny:'10.00',companyReceivedCny:'100.00',newOrderCount:1,customerReceipts:{CNY:'100.00',TWD:'0.00',USD:'0.00'}});
+  expect(r.rooms.find((x:any)=>x.roomCode==='DATE-A').totals).toMatchObject({performanceCny:'0.00',additionalCny:'20.00',expenseCny:'30.00',newOrderCount:0});
+  const filtered=(await get('boss',url+'&room=DATE-A').expect(200)).body;expect(filtered.totals.performanceCny).toBe('0.00');expect(filtered.totals.expenseCny).toBe('30.00');expect(filtered.ads.spendUsd).toBe(r.ads.spendUsd);
   expect((await get('boss','/api/dashboard/live-business?from='+yesterday+'&to='+yesterday+'&persona='+persona)).body.totals).toMatchObject({performanceCny:'110.00',expenseCny:'45.00'});
   for(const who of ['admin','finance','supervisor','cashier'])await get(who,url).expect(403);
   await get('boss','/api/dashboard/live-business?from=bad&to='+today).expect(400);await get('boss','/api/dashboard/live-business?room[]=bad').expect(400);

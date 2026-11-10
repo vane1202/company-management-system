@@ -5,10 +5,12 @@ import { HttpError } from "../types.js";
 import { writeAudit } from "../audit.js";
 import { amount, currency, dateField, hashPayload, replay, textField, uuid } from "../lib/commerce.js";
 import { addMoney, centsToMoney, moneyToCents } from "../lib/money.js";
+import {createPaidPerformanceRouter} from './paidPerformance.js';
 
 export function createFinanceRouter(db:Pool, config:AppConfig) {
   const router=Router();
   router.use((req,_res,next)=>["boss","finance"].includes(req.actor!.role)?next():next(new HttpError(403,"无财务权限")));
+  router.use('/live-performance',createPaidPerformanceRouter(db,config));
   const mutate=(handler:(c:PoolClient,req:Request)=>Promise<unknown>)=>(req:Request,res:Response,next:NextFunction)=>{
     if(req.actor!.role!=="finance"){next(new HttpError(403,"仅财务可登记结算"));return;}
     void(async()=>{const c=await db.connect();try{await c.query("BEGIN");const result=await handler(c,req);await c.query("COMMIT");res.json(result);}catch(e){await c.query("ROLLBACK");next(e);}finally{c.release();}})();

@@ -33,7 +33,7 @@ export function createOrderRouter(db: Pool, config: AppConfig): Router {
       const filters = readFilters(req.query);
       const rows = await query(
         db,
-        `SELECT o.*,d.persona_code,d.persona_name,d.live_room_code,d.host_name,d.customer_code,d.operator_name,u.display_name,u.service_account_label AS wechat_id,u.account_kind,EXISTS(SELECT 1 FROM order_details d WHERE d.order_id=o.id) AS workflow_enabled FROM orders o JOIN users u ON u.id=o.user_id LEFT JOIN order_details d ON d.order_id=o.id
+        `SELECT o.*,EXISTS(SELECT 1 FROM order_cancellations x WHERE x.order_id=o.id AND x.voided_at IS NULL) AS cancelled,d.persona_code,d.persona_name,d.live_room_code,d.host_name,d.customer_code,d.operator_name,u.display_name,u.service_account_label AS wechat_id,u.account_kind,EXISTS(SELECT 1 FROM order_details d WHERE d.order_id=o.id) AS workflow_enabled FROM orders o JOIN users u ON u.id=o.user_id LEFT JOIN order_details d ON d.order_id=o.id
           WHERE ($1 = '' OR o.user_id::text = $1)
             AND ($2::date IS NULL OR o.business_date >= $2)
             AND ($3::date IS NULL OR o.business_date <= $3)
@@ -42,7 +42,7 @@ export function createOrderRouter(db: Pool, config: AppConfig): Router {
           ORDER BY o.business_date DESC, o.created_at DESC`,
         [userFilter, filters.from, filters.to, scopes, filters.status]
       );
-      res.json({ orders: rows.map(serializeOrder), totals: { amount: addMoney(rows.map((row) => String(row.amount))), refunds: addMoney(rows.filter((row) => row.status === "refunded").map((row) => String(row.amount))) } });
+      res.json({ orders: rows.map(serializeOrder), totals: { amount: addMoney(rows.map((row) => String(row.amount))), refunds: addMoney(rows.filter((row) => row.status === "refunded"&&!row.cancelled).map((row) => String(row.amount))),cancelled:addMoney(rows.filter(row=>row.cancelled).map(row=>String(row.amount))) } });
     } catch (error) {
       next(error);
     }
@@ -56,7 +56,7 @@ export function createOrderRouter(db: Pool, config: AppConfig): Router {
       const filters = readFilters(req.query);
       const rows = await query(
         db,
-        `SELECT o.*,d.persona_code,d.persona_name,d.live_room_code,d.host_name,d.customer_code,d.operator_name,u.service_account_label AS wechat_id,u.display_name FROM orders o
+        `SELECT o.*,EXISTS(SELECT 1 FROM order_cancellations x WHERE x.order_id=o.id AND x.voided_at IS NULL) AS cancelled,d.persona_code,d.persona_name,d.live_room_code,d.host_name,d.customer_code,d.operator_name,u.service_account_label AS wechat_id,u.display_name FROM orders o
            JOIN users u ON u.id = o.user_id LEFT JOIN order_details d ON d.order_id=o.id
           WHERE ($1 = '' OR o.user_id::text = $1)
             AND ($2::date IS NULL OR o.business_date >= $2)
@@ -66,7 +66,7 @@ export function createOrderRouter(db: Pool, config: AppConfig): Router {
           ORDER BY o.business_date, o.order_ref`,
         [userFilter, filters.from, filters.to, scopes, filters.status]
       );
-      const lines = ["业务日,订单标识,录入人,人设ID,人设,直播间编号,主播,客户ID,对接客服,归属接待账号,客户备注,金额,状态,定制,商品成本,工费,运费"];
+      const lines = ["业务日,订单标识,录入人,人设ID,人设,直播间编号,主播,客户ID,对接客服,归属接待账号,客户备注,金额,状态,跑单状态,定制,商品成本,工费,运费"];
       for (const row of rows) {
         lines.push(
           [
@@ -77,6 +77,7 @@ export function createOrderRouter(db: Pool, config: AppConfig): Router {
             csv(String(row.customer_label ?? "")),
             money(row.amount),
             row.status,
+            row.cancelled?'已跑单':'正常',
             row.is_custom ? "是" : "否",
             money(row.custom_product_cost),
             money(row.labor_cost),
@@ -310,6 +311,7 @@ function serializeOrder(row: Record<string, unknown> | undefined) {
     displayName: row.display_name,
     wechatId: row.wechat_id,
     accountKind: row.account_kind,
+    cancelled: Boolean(row.cancelled),
     businessDate: toDateOnly(row.business_date),
     orderRef: row.order_ref,
     customerLabel: row.customer_label,

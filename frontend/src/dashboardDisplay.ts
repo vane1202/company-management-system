@@ -18,9 +18,9 @@ export function yuan(value: string | null | undefined): string {
 }
 
 /** 有效金额 = 订单金额（含退款源订单）− 退款金额。两者都是后端已给的人民币金额。 */
-export function effectiveOrderAmount(revenue: string | null | undefined, refunds: string | null | undefined): string | null {
-  const r = signedCents(revenue), f = signedCents(refunds);
-  return r === null || f === null ? null : formatCents(r - f);
+export function effectiveOrderAmount(revenue: string | null | undefined, refunds: string | null | undefined, cancelled='0.00'): string | null {
+  const r = signedCents(revenue), f = signedCents(refunds), c=signedCents(cancelled);
+  return r === null || f === null || c===null ? null : formatCents(r - f-c);
 }
 
 /** 今日未报账号（按小组顺序，去重）。 */

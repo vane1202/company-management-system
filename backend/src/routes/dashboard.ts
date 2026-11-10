@@ -45,13 +45,13 @@ export function createDashboardRouter(db: Pool, config: AppConfig): Router {
         shipping_cost: string;
       }>(
         db,
-        `SELECT COUNT(*) FILTER (WHERE status <> 'refunded')::text AS order_count,
-                COALESCE(SUM(amount), 0)::text AS revenue,
-                COALESCE(SUM(amount) FILTER (WHERE status = 'refunded'), 0)::text AS refunds,
+        `SELECT COUNT(*) FILTER (WHERE status <> 'refunded' AND NOT cancelled)::text AS order_count,
+                COALESCE(SUM(amount) FILTER (WHERE NOT cancelled), 0)::text AS revenue,
+                COALESCE(SUM(amount) FILTER (WHERE status = 'refunded' AND NOT cancelled), 0)::text AS refunds,
                 COALESCE(SUM(custom_product_cost), 0)::text AS custom_cost,
                 COALESCE(SUM(labor_cost), 0)::text AS labor_cost,
                 COALESCE(SUM(shipping_cost), 0)::text AS shipping_cost
-           FROM orders
+           FROM (SELECT o.*,EXISTS(SELECT 1 FROM order_cancellations x WHERE x.order_id=o.id AND x.voided_at IS NULL) AS cancelled FROM orders o) orders
           WHERE business_date BETWEEN $1 AND $2`,
         [period.from, period.to]
       );
@@ -198,7 +198,7 @@ export function createDashboardRouter(db: Pool, config: AppConfig): Router {
         formula: "收入 - 退款 - 推广费 - 工资分摊 - 定制商品成本 - 工费 - 运费",
         estimateScope: "all_daily_minus_overall_salary",
         estimateNote: "填报数据直接计入统计。估算中的推广费只含历史 promo_cost（币种未知/legacy），不含新的美元花费，也不会把美元与人民币工资相加或换汇。",
-        disclaimer: "此结果为经营估算，用于看日常趋势，不等于会计净利润；未包含房租、水电、税费、社保公积金、平台扣点等。收入为查询期内全部订单金额（含状态为退款的源订单），退款为状态=退款的订单金额之和；估算按收入减去退款，避免同一笔退款订单先从收入排除再扣一次。退款订单的成本仍计入。订单按录入的业务日归属，没有独立退款日或部分退款字段。"
+        disclaimer: "此结果为经营估算，用于看日常趋势，不等于会计净利润；未包含房租、水电、税费、社保公积金、平台扣点等。收入为查询期内排除跑单后的订单金额（仍含状态为退款的源订单），退款为状态=退款的订单金额之和；估算按收入减去退款，避免同一笔退款订单先从收入排除再扣一次。退款及跑单订单已经发生的成本仍计入。跑单回冲原业务日，不生成退款流水。订单按录入的业务日归属，没有独立退款日或部分退款字段。"
       });
     } catch (error) {
       next(error);

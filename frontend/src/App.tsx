@@ -2,6 +2,8 @@ import { isServiceAccount } from './serviceAccounts';
 import { AdAccountsWorkspace } from "./AdAccountsWorkspace";
 import { SalaryWorkspace } from "./SalaryWorkspace";
 import { WorkspaceBackbar, useWorkspaceNavigation } from "./WorkspaceNavigation";
+import {LiveBusinessOverview} from './LiveBusinessOverview';
+import {defaultLiveView,liveViewLabel,type LiveView} from './liveBusinessNavigation';
 import { OrderWorkspace } from "./OrderWorkspace";
 import { FinanceWorkspace } from "./FinanceWorkspace";
 import { DailyForm } from "./DailyForms";
@@ -56,7 +58,7 @@ export function App() {
 
   useEffect(() => {
     setError(""); setMobileNavOpen(false);
-  }, [page, navigation.route.orderId]);
+  }, [page, navigation.route.orderId, navigation.route.live]);
   useEffect(() => { setPageErrors({}); }, [user?.id, user?.role]);
 
   function applySession(nextUser: User, payload?: SessionMeta) {
@@ -115,6 +117,10 @@ export function App() {
   const managementRole = ["boss", "admin", "cs_supervisor", "finance"].includes(user.role);
   const items = navItems(user.role).filter((item) => managementRole || !["fans", "orders", "ops", "editor"].includes(item.id) || modules?.[item.id] === true);
   const activePage = items.some((item) => item.id === page) ? page : "home";
+  const bossBusiness=user.role==='boss'&&activePage==='orders';
+  const businessContext=navigation.views.orders?.live??defaultLiveView();
+  const currentBusiness=navigation.route.live??defaultLiveView();
+  const businessBackLabel=bossBusiness?(navigation.route.orderId?(navigation.route.orderList?'订单列表':liveViewLabel(currentBusiness)):navigation.route.orderList?'直播间经营':currentBusiness.view!=='rooms'?'直播间列表':undefined):undefined;
   function goTo(next: Page) {
     setError("");
     setMobileNavOpen(false);
@@ -159,13 +165,13 @@ export function App() {
         </div>
       </header>
       <main id="main-content" tabIndex={-1}>
-      {activePage !== "home" && <WorkspaceBackbar page={activePage} detail={activePage === "orders" && !!navigation.route.orderId} homeLabel={items[0].label} pageLabel={items.find(item => item.id === activePage)!.label} onUp={() => navigation.up()} onHome={() => navigation.up({ page: "home" })} />}
+      {activePage !== "home" && <WorkspaceBackbar page={activePage} detail={activePage === "orders" && !!navigation.route.orderId} homeLabel={items[0].label} pageLabel={bossBusiness?(navigation.route.orderList?'订单档案':liveViewLabel(currentBusiness)):items.find(item => item.id === activePage)!.label} backLabel={businessBackLabel} onUp={() => navigation.up()} onHome={() => navigation.up({ page: "home" })} />}
       {error && <p className="error">{error}</p>}
       {isServiceAccount(user.accountKind) && <p className="notice">当前填报接待账号：<strong>{user.serviceAccountLabel??user.wechatId}</strong>{user.phoneLabel ? `（${user.phoneLabel}）` : ""}。加粉与订单长期归属于此接待账号；退出后需管理员重新发码。</p>}
-      {pagePanel("home", <Home user={user} today={today} backfillDays={backfillDays} disclaimer={disclaimer} onNavigate={goTo} onOpenOrder={id=>navigation.navigate({page:"orders",orderId:id})} />)}
+      {pagePanel("home", <Home user={user} today={today} backfillDays={backfillDays} disclaimer={disclaimer} onNavigate={goTo} onOpenBusiness={live=>navigation.navigate({page:'orders',live})} />)}
       {pagePanel("fans", <FanForm today={today} onError={pageError("fans")} platform={user.servicePlatform}/>)}
       {pagePanel("summary", <FanSummaryPage today={today} onError={pageError("summary")} supervisor={user.role === "cs_supervisor"} onNavigate={goTo} />)}
-      {pagePanel("orders", <OrderWorkspace today={today} user={user} selectedId={navigation.views.orders?.orderId ?? ""} onSelectOrder={id => navigation.navigate({ page: "orders", orderId: id })} />)}
+      {pagePanel("orders", user.role==='boss'?<><div hidden={!!navigation.views.orders?.orderId||!!navigation.views.orders?.orderList}><LiveBusinessOverview today={today} context={businessContext} onOpenBusiness={live=>navigation.navigate({page:'orders',live})} onOpenOrder={id=>navigation.navigate({page:'orders',live:businessContext,orderId:id})} onOpenOrders={()=>navigation.navigate({page:'orders',live:businessContext,orderList:true})}/></div>{(navigation.views.orders?.orderId||navigation.views.orders?.orderList)&&<OrderWorkspace today={today} user={user} selectedId={navigation.views.orders.orderId??''} onSelectOrder={id=>navigation.navigate({...navigation.views.orders!,orderId:id})}/>}</>:<OrderWorkspace today={today} user={user} selectedId={navigation.views.orders?.orderId ?? ""} onSelectOrder={id => navigation.navigate({ page: "orders", orderId: id })} />)}
       {pagePanel("ops", <OpsPage today={today} onError={pageError("ops")} readOnly={user.role === "boss"} />)}
       {pagePanel("editor", <EditorPage today={today} onError={pageError("editor")} readOnly={user.role === "boss"} />)}
       {pagePanel("dashboard", <DashboardPage onError={pageError("dashboard")} />)}
@@ -285,17 +291,17 @@ function Home({
   backfillDays,
   disclaimer,
   onNavigate,
-  onOpenOrder
+  onOpenBusiness
 }: {
   user: User;
   today: string;
   backfillDays: number;
   disclaimer: string;
   onNavigate: (page: Page) => void;
-  onOpenOrder:(id:string)=>void;
+  onOpenBusiness:(view:LiveView)=>void;
 }) {
   if (user.role === "finance") return <FinanceWorkspace today={today} />;
-  if (user.role === "boss") return <DashboardHome today={today} onNavigate={onNavigate} onOpenOrder={onOpenOrder} />;
+  if (user.role === "boss") return <DashboardHome today={today} onNavigate={onNavigate} onOpenBusiness={onOpenBusiness} />;
   if (user.role === "admin") return <AdminHome onNavigate={onNavigate} />;
   if (user.role === "cs_supervisor") return <SupervisorHome today={today} onNavigate={onNavigate} />;
   return (
