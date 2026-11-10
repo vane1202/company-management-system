@@ -1,32 +1,13 @@
-import { useState, type FormEvent } from "react";
-import { api, type User } from "./api";
-import type { SessionMeta } from "./sessionMeta";
-import { toErrorMessage } from "./errors";
-
-export function CsDeviceRegistration({ title, onRegistered, onEmployeeLogin }: { title: string; onRegistered: (user: User, meta?: SessionMeta) => void | Promise<void>; onEmployeeLogin: () => void }) {
-  const [form, setForm] = useState({ wechatId: "", phoneLabel: "", registrationCode: "" });
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState("");
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (pending) return;
-    setPending(true); setError("");
-    try {
-      await api.loadCsrf();
-      const result = await api.registerCsDevice(form);
-      await onRegistered(result.user, result);
-    } catch (err) { setError(toErrorMessage(err, "登记失败")); }
-    finally { setPending(false); }
-  }
-  return <div className="login-wrap"><form className="card login-card cs-registration" onSubmit={submit}>
-    <div className="brand"><b>{title}</b><span>首次使用，请登记这台客服手机上的公司微信号。</span></div>
-    <p className="notice">加粉和订单归属于这个微信号，人员交接后继续使用同一账号。</p>
-    <div className="row"><label htmlFor="cs-wechat">公司客服微信号</label><input id="cs-wechat" required maxLength={64} autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete="off" placeholder="填写微信号，非昵称" value={form.wechatId} onChange={(e) => setForm({ ...form, wechatId: e.target.value })} /></div>
-    <div className="row"><label htmlFor="cs-phone-label">设备备注（可选）</label><input id="cs-phone-label" maxLength={64} placeholder="例如：客服手机 01，无需手机号" value={form.phoneLabel} onChange={(e) => setForm({ ...form, phoneLabel: e.target.value })} /></div>
-    <div className="row"><label htmlFor="cs-registration-code">管理员提供的一次性登记码</label><input id="cs-registration-code" required maxLength={80} autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete="off" enterKeyHint="go" value={form.registrationCode} onChange={(e) => setForm({ ...form, registrationCode: e.target.value })} /></div>
-    {error && <p className="error" role="alert">{error}</p>}
-    <button type="submit" disabled={pending}>{pending ? "正在登记…" : "登记并进入填报"}</button>
-    <p className="notice">登记后在当前浏览器保留登录，每次使用续期 30 天。换浏览器、清除数据或退出后，请联系管理员重新发码。这是公司内部登记，不是微信官方登录。</p>
-    <button type="button" className="secondary" onClick={onEmployeeLogin}>使用原员工账号登录</button>
-  </form></div>;
+import {useState,type FormEvent} from 'react';
+import {api,type User} from './api';
+import type {SessionMeta} from './sessionMeta';
+import {toErrorMessage} from './errors';
+type Choice=Awaited<ReturnType<typeof api.csRegistrationOptions>>['accounts'][number];
+export function CsDeviceRegistration({title,onRegistered,onEmployeeLogin}:{title:string;onRegistered:(user:User,meta?:SessionMeta)=>void|Promise<void>;onEmployeeLogin:()=>void}){
+ const [code,setCode]=useState(''),[choices,setChoices]=useState<Choice[]|null>(null),[accountId,setAccountId]=useState(''),[phoneLabel,setPhoneLabel]=useState(''),[pending,setPending]=useState(false),[error,setError]=useState('');
+ async function submit(e:FormEvent){e.preventDefault();if(pending)return;setPending(true);setError('');try{await api.loadCsrf();if(!choices){const r=await api.csRegistrationOptions(code);setChoices(r.accounts);setAccountId(r.accounts.length===1?r.accounts[0].id:'');if(!r.accounts.length)setError('该登记码下尚无可选接待账号，请联系主管先录入名单。');}else{const r=await api.registerCsDevice({accountId,registrationCode:code,phoneLabel});await onRegistered(r.user,r);}}catch(e){setError(toErrorMessage(e,'登记失败'));}finally{setPending(false);}}
+ return <div className="login-wrap"><form className="card login-card cs-registration" onSubmit={submit}><div className="brand"><b>{title}</b><span>选择公司的 WhatsApp 或 Messenger 接待账号。</span></div><p className="notice">账号由管理员或主管提前录入。加粉、线索和订单跟随所选账号，换人后保留原归属。</p>
+ <label className="row" htmlFor="cs-registration-code">管理员提供的一次性登记码<input id="cs-registration-code" disabled={pending} required maxLength={80} autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete="off" enterKeyHint={choices?'next':'go'} value={code} onChange={e=>{setCode(e.target.value);setChoices(null);setAccountId('');setError('');}}/></label>
+ {choices&&<><label className="row" htmlFor="cs-service-account">接待账号<select id="cs-service-account" disabled={pending} required value={accountId} onChange={e=>setAccountId(e.target.value)}><option value="">选择自己使用的账号</option>{choices.map(a=><option key={a.id} value={a.id}>{a.label}{a.phoneLabel?` · ${a.phoneLabel}`:''}</option>)}</select></label><label className="row" htmlFor="cs-device-label">设备备注（可选）<input id="cs-device-label" maxLength={64} placeholder="例如：客服手机01" value={phoneLabel} onChange={e=>setPhoneLabel(e.target.value)}/></label></>}
+ {error&&<p className="error" role="alert">{error}</p>}<button type="submit" disabled={pending||!!choices&&!accountId}>{pending?'正在处理…':choices?'确认账号并进入填报':'读取可选账号'}</button><p className="notice">登记后当前浏览器保留登录，每次使用续期30天。换浏览器、清除数据或退出后请重新获取登记码；这是内部登记，不会登录或读取聊天平台。</p><button type="button" className="secondary" onClick={onEmployeeLogin}>使用原员工账号登录</button></form></div>;
 }

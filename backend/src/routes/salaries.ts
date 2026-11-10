@@ -105,7 +105,7 @@ export function createSalaryRouter(db: Pool): Router {
 }
 async function employeeLock(client: PoolClient, id: string) {
   const employee = (await client.query("SELECT id,account_kind FROM users WHERE id=$1 FOR UPDATE", [id])).rows[0];
-  if (!employee || employee.account_kind !== "employee") throw new HttpError(400, "工资只能关联员工，不能关联客服微信号");
+  if (!employee || employee.account_kind !== "employee") throw new HttpError(400, "工资只能关联员工，不能关联客服接待账号");
 }
 function readBody(body: Record<string, unknown> = {}) {
   const monthlyAmount = parseMoney(body.monthlyAmount, "月基本工资");

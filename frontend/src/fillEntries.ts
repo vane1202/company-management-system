@@ -1,8 +1,8 @@
 import type { Role } from "./api";
 
 export const fillEntries = {
-  fans: { path: "/fill/fans", title: "加粉填报", description: "登记公司客服微信号后填写加粉日报。" },
-  orders: { path: "/fill/orders", title: "订单填报", description: "登记公司客服微信号后录入与查看订单。" }
+  fans: { path: "/fill/fans", title: "加粉填报", description: "登记公司客服接待账号后填写加粉日报。" },
+  orders: { path: "/fill/orders", title: "订单填报", description: "登记公司客服接待账号后录入与查看订单。" }
 } as const;
 export type FillEntry = keyof typeof fillEntries;
 

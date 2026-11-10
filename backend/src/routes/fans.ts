@@ -28,7 +28,7 @@ import {
 } from "../users.js";
 import type { AppConfig } from "../config.js";
 
-const COMM_SCOPE_NOTE = "四类沟通状态（正常沟通回复 / 已读不回 / 未读 / 无效粉）统计的是当天新增客户，不含历史存量。四类是否互斥、是否必须合计等于当日进粉，以及今日有效与四类的关系尚未确认，系统不做强约束。";
+const COMM_SCOPE_NOTE = "沟通情况是当日数据，可包含往日承接客户；不要求合计等于今日进粉。月进粉为累计汇报快照。初步转化按客户明细的承接批次及首次明确需求日期计算，不从沟通汇总推算。";
 
 export function createFanRouter(db: Pool, config: AppConfig): Router {
   const router = Router();
@@ -64,6 +64,7 @@ export function createFanRouter(db: Pool, config: AppConfig): Router {
       const businessDate = String(req.body?.businessDate ?? today);
       if (!isIsoDate(businessDate)) throw new HttpError(400, "业务日格式无效");
       const payload = parseFanWritePayload(req.body);
+      if(actor.servicePlatform==='whatsapp'&&((payload.msToday??0)>0||(payload.msMonth??0)>0)||actor.servicePlatform==='messenger'&&((payload.wsToday??0)>0||(payload.wsMonth??0)>0))throw new HttpError(400,'日报进粉渠道必须与接待账号的平台一致');
       const targetUserId = String(req.body?.userId ?? actor.id);
       await assertCanWriteFan(db, actor, targetUserId, businessDate, today, config);
       const membership = await membershipOnDate(db, targetUserId, businessDate);

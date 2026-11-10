@@ -1,9 +1,12 @@
+import { dashboardPresetRange } from "./dates";
+import { LiveBusinessOverview } from "./LiveBusinessOverview";
+import { LeadHomePreview } from "./LeadHomePreview";
 import { useEffect, useState } from "react";
 import { api, type FanSeries, type FanSummary } from "./api";
 import type { Page } from "./access";
 import { DashboardIcon } from "./DashboardIcon";
 import { reportingOverview } from "./dashboardOverview";
-import { effectiveOrderAmount, monthGap, MONTH_GAP_MIN_ABS, MONTH_GAP_MIN_RATIO, sparkReady, yuan } from "./dashboardDisplay";
+import { monthGap, MONTH_GAP_MIN_ABS, MONTH_GAP_MIN_RATIO, sparkReady, yuan } from "./dashboardDisplay";
 import { InfoTip } from "./InfoTip";
 import { Sparkline } from "./Sparkline";
 import { toErrorMessage } from "./errors";
@@ -12,14 +15,14 @@ import { Skeleton } from "./Skeleton";
 type Snapshot = Awaited<ReturnType<typeof api.dashboard>>;
 /*
  * BOSS 管理总览。设计偏离说明（项目约束优先于 dashboard-design 默认风格）：浅色深绿主题；
- * 手机 360×640 第一屏固定四行（视频素材 → 加粉 → 运营费用 → 订单）；口径说明放在 ⓘ 里，不写在卡片下。
+ * 手机第一屏优先显示直播间业绩、费用与广告消耗；加粉和拍剪位于经营明细之后；口径说明放在 ⓘ 里，不写在卡片下。
  */
-export function DashboardHome({ today, onNavigate }: { today: string; onNavigate: (page: Page) => void }) {
+export function DashboardHome({ today, onNavigate, onOpenOrder }: { today: string; onNavigate: (page: Page) => void; onOpenOrder:(id:string)=>void }) {
   const [preset, setPreset] = useState("day");
   const [range, setRange] = useState<{ from: string; to: string }>();
   const [draft, setDraft] = useState({ from: today, to: today });
   const [rangeOpen, setRangeOpen] = useState(false);
-  const [rangeError, setRangeError] = useState("");
+  const [rangeError,setRangeError]=useState("");
   const [tick, setTick] = useState(0);
   const [loading, setLoading] = useState(true);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
@@ -36,7 +39,7 @@ export function DashboardHome({ today, onNavigate }: { today: string; onNavigate
       if (!active) return;
       const failures: string[] = [];
       if (business.status === "fulfilled") setSnapshot(business.value);
-      else failures.push(`经营数据：${toErrorMessage(business.reason)}`);
+      else failures.push(`加粉与拍剪数据：${toErrorMessage(business.reason)}`);
       if (reports.status === "fulfilled") setTeams(reports.value.teams);
       else failures.push(`填报进度：${toErrorMessage(reports.reason)}`);
       // 趋势线只是辅助：失败时不显示线，不额外报错。
@@ -48,16 +51,9 @@ export function DashboardHome({ today, onNavigate }: { today: string; onNavigate
     return () => { active = false; };
   }, [preset, range, today, tick]);
   const m = snapshot?.metrics;
-  const ops = snapshot?.opsUsd;
+
   const reporting = teams ? reportingOverview(teams) : null;
-  // 读取中且尚无数据：用固定尺寸灰色占位，读取完仍为“—”才表示无数据。
-  const businessPending = loading && !snapshot, reportsPending = loading && !teams;
-  const sk = (width = "3em") => <Skeleton width={width} height=".85em" />;
-  const metric = (value: string | number | null | undefined, pending = businessPending) => pending ? sk() : value ?? "—";
-  const money = (value: string | null | undefined) => businessPending ? sk("4.5em") : yuan(value);
-  // 订单金额含退款源订单；首屏只给有效金额（订单金额 − 退款），退款单列，均为人民币。
-  const effective = m ? effectiveOrderAmount(m.revenue, m.refunds) : null;
-  const missingToday = reporting?.missing ?? 0;
+  const metric = (value: string | number | null | undefined) => loading ? <Skeleton width="3em" height=".85em"/> : value ?? "—";
   const monthView = !range && preset === "month";
   const sparkValues = series?.days.map(d => d.fanAdded) ?? [];
   const sparkDates = series?.days.map(d => d.date) ?? [];
@@ -70,30 +66,24 @@ export function DashboardHome({ today, onNavigate }: { today: string; onNavigate
   };
   return <div className="management-dashboard boss-overview" aria-busy={loading}>
     <section className="overview-heading boss-heading">
-      <div className="boss-title"><span className="dashboard-eyebrow">经营工作台</span><h1>管理总览</h1></div>
+      <div className="boss-title"><span className="dashboard-eyebrow">经营工作台</span><h1>经营总览</h1></div>
       <div className="boss-period-controls">
-        <div className="overview-segments">{[["day", "今日"], ["week", "本周"], ["month", "本月"]].map(([key, label]) => <button key={key} type="button" className={!range && preset === key ? "selected" : ""} aria-pressed={!range && preset === key} onClick={() => { setPreset(key); setRange(undefined); setRangeOpen(false); }}>{label}</button>)}</div>
+        <div className="overview-segments">{[["day", "今日"], ["week", "本周"], ["month", "本月"]].map(([key, label]) => <button key={key} type="button" className={!range && preset === key ? "selected" : ""} aria-pressed={!range && preset === key} onClick={() => { setPreset(key); setDraft(dashboardPresetRange(today,key)); setRange(undefined); setRangeOpen(false);setRangeError(""); }}>{label}</button>)}</div>
         <button className="boss-range-toggle secondary" type="button" aria-expanded={rangeOpen} aria-controls="boss-date-range" aria-label={rangeOpen ? "收起日期筛选" : "日期筛选"} onClick={() => setRangeOpen(open => !open)}>{rangeOpen ? "收起" : range ? "自定义" : "日期"}</button>
       </div>
     </section>
     <section className="boss-period" aria-label="统计区间">
-      <form id="boss-date-range" className={`boss-range ${rangeOpen ? "range-open" : ""}`} noValidate onSubmit={e => { e.preventDefault(); if (!draft.from || !draft.to) { setRangeError("请选择开始和结束日期"); return; } if (draft.from > draft.to) { setRangeError("开始日期不能晚于结束日期"); return; } setRangeError(""); setRange({ ...draft }); setRangeOpen(false); }}><label>开始日期<input required type="date" aria-invalid={!!rangeError} aria-describedby={rangeError ? "boss-range-error" : undefined} value={draft.from} onChange={e => { setDraft({ ...draft, from: e.target.value }); setRangeError(""); }} /></label><span aria-hidden="true">—</span><label>结束日期<input required type="date" min={draft.from} aria-invalid={!!rangeError} aria-describedby={rangeError ? "boss-range-error" : undefined} value={draft.to} onChange={e => { setDraft({ ...draft, to: e.target.value }); setRangeError(""); }} /></label><button type="submit" className="secondary">查询</button>{rangeError && <p id="boss-range-error" className="field-hint boss-range-error" role="alert">{rangeError}</p>}</form>
+      <form id="boss-date-range" className={`boss-range ${rangeOpen ? "range-open" : ""}`} onSubmit={e => { e.preventDefault(); if(!draft.from||!draft.to){setRangeError("请选择开始和结束日期");return;}if(draft.from>draft.to){setRangeError("开始日期不能晚于结束日期");return;}setRangeError("");setRange({ ...draft });setRangeOpen(false); }}><label>开始日期<input required type="date" value={draft.from} onChange={e => setDraft(d=>({ ...d, from: e.target.value }))} /></label><span aria-hidden="true">—</span><label>结束日期<input required type="date" min={draft.from} value={draft.to} onChange={e => setDraft(d=>({ ...d, to: e.target.value }))} /></label><button type="submit" className="secondary">查询</button></form>
+      {rangeError&&<p className="action-error" role="alert">{rangeError}</p>}
       <p className="boss-period-caption">{snapshot ? `${snapshot.period.from} 至 ${snapshot.period.to}` : loading ? "正在读取统计区间…" : "统计暂不可用"}<span className="boss-updated">{!loading && updated ? `${updated} 更新` : ""}<button type="button" className="overview-refresh boss-refresh-icon" disabled={loading} aria-label={loading ? "读取中" : "刷新数据"} title="刷新数据" onClick={() => setTick(t => t + 1)}><DashboardIcon name="refresh" /></button></span></p>
     </section>
     {!!errors.length && <div className="overview-error" role="alert"><strong>部分数据未能加载</strong>{errors.map(e => <p key={e}>{e}</p>)}<button type="button" onClick={() => setTick(t => t + 1)}>重新加载</button></div>}
-    <section className="boss-mobile-summary boss-summary-strip" aria-label="核心数据速览">
-      <button type="button" className="boss-brief boss-brief-video" onClick={() => onNavigate("editor")}><span className="boss-brief-label"><strong>视频素材</strong><small>区间末次库存</small></span><span className="boss-brief-number">{snapshot?.dataCounts.editor === 0 ? "—" : metric(m?.endingInventory)}<small>条</small></span><DashboardIcon name="arrow" /></button>
-      <button type="button" className="boss-brief boss-brief-fans" onClick={() => onNavigate("summary")}><span className="boss-brief-label"><strong>加粉数据{missingToday > 0 && <span className="brief-chip-warn" title={`今日客服微信未报 ${missingToday} 个，点击查看加粉汇总`}>今日未报 {missingToday}</span>}</strong><small>区间新增</small></span>{spark(48, 24) && <span className="boss-brief-spark">{spark(48, 24)}</span>}<span className="boss-brief-number">{metric(m?.fanAddedTotal)}<small>人</small></span><DashboardIcon name="arrow" /></button>
-      <button type="button" className="boss-brief" onClick={() => onNavigate("ops")}><span className="boss-brief-label"><strong>运营费用</strong><small>区间投放花费</small></span><span className="boss-brief-number">{metric(ops?.spendUsd)}<small>USD</small></span><DashboardIcon name="arrow" /></button>
-      <button type="button" className="boss-brief" onClick={() => onNavigate("orders")}><span className="boss-brief-label"><strong>订单概况</strong><small title={m ? `有效金额 ¥ ${effective ?? "—"} = 订单金额 ¥ ${m.revenue}（含退款源订单）− 退款 ¥ ${m.refunds}` : undefined}>有效 {metric(m?.orderCount)} 笔 · 退款 {money(m?.refunds)}</small></span><span className="boss-brief-number boss-brief-money"><small className="brief-currency">¥</small>{metric(effective)}</span><DashboardIcon name="arrow" /></button>
-    </section>
-    {snapshot && Object.values(snapshot.dataCounts).every(count => count === 0) && <p className="overview-empty-banner" role="status">所选区间暂无素材、加粉或运营填报，可切换日期查看。</p>}
-    <div className="boss-core-grid">
-      <section className="boss-panel boss-video"><div className="panel-heading"><div><span className="dashboard-eyebrow">01 / 内容供给</span><h2>视频素材<InfoTip label="视频素材口径" text="拍摄、剪辑与发给运营按区间累计；“发给运营”不等于已发布。库存是每个人设在区间内最后一次快照再合计，不按天累加。" /></h2></div>{link("editor", "查看明细")}</div><div className="boss-feature-value boss-repeat"><span>区间末次库存</span><strong>{snapshot?.dataCounts.editor === 0 ? "—" : metric(m?.endingInventory)}<small>条</small></strong></div><div className="boss-mini-metrics">{[["拍摄", m?.shootCount], ["剪辑", m?.editCount], ["发给运营", m?.sentToOpsCount]].map(([label, value]) => <div key={label}><span>{label}</span><b>{metric(value)}</b></div>)}</div></section>
-      <section className="boss-panel boss-fans"><div className="panel-heading"><div><span className="dashboard-eyebrow">02 / 客户增长</span><h2>加粉数据<InfoTip label="加粉数据口径" text={`区间新增和区间有效按日相加；月累计取截止日所在月份各主页最后一次上报快照，不把每天的月累计相加。按客服微信号归属统计。趋势线为截至 ${series?.to ?? today} 的近 7 天，虚线为今天（未结束），断开处为当天无填报。`} /></h2></div>{link("summary", "查看明细")}</div><div className="boss-fan-headline"><div className="boss-feature-value boss-repeat"><span>区间新增</span><strong>{metric(m?.fanAddedTotal)}<small>人</small></strong></div><div className="boss-valid"><span>区间有效</span><b>{metric(m?.validToday)}<small>人</small></b></div></div>{spark(320, 40) && <div className="boss-fan-trend"><span>近 7 天</span>{spark(320, 40)}</div>}<div className={`boss-channel-list ${monthView ? "is-month" : ""}`}>{channel("Messenger", "channel-ms", m?.msToday, m?.msMonth)}{channel("WhatsApp", "channel-ws", m?.wsToday, m?.wsMonth)}</div>{m?.statsIncomplete && <p className="data-flag">含未分类旧加粉 {m.legacyUnclassifiedAdded ?? 0} 人 · 渠道不完整</p>}</section>
-      <section className="boss-panel boss-costs"><div className="panel-heading"><div><span className="dashboard-eyebrow">03 / 运营投入</span><h2>运营费用<InfoTip label="运营费用口径" text="投放花费按美元单独统计，不与人民币相加或换汇。余额是每个人设最后一次快照再合计，不按天累加。每次咨询成本是独立上报值，不回算。" /></h2></div>{link("ops", "查看明细")}</div><div className="boss-cost-body"><div className="boss-feature-value boss-repeat"><span>投放花费 <em>USD</em></span><strong>{metric(ops?.spendUsd)}</strong></div><div className="boss-cost-stats"><div><span>咨询数</span><b>{metric(ops?.consultCount)}</b></div><div><span>点击量</span><b>{metric(ops?.clickCount)}</b></div><div><span>区间末次余额 <small>USD</small></span><b>{snapshot?.dataCounts.ops === 0 ? "—" : metric(ops?.endingBalanceUsd)}</b></div></div></div>{m && Number(m.promoCost) !== 0 && <p className="data-flag">历史推广费 {m.promoCost} · 币种未知 · 未并入美元</p>}</section>
+    <LiveBusinessOverview preset={preset} range={range} tick={tick} onOpenOrder={onOpenOrder}/>
+    {snapshot&&snapshot.dataCounts.fans===0&&snapshot.dataCounts.editor===0&&<p className="overview-empty-banner">该区间暂无加粉或拍剪填报。</p>}
+    <div className="boss-core-grid boss-secondary-grid">
+      <section className="boss-panel boss-fans"><div className="panel-heading"><div><span className="dashboard-eyebrow">全公司 / 客户增长</span><h2>加粉数据<InfoTip label="加粉数据口径" text={`加粉按全公司统计，区间新增和区间有效按日相加；月累计取截止日所在月份各主页最后一次上报快照，不把每天的月累计相加。按客服接待账号归属统计。趋势线为截至 ${series?.to ?? today} 的近 7 天，虚线为今天（未结束），断开处为当天无填报。`} /></h2></div>{link("summary", "查看明细")}</div><LeadHomePreview from={snapshot?.period.from??today} to={snapshot?.period.to??today} today={today} tick={tick}/><div className="boss-fan-headline"><div className="boss-feature-value boss-repeat"><span>日报新增</span><strong>{metric(m?.fanAddedTotal)}<small>人</small></strong></div><div className="boss-valid"><span>区间有效</span><b>{metric(m?.validToday)}<small>人</small></b></div></div>{spark(320, 40) && <div className="boss-fan-trend"><span>近 7 天</span>{spark(320, 40)}</div>}<div className={`boss-channel-list ${monthView ? "is-month" : ""}`}>{channel("Messenger", "channel-ms", m?.msToday, m?.msMonth)}{channel("WhatsApp", "channel-ws", m?.wsToday, m?.wsMonth)}</div>{m?.statsIncomplete && <p className="data-flag">含未分类旧加粉 {m.legacyUnclassifiedAdded ?? 0} 人 · 渠道不完整</p>}</section>
+      <section className="boss-panel boss-video"><div className="panel-heading"><div><span className="dashboard-eyebrow">全公司 / 内容供给</span><h2>视频拍剪数据<InfoTip label="视频素材口径" text="拍剪按全公司统计，拍摄、剪辑与发给运营按区间累计；“发给运营”不等于已发布。库存按拍剪师和人设分别取区间内最后一次快照再合计，不按天累加。" /></h2></div>{link("editor", "查看明细")}</div><div className="boss-feature-value boss-repeat"><span>区间末次库存</span><strong>{snapshot?.dataCounts.editor === 0 ? "—" : metric(m?.endingInventory)}<small>条</small></strong></div><div className="boss-mini-metrics">{[["拍摄", m?.shootCount], ["剪辑", m?.editCount], ["发给运营", m?.sentToOpsCount]].map(([label, value]) => <div key={label}><span>{label}</span><b>{metric(value)}</b></div>)}</div></section>
     </div>
-    <section className="boss-panel boss-orders"><div className="panel-heading"><h2>订单概况<InfoTip label="订单口径" text="订单金额为成交报价，含退款源订单；有效金额 = 订单金额 − 退款，均为人民币。客户付款及公司净到账在收款与结算中分别登记。" /></h2>{link("orders", "查看订单")}</div><div className="boss-order-stats"><div><span>有效金额</span><b>{money(effective)}</b><small>订单金额 {money(m?.revenue)} · 含退款源订单</small></div><div><span>退款金额</span><b>{money(m?.refunds)}</b></div><div><span>有效订单</span><b>{metric(m?.orderCount)}<small>笔</small></b></div></div><div className="panel-links">{link("finance", "查看收款与结算")}</div></section>
-    <section className="boss-panel boss-reporting"><div className="panel-heading"><div><span className="dashboard-eyebrow">客服微信 / {today}</span><h2>今日填报进度<InfoTip label="填报进度口径" text="填报保存后直接计入数据。同一微信的多个主页只算一个账号；填报 0 也算已报。进度固定显示今天，不随上面的区间变化。" /></h2></div>{link("summary", "查看汇总")}</div><div className="reporting-headline"><strong>{metric(reporting?.reported, reportsPending)}<span> / {metric(reporting?.expected, reportsPending)} 账号</span></strong><span>{reporting?.percentage == null ? teams ? "暂无应报账号" : reportsPending ? sk("4em") : "进度暂不可用" : `完成 ${reporting.percentage}%`}</span></div><progress className="reporting-progress" aria-label="今日客服填报完成度" max={reporting?.expected || 1} value={reporting?.reported ?? 0} />{!!teams?.length && <div className="team-progress-list">{teams.map(team => <div className="team-progress-row" key={team.teamId}><strong>{team.teamName}</strong><progress aria-label={`${team.teamName}填报进度`} max={team.expectedCount || 1} value={team.reportedCount} /><span>{team.reportedCount}/{team.expectedCount} 账号</span></div>)}</div>}</section>
+    <section className="boss-panel boss-reporting"><div className="panel-heading"><div><span className="dashboard-eyebrow">客服接待账号 / {today}</span><h2>今日填报进度<InfoTip label="填报进度口径" text="填报保存后直接计入数据。同一接待账号的多个主页只算一个账号；填报 0 也算已报。进度固定显示今天，不随上面的区间变化。" /></h2></div>{link("summary", "查看汇总")}</div><div className="reporting-headline"><strong>{metric(reporting?.reported)}<span> / {metric(reporting?.expected)} 账号</span></strong><span>{reporting?.percentage == null ? teams ? "暂无应报账号" : "进度暂不可用" : `完成 ${reporting.percentage}%`}</span></div><progress className="reporting-progress" aria-label="今日客服填报完成度" max={reporting?.expected || 1} value={reporting?.reported ?? 0} />{!!teams?.length && <div className="team-progress-list">{teams.map(team => <div className="team-progress-row" key={team.teamId}><strong>{team.teamName}</strong><progress aria-label={`${team.teamName}填报进度`} max={team.expectedCount || 1} value={team.reportedCount} /><span>{team.reportedCount}/{team.expectedCount} 账号</span></div>)}</div>}</section>
   </div>;
 }

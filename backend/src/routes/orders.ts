@@ -33,7 +33,7 @@ export function createOrderRouter(db: Pool, config: AppConfig): Router {
       const filters = readFilters(req.query);
       const rows = await query(
         db,
-        `SELECT o.*,u.display_name,u.wechat_id,u.account_kind,EXISTS(SELECT 1 FROM order_details d WHERE d.order_id=o.id) AS workflow_enabled FROM orders o JOIN users u ON u.id=o.user_id
+        `SELECT o.*,d.persona_code,d.persona_name,d.live_room_code,d.host_name,d.customer_code,d.operator_name,u.display_name,u.service_account_label AS wechat_id,u.account_kind,EXISTS(SELECT 1 FROM order_details d WHERE d.order_id=o.id) AS workflow_enabled FROM orders o JOIN users u ON u.id=o.user_id LEFT JOIN order_details d ON d.order_id=o.id
           WHERE ($1 = '' OR o.user_id::text = $1)
             AND ($2::date IS NULL OR o.business_date >= $2)
             AND ($3::date IS NULL OR o.business_date <= $3)
@@ -56,8 +56,8 @@ export function createOrderRouter(db: Pool, config: AppConfig): Router {
       const filters = readFilters(req.query);
       const rows = await query(
         db,
-        `SELECT o.*, u.display_name FROM orders o
-           JOIN users u ON u.id = o.user_id
+        `SELECT o.*,d.persona_code,d.persona_name,d.live_room_code,d.host_name,d.customer_code,d.operator_name,u.service_account_label AS wechat_id,u.display_name FROM orders o
+           JOIN users u ON u.id = o.user_id LEFT JOIN order_details d ON d.order_id=o.id
           WHERE ($1 = '' OR o.user_id::text = $1)
             AND ($2::date IS NULL OR o.business_date >= $2)
             AND ($3::date IS NULL OR o.business_date <= $3)
@@ -66,13 +66,14 @@ export function createOrderRouter(db: Pool, config: AppConfig): Router {
           ORDER BY o.business_date, o.order_ref`,
         [userFilter, filters.from, filters.to, scopes, filters.status]
       );
-      const lines = ["业务日,订单标识,录入人,客户备注,金额,状态,定制,商品成本,工费,运费"];
+      const lines = ["业务日,订单标识,录入人,人设ID,人设,直播间编号,主播,客户ID,对接客服,归属接待账号,客户备注,金额,状态,定制,商品成本,工费,运费"];
       for (const row of rows) {
         lines.push(
           [
             toDateOnly(row.business_date),
             csv(String(row.order_ref)),
             csv(String(row.display_name)),
+            ...[row.persona_code,row.persona_name,row.live_room_code,row.host_name,row.customer_code,row.operator_name,row.wechat_id].map(v=>csv(String(v??""))),
             csv(String(row.customer_label ?? "")),
             money(row.amount),
             row.status,
@@ -305,6 +306,7 @@ function serializeOrder(row: Record<string, unknown> | undefined) {
     id: row.id,
     workflowEnabled: Boolean(row.workflow_enabled),
     userId: row.user_id,
+    personaCode:row.persona_code,personaName:row.persona_name,liveRoomCode:row.live_room_code,hostName:row.host_name,customerCode:row.customer_code,operatorName:row.operator_name,
     displayName: row.display_name,
     wechatId: row.wechat_id,
     accountKind: row.account_kind,
@@ -333,6 +335,7 @@ function money(value: unknown): string {
 }
 
 function csv(value: string): string {
+  if(/^[=+@-]/.test(value))value="'"+value;
   if (/[",\n]/.test(value)) return `"${value.replaceAll('"', '""')}"`;
   return value;
 }

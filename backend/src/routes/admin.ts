@@ -212,7 +212,7 @@ export function createAdminRouter(db: Pool): Router {
         [req.params.id]
       );
       if (!user) throw new HttpError(404, "员工不存在");
-      if (user.account_kind === "cs_wechat") throw new HttpError(400, "客服微信请在客服微信号页面管理，不可修改为员工或其他角色");
+      if (["cs_wechat","cs_service"].includes(user.account_kind??"")) throw new HttpError(400, "客服接待账号请在客服接待账号页面管理，不可修改为员工或其他角色");
       const displayName = req.body?.displayName !== undefined ? String(req.body.displayName).trim() : user.display_name;
       const role = req.body?.role !== undefined ? (String(req.body.role) as UserRole) : user.role;
       if (req.body?.isActive !== undefined && typeof req.body.isActive !== "boolean") throw new HttpError(400, "账号状态无效");

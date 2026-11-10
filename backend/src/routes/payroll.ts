@@ -153,7 +153,7 @@ function tx(db: Pool, handler: (client: PoolClient, req: Request) => Promise<TxR
 
 async function employeeLock(client: PoolClient, id: string) {
   const employee = (await client.query("SELECT id,account_kind FROM users WHERE id=$1 FOR UPDATE", [id])).rows[0];
-  if (!employee || employee.account_kind !== "employee") throw new HttpError(400, "工资只能关联员工，不能关联客服微信号");
+  if (!employee || employee.account_kind !== "employee") throw new HttpError(400, "工资只能关联员工，不能关联客服接待账号");
 }
 
 async function monthRow(client: PoolClient | Pool, userId: string, month: string): Promise<Row | undefined> {

@@ -8,14 +8,17 @@ export type User = {
   role: Role;
   isActive: boolean;
   mustChangePassword: boolean;
-  accountKind?: "employee" | "cs_wechat";
+  accountKind?: "employee" | "cs_wechat" | "cs_service";
+  servicePlatform?:'whatsapp'|'messenger'|'legacy_wechat'|null;
+  accountIdentifier?:string|null;
+  serviceAccountLabel?:string|null;
   wechatId?: string | null;
   phoneLabel?: string | null;
 };
 
 let csrfToken = "";
 
-async function requestInner<T>(path: string, options: RequestInit = {}): Promise<T> {
+export async function requestInner<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers);
   if (options.body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
@@ -69,15 +72,22 @@ export const api = {
   orderAction: (id: string, action: string, payload: Record<string, unknown>) => requestInner<{id:string}>(`/api/order-records/${encodeURIComponent(id)}/${action}`, {method:"POST",body:JSON.stringify(payload)}),
   uploadOrderPhoto: (id: string, file: File, itemId: string) => requestInner<{id:string}>(`/api/order-records/${encodeURIComponent(id)}/attachments?${new URLSearchParams({filename:file.name,...(itemId?{itemId}:{})})}`,{method:"POST",headers:{"Content-Type":file.type},body:file}),
   finance: () => requestInner<FinanceData>("/api/finance"),
+  payables: () => requestInner<PayablesData>("/api/finance/payables"),
+  costAttachments: (expenseId:string) => requestInner<{attachments:{id:string;filename:string;mime_type:string}[]}>(`/api/finance/payables/${encodeURIComponent(expenseId)}/attachments`),
+  payableAction: (action:string,payload:Record<string,unknown>) => requestInner(`/api/finance/payables/${action}`,{method:"POST",body:JSON.stringify(payload)}),
+  adAccounts: () => requestInner<AdAccountsData>("/api/ad-accounts"),
+  adAction: (action:string,payload:Record<string,unknown>) => requestInner(`/api/ad-accounts${action?`/${action}`:""}`,{method:"POST",body:JSON.stringify(payload)}),
   financeAction: (action: string, payload: Record<string,unknown>) => requestInner<{id:string}>(`/api/finance/${action}`,{method:"POST",body:JSON.stringify(payload)}),
   csAccounts: (date?: string) => requestInner<{ accounts: CsAccount[] }>(`/api/cs-accounts${date ? `?date=${encodeURIComponent(date)}` : ""}`),
   csTeams: () => requestInner<{ teams: Team[] }>("/api/cs-accounts/teams"),
-  updateCsAccount: (id: string, payload: { wechatId: string; phoneLabel: string }) => requestInner<{ needsRegistration: boolean }>(`/api/cs-accounts/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  createCsAccount:(payload:{platform:'whatsapp'|'messenger';accountIdentifier:string;teamId:string;phoneLabel:string})=>requestInner<{id:string}>('/api/cs-accounts',{method:'POST',body:JSON.stringify(payload)}),
+  updateCsAccount: (id: string, payload: { accountIdentifier: string; phoneLabel: string }) => requestInner<{ needsRegistration: boolean }>(`/api/cs-accounts/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(payload) }),
   updateUser: (id: string, payload: Record<string, unknown>) => requestInner(`/api/admin/users/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(payload) }),
   setSupervisorTeams: (id: string, teamIds: string[]) => requestInner(`/api/admin/users/${encodeURIComponent(id)}/scopes`, { method: "PUT", body: JSON.stringify({ teamIds }) }),
   issueCsRegistrationCode: (payload: { teamId?: string; accountId?: string }) => requestInner<{ code: string; expiresAt: string; message: string }>("/api/cs-accounts/registration-codes", { method: "POST", body: JSON.stringify(payload) }),
   setCsAccountStatus: (id: string, isActive: boolean) => requestInner(`/api/cs-accounts/${encodeURIComponent(id)}/status`, { method: "PUT", body: JSON.stringify({ isActive }) }),
-  registerCsDevice: (payload: { wechatId: string; phoneLabel: string; registrationCode: string }) => requestInner<{ user: User; csrfToken: string; today: string; backfillDays: number }>("/api/auth/cs-device", { method: "POST", body: JSON.stringify(payload) }),
+  csRegistrationOptions:(registrationCode:string)=>requestInner<{accounts:{id:string;platform:'whatsapp'|'messenger'|'legacy_wechat';accountIdentifier:string;label:string;phoneLabel:string|null}[]}>('/api/auth/cs-device/options',{method:'POST',body:JSON.stringify({registrationCode})}),
+  registerCsDevice: (payload: { accountId: string; phoneLabel: string; registrationCode: string }) => requestInner<{ user: User; csrfToken: string; today: string; backfillDays: number }>("/api/auth/cs-device", { method: "POST", body: JSON.stringify(payload) }),
   modules: () => requestInner<{ version: number; modules: Record<string, boolean>; labels: Record<string, string> }>("/api/modules"),
   saveModules: (version: number, modules: Record<string, boolean>) => requestInner<{ version: number; modules: Record<string, boolean>; labels: Record<string, string> }>("/api/modules", { method: "PUT", body: JSON.stringify({ version, modules }) }),
   loadCsrf,
@@ -128,12 +138,13 @@ export const api = {
       dataCounts: { fans: number; ops: number; editor: number };
       disclaimer: string;
       formula: string;
-      opsUsd: { spendUsd: string; consultCount: number; clickCount: number; endingBalanceUsd: string | null };
+      opsUsd: { spendUsd: string; consultCount: number; clickCount: number; endingBalanceUsd: string | null; balanceMethod?:string };
       overallSalary?: { allocated: string; note: string };
       estimateNote?: string;
     }>(`/api/dashboard/summary?preset=${preset}${range ? `&from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}` : ""}`),
   dashboardSeries: (to: string, days = 7) =>
     requestInner<FanSeries>(`/api/dashboard/series?${new URLSearchParams({ to, days: String(days) })}`),
+  liveBusiness: (preset:string,range:{from:string;to:string}|undefined,filters:LiveBusinessFilters) => requestInner<LiveBusinessData>(`/api/dashboard/live-business?${new URLSearchParams({preset,...range,...filters})}`),
   teams: () => requestInner<{ teams: Team[] }>("/api/admin/teams"),
   createTeam: (payload: Record<string, unknown>) =>
     requestInner("/api/admin/teams", { method: "POST", body: JSON.stringify(payload) }),
@@ -237,6 +248,7 @@ export type EditorReport = {
 export type Order = {
   id: string;
   workflowEnabled?: boolean;
+  personaCode?:string;personaName?:string;liveRoomCode?:string;hostName?:string;customerCode?:string;operatorName?:string;
   userId?: string;
   displayName?: string;
   wechatId?: string | null;
@@ -253,18 +265,30 @@ export type Order = {
 };
 
 export type Currency = "CNY" | "TWD" | "USD";
+export type LiveBusinessFilters={room:string;host:string;persona:string;operator:string};
+export type LiveBusinessTotals={performanceCny:string;newSalesCny:string;additionalCny:string;expenseCny:string;supplierPaidCny:string;companyReceivedCny:string;excludedSourceCny:string;newOrderCount:number;expenseCount:number;customerReceipts:Record<Currency,string>};
+export type LiveBusinessOrder={id:string;status:string;order_ref:string;customer_label:string|null;persona_code:string;persona_name:string;live_room_code:string;host_name:string;customer_code:string;operator_name:string;wechat_id:string};
+export type LiveBusinessEvent={id:string;order_id:string;kind:'sale'|'charge'|'expense'|'receipt'|'company'|'supplier';date:string;amount:string;currency:Currency;category:string;label:string;order:LiveBusinessOrder};
+export type LiveBusinessData={period:{from:string;to:string};selected:LiveBusinessFilters;totals:LiveBusinessTotals;rooms:{key:string;roomCode:string;hosts:string[];personas:string[];totals:LiveBusinessTotals}[];events:LiveBusinessEvent[];options:{room:string;host:string;persona:string;persona_name:string;operator:string}[];legacyCost:{count:number;amountCny:string};ads:{scope:'company';spendUsd:string;records:{id:string;date:string;persona:string;account:string;amount:string}[];unknownCount:number}};
 export type PaymentRecord = { id:string; payment_date:string; amount:string; currency:Currency; credit_amount:string; purpose:string; channel:string; third_party:boolean; reference:string; note?:string; voided_at:string|null; void_reason?:string; settled_amount:string };
-export type ExpenseRecord = {id:string;business_date:string;category:string;label:string;amount_cny:string;voided_at:string|null;void_reason?:string};
+export type ExpenseRecord = {id:string;business_date:string;category:string;label:string;amount_cny:string;counterparty?:string;item_id?:string;note?:string;voided_at:string|null;void_reason?:string};
+export type ChargeRecord = {id:string;business_date:string;label:string;amount_cny:string;customer_amount:string;note:string;voided_at:string|null;void_reason?:string};
+export type CompanyExpense = ExpenseRecord & {order_id:string;order_ref:string;customer_label:string;persona_name:string;persona_code:string;live_room_code:string;host_name:string;customer_code:string;operator_name:string;wechat_id:string;material_ref:string;item_label:string;paid_cny:string;pending_cny:string|null;paymentState:string};
+export type SupplierPayment = {id:string;expense_id:string;paid_on:string;payee:string;account:string;reference:string;amount_cny:string;note:string;voided_at:string|null;void_reason?:string};
+export type PayablesData = {expenses:CompanyExpense[];payments:SupplierPayment[];summary:{costCny:string;paidCny:string;pendingCny:string;unknownCount:number}};
+export type AdAccount = {code:string;name:string;opened_on:string;opening_usd:string;topped_usd:string;spent_usd:string;balance_usd:string};
+export type AdTopup = {id:string;account_ref:string;paid_on:string;credited_usd:string;paid_cny:string;payment_account:string;reference:string;note:string;voided_at:string|null;void_reason?:string};
+export type AdAccountsData = {accounts:AdAccount[];topups:AdTopup[];summary:{paidCny:string;creditedUsd:string;spentUsd:string;balanceUsd:string}};
 export type OrderRecord = {
   legacy:boolean;
   order:{id:string;order_ref:string;customer_label:string;business_date:string;amount:string;status:string;wechat_id?:string;display_name:string;note?:string;custom_product_cost:string;labor_cost:string;shipping_cost:string};
-  details?:{personaName:string;operatorName:string;source:string;customerCurrency:Currency;customerDue:string;shippedOn:string|null;version:number};
+  details?:{personaName:string;personaCode?:string;liveRoomCode?:string;hostName?:string;customerCode?:string;operatorName:string;source:string;customerCurrency:Currency;customerDue:string;baseCustomerDue?:string;shippedOn:string|null;version:number};
   items?:{id:string;label:string;material_ref:string;kind:string;price_cny:string;buying_fee_cny:string}[];
-  payments?:PaymentRecord[]; expenses?:ExpenseRecord[];
+  payments?:PaymentRecord[]; expenses?:ExpenseRecord[]; charges?:ChargeRecord[];
   attachments?:{id:string;item_id:string|null;filename:string;mime_type:string}[];
   paid?:string;balance?:string;expenseTotal?:string;
 };
-export type FinancePayment=PaymentRecord & {order_id:string;order_ref:string;customer_label:string;persona_name:string;wechat_id:string|null;customer_currency:Currency;pendingAmount:string};
+export type FinancePayment=PaymentRecord & {order_id:string;order_ref:string;customer_label:string;persona_name:string;persona_code?:string;live_room_code?:string;host_name?:string;customer_code?:string;operator_name?:string;wechat_id:string|null;customer_currency:Currency;pendingAmount:string};
 export type SettlementRecord={id:string;reference:string;channel:string;currency:Currency;settled_on:string;fee_amount:string;fee_currency:Currency;fee_percent:string|null;fx_rate:string|null;net_cny:string;note:string;voided_at:string|null;void_reason:string|null;allocations:{paymentId:string;foreignAmount:string;netCny:string}[]};
 export type FinanceData={payments:FinancePayment[];settlements:SettlementRecord[];summary:{pending:Record<Currency,string>;directCny:string;settledCny:string;totalCny:string}};
 
@@ -299,7 +323,7 @@ export type AdminUser = {
   currentTeam?: { id: string; name: string } | null;
   managedTeamIds?: string[];
 };
-export type CsAccount = { id: string; wechatId: string; phoneLabel: string | null; isActive: boolean; teamId: string | null; teamName: string | null; createdAt: string };
+export type CsAccount = { id: string; wechatId: string; platform?:'whatsapp'|'messenger'|'legacy_wechat';accountIdentifier?:string;phoneLabel: string | null; isActive: boolean; teamId: string | null; teamName: string | null; createdAt: string };
 export type Salary = {
   id: string;
   userId: string;

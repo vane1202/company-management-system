@@ -49,16 +49,26 @@ export function createOpsRouter(db: Pool, config: AppConfig): Router {
       if (platform.length > 64) throw new HttpError(400, "推广平台过长");
       const personaName = String(req.body?.personaName ?? platform).trim();
       if (personaName.length > 128) throw new HttpError(400, "人设/主页名称过长");
+      const adAccountRef = req.body?.adAccountRef ? String(req.body.adAccountRef).trim() : null;
+      if(adAccountRef){const a=await queryOne<{opened_on:string}>(db,"SELECT opened_on::text FROM ad_accounts WHERE code=$1",[adAccountRef]);if(!a||businessDate<a.opened_on)throw new HttpError(400,"广告账户不存在或日报早于期初日期");}
       const note = req.body?.note ? String(req.body.note).slice(0, 500) : null;
       const client = await db.connect();
       try {
         await client.query("BEGIN");
+        if(req.body?.reportId){
+          if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(req.body.reportId)))throw new HttpError(400,"原日报标识无效");
+          const original=await queryOne<Record<string,unknown>>(client,"SELECT * FROM ops_reports WHERE id=$1 FOR UPDATE",[String(req.body.reportId)]);
+          if(!original||String(original.user_id)!==targetId)throw new HttpError(404,"原日报不存在或不属于本人");
+          if(toDateOnly(original.business_date)!==businessDate||String(original.persona_name)!==personaName)throw new HttpError(400,"更改日期或人设请使用新建日报");
+          await client.query("UPDATE ops_reports SET ad_account_ref=$2 WHERE id=$1",[original.id,adAccountRef]);
+          if(original.ad_account_ref!==adAccountRef)await writeAudit(client,{actorId:actor.id,action:"ops_account_classification",entityType:"ops_report",entityId:String(original.id),before:{adAccountRef:original.ad_account_ref},after:{adAccountRef},ip:req.ip});
+        }
         const existing = await queryOne<Record<string, unknown>>(
           client,
           `SELECT * FROM ops_reports
-            WHERE user_id = $1 AND business_date = $2 AND persona_name = $3
+            WHERE user_id = $1 AND business_date = $2 AND persona_name = $3 AND ad_account_ref IS NOT DISTINCT FROM $4
             FOR UPDATE`,
-          [targetId, businessDate, personaName]
+          [targetId, businessDate, personaName, adAccountRef]
         );
         const promoVideoCount = readCount(req.body, "promoVideoCount", "推广视频数", existing, "promo_video_count", 0);
         const promoCost = readMoney(req.body, "promoCost", "推广费用", existing, "promo_cost", "0.00");
@@ -112,8 +122,8 @@ export function createOpsRouter(db: Pool, config: AppConfig): Router {
               client,
               `INSERT INTO ops_reports (
                   user_id, business_date, platform, persona_name, promo_video_count, promo_cost, note,
-                  spend_usd, consult_count, consult_cost_usd, click_count, ctr_percent, balance_usd, last_submitted_by
-               ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+                  spend_usd, consult_count, consult_cost_usd, click_count, ctr_percent, balance_usd, last_submitted_by, ad_account_ref
+               ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
                RETURNING *`,
               [
                 targetId,
@@ -129,9 +139,11 @@ export function createOpsRouter(db: Pool, config: AppConfig): Router {
                 clickCount,
                 ctrPercent,
                 balanceUsd,
-                actor.id
+                actor.id,
+                adAccountRef
               ]
             );
+        if(saved)await client.query("UPDATE ops_reports SET ad_account_ref=$2 WHERE id=$1",[saved.id,adAccountRef]);
         await recordSubmission(client, {
           table: "ops_reports",
           entityType: "ops_report",
@@ -237,13 +249,13 @@ export function createEditorRouter(db: Pool, config: AppConfig): Router {
         business_date: string;
       }>(
         db,
-        `SELECT DISTINCT ON (user_id, persona_name)
-                user_id, persona_name, inventory_snapshot, business_date::text
+        `SELECT DISTINCT ON (COALESCE(editor_name,user_id::text), persona_name)
+                COALESCE(editor_name,user_id::text) AS user_id, persona_name, inventory_snapshot, business_date::text
            FROM editor_reports
           WHERE ($1 = '' OR user_id::text = $1)
             AND ($2::date IS NULL OR business_date >= $2)
             AND ($3::date IS NULL OR business_date <= $3)
-          ORDER BY user_id, persona_name, business_date DESC`,
+          ORDER BY COALESCE(editor_name,user_id::text), persona_name, business_date DESC`,
         [userFilter, from, to]
       );
       const endingInventory = lastSnapshotsThenSum(
@@ -284,21 +296,31 @@ export function createEditorRouter(db: Pool, config: AppConfig): Router {
       if (!isIsoDate(businessDate) || businessDate > today) throw new HttpError(400, "业务日无效");
       const personaName = String(req.body?.personaName ?? "").trim();
       if (personaName.length > 128) throw new HttpError(400, "人设名称过长");
+      const editorName=req.body?.editorName ? String(req.body.editorName).trim() : null;
+      if(editorName&&!["魏磊","尚杰","十七"].includes(editorName))throw new HttpError(400,"拍剪师无效");
       const note = req.body?.note ? String(req.body.note).slice(0, 500) : null;
       const previous = await queryOne<{ inventory_snapshot: number }>(
         db,
         `SELECT inventory_snapshot FROM editor_reports
-          WHERE user_id = $1 AND persona_name = $2 AND business_date < $3
+          WHERE user_id = $1 AND persona_name = $2 AND business_date < $3 AND editor_name IS NOT DISTINCT FROM $4
           ORDER BY business_date DESC LIMIT 1`,
-        [targetId, personaName, businessDate]
+        [targetId, personaName, businessDate, editorName]
       );
       const client = await db.connect();
       try {
         await client.query("BEGIN");
+        if(req.body?.reportId){
+          if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(req.body.reportId)))throw new HttpError(400,"原日报标识无效");
+          const original=await queryOne<Record<string,unknown>>(client,"SELECT * FROM editor_reports WHERE id=$1 FOR UPDATE",[String(req.body.reportId)]);
+          if(!original||String(original.user_id)!==targetId)throw new HttpError(404,"原日报不存在或不属于本人");
+          if(toDateOnly(original.business_date)!==businessDate||String(original.persona_name)!==personaName)throw new HttpError(400,"更改日期或人设请使用新建日报");
+          await client.query("UPDATE editor_reports SET editor_name=$2 WHERE id=$1",[original.id,editorName]);
+          if(original.editor_name!==editorName)await writeAudit(client,{actorId:actor.id,action:"editor_classification",entityType:"editor_report",entityId:String(original.id),before:{editorName:original.editor_name},after:{editorName},ip:req.ip});
+        }
         const existing = await queryOne<Record<string, unknown>>(
           client,
-          `SELECT * FROM editor_reports WHERE user_id = $1 AND business_date = $2 AND persona_name = $3 FOR UPDATE`,
-          [targetId, businessDate, personaName]
+          `SELECT * FROM editor_reports WHERE user_id = $1 AND business_date = $2 AND persona_name = $3 AND editor_name IS NOT DISTINCT FROM $4 FOR UPDATE`,
+          [targetId, businessDate, personaName, editorName]
         );
         const shootCount = readCount(req.body, "shootCount", "拍摄数", existing, "shoot_count", 0);
         const finishedCount = readCount(req.body, "finishedCount", "成片数", existing, "finished_count", 0);
@@ -348,8 +370,8 @@ export function createEditorRouter(db: Pool, config: AppConfig): Router {
               client,
               `INSERT INTO editor_reports (
                   user_id, business_date, persona_name, shoot_count, finished_count, published_count,
-                  inventory_snapshot, inventory_adjusted, note, edit_count, sent_to_ops_count, last_submitted_by
-               ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+                  inventory_snapshot, inventory_adjusted, note, edit_count, sent_to_ops_count, last_submitted_by, editor_name
+               ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
                RETURNING *`,
               [
                 targetId,
@@ -363,7 +385,8 @@ export function createEditorRouter(db: Pool, config: AppConfig): Router {
                 note,
                 editCount,
                 sentToOpsCount,
-                actor.id
+                actor.id,
+                editorName
               ]
             );
         await recordSubmission(client, {
@@ -513,6 +536,7 @@ function serializeOps(row: Record<string, unknown> | undefined) {
     businessDate: toDateOnly(row.business_date),
     platform: row.platform,
     personaName: row.persona_name ?? "",
+    adAccountRef: row.ad_account_ref,
     promoVideoCount: row.promo_video_count,
     promoCost: money(row.promo_cost),
     promoCostCurrency: "unknown_legacy",
@@ -537,6 +561,7 @@ function serializeEditor(row: Record<string, unknown> | undefined) {
     userId: row.user_id,
     businessDate: toDateOnly(row.business_date),
     personaName: row.persona_name ?? "",
+    editorName: row.editor_name ?? null,
     shootCount: row.shoot_count,
     finishedCount: row.finished_count,
     publishedCount: row.published_count,

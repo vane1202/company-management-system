@@ -1,5 +1,5 @@
 export const currencies = {CNY:"人民币",TWD:"台币",USD:"美元"};
-export const expenseLabels:Record<string,string>={goods:"商品 / 料子成本",labor:"工费",certificate:"证书",box:"包装盒",shipping:"运费",other:"其他支出"};
+export const expenseLabels:Record<string,string>={goods:"原石 / 商品供货款",design:"设计雕刻费",labor:"其他加工工费",sourcing:"市场配货采购款",accessory:"配件费",certificate:"证书费",box:"包装费",shipping:"运费",other:"其他支出"};
 export const purposeLabels:Record<string,string>={deposit:"定金",balance:"尾款",full:"全款"};
 export function cents(value:string):bigint|null {
   if(!/^\d{1,12}(?:\.\d{1,2})?$/.test(value))return null;

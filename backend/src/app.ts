@@ -16,6 +16,7 @@ import {
   csrfAndOriginGuard
 } from "./routes/auth.js";
 import { createFanRouter } from "./routes/fans.js";
+import { createFanLeadsRouter } from "./routes/fanLeads.js";
 import { createAdminRouter } from "./routes/admin.js";
 import { createEditorRouter, createOpsRouter } from "./routes/daily.js";
 import { createOrderRouter } from "./routes/orders.js";
@@ -29,7 +30,10 @@ import { createCsAccountsRouter, createCsDeviceRegistrationRouter } from "./rout
 import { enforceRoleBoundary } from "./lib/access.js";
 import { restrictLanClients } from "./lib/lan.js";
 import { createOrderRecordsRouter } from "./routes/orderRecords.js";
+import { createAdAccountsRouter } from "./routes/adAccounts.js";
+import { createSupplierPaymentsRouter } from "./routes/supplierPayments.js";
 import { createFinanceRouter } from "./routes/finance.js";
+import { createLiveBusinessRouter } from "./routes/liveBusiness.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PgSession = connectPgSimple(session);
@@ -120,11 +124,15 @@ export function createApp(db: Pool, config: AppConfig) {
   app.use("/api/modules", createModulesRouter(db));
   app.use("/api/cs-accounts", createCsAccountsRouter(db, config));
   app.use("/api/fan-reports", guardModuleWrites(db, "fans"), createFanRouter(db, config));
+  app.use("/api/fan-leads", guardModuleWrites(db, "fans"), createFanLeadsRouter(db, config));
   app.use("/api/admin", createAdminRouter(db));
   app.use("/api/ops-reports", guardModuleWrites(db, "ops"), createOpsRouter(db, config));
   app.use("/api/editor-reports", guardModuleWrites(db, "editor"), createEditorRouter(db, config));
   app.use("/api/orders", guardModuleWrites(db, "orders"), createOrderRouter(db, config));
   app.use("/api/order-records", guardModuleWrites(db, "orders"), createOrderRecordsRouter(db, config));
+  app.use("/api/dashboard/live-business", createLiveBusinessRouter(db, config));
+  app.use("/api/finance/payables", createSupplierPaymentsRouter(db, config));
+  app.use("/api/ad-accounts", guardModuleWrites(db,"ops"), createAdAccountsRouter(db, config));
   app.use("/api/finance", createFinanceRouter(db, config));
   app.use("/api/salaries", createSalaryRouter(db));
   app.use("/api/dashboard", createDashboardRouter(db, config));

@@ -10,8 +10,10 @@ export type DbUser = {
   role: UserRole;
   is_active: boolean;
   must_change_password: boolean;
-  account_kind?: "employee" | "cs_wechat";
+  account_kind?: "employee" | "cs_wechat" | "cs_service";
   wechat_id?: string | null;
+  service_platform?: 'whatsapp'|'messenger'|'legacy_wechat';
+  service_account_label?:string|null;
   phone_label?: string | null;
   device_version?: number;
 };
@@ -28,6 +30,9 @@ export function toPublicUser(row: DbUser): PublicUser {
     mustChangePassword: row.must_change_password,
     accountKind: row.account_kind ?? "employee",
     wechatId: row.wechat_id ?? null,
+    servicePlatform:row.account_kind==='cs_service'||row.account_kind==='cs_wechat'?row.service_platform??'legacy_wechat':null,
+    accountIdentifier:row.wechat_id??null,
+    serviceAccountLabel:row.service_account_label??row.wechat_id??null,
     phoneLabel: row.phone_label ?? null,
     deviceVersion: row.device_version ?? 0
   };
@@ -106,7 +111,7 @@ export async function membersOnDate(
 ): Promise<{ user_id: string; display_name: string; username: string; wechat_id: string | null; account_kind: string }[]> {
   return query(
     db,
-    `SELECT u.id AS user_id, u.display_name, u.username, u.wechat_id, u.account_kind
+    `SELECT u.id AS user_id, u.display_name, u.username, u.service_account_label AS wechat_id, u.account_kind
        FROM team_memberships m
        JOIN users u ON u.id = m.user_id
       WHERE m.team_id = $1

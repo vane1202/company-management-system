@@ -1,0 +1,16 @@
+import {useRef,useState} from 'react';
+import {api,type OrderRecord} from './api';
+import {currencies,submissionKey} from './commerceUi';
+import {toErrorMessage} from './errors';
+export function OrderCharges({data,today,canFill,onSaved}:{data:OrderRecord;today:string;canFill:boolean;onSaved:()=>Promise<unknown>}) {
+ const [form,setForm]=useState({businessDate:today,label:'设计雕刻费',amountCny:'',customerAmount:'',note:''}),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ const [voidId,setVoidId]=useState(''),[reason,setReason]=useState('');const key=useRef(submissionKey());const cur=data.details!.customerCurrency;
+ async function act(fn:()=>Promise<unknown>){if(busy)return;setBusy(true);setError('');try{await fn();await onSaved();}catch(e){setError(toErrorMessage(e));}finally{setBusy(false);}}
+ return <section className="card"><h2>客户追加收费</h2><p className="notice">客户收费增加约定应收；公司实际加工或配货采购成本在下方单独登记，不自动取相同金额。</p>
+ {error&&<p className="error" role="alert">{error}</p>}
+ {!data.charges?.length&&<p>暂无追加收费。</p>}
+ {data.charges?.map(c=><article key={c.id} className={`commerce-record ${c.voided_at?'commerce-void':''}`}><span><strong>{c.label} · 报价 ¥{c.amount_cny}</strong><small>{c.business_date} · 约定追加 {c.customer_amount} {cur}</small>{c.note&&<small>{c.note}</small>}{c.voided_at&&<small>已作废：{c.void_reason}</small>}</span>{canFill&&!c.voided_at&&<button className="secondary" disabled={busy} onClick={()=>{setVoidId(c.id);setReason('');}}>纠正收费</button>}</article>)}
+ {canFill&&<details><summary>＋ 登记客户追加应收</summary><form onSubmit={e=>{e.preventDefault();void act(async()=>{await api.orderAction(data.order.id,'charges',{...form,requestKey:key.current(form)});setForm({...form,amountCny:'',customerAmount:'',note:''});});}}><div className="grid two"><label className="row">约定日期<input required type="date" min={data.order.business_date} max={today} value={form.businessDate} onChange={e=>setForm({...form,businessDate:e.target.value})}/></label><label className="row">对客户收费名称<input required maxLength={128} value={form.label} onChange={e=>setForm({...form,label:e.target.value})}/></label><label className="row">人民币追加报价<input required inputMode="decimal" value={form.amountCny} onChange={e=>setForm({...form,amountCny:e.target.value})}/></label>{cur!=='CNY'&&<label className="row">客户约定追加应收 · {currencies[cur]}<input required inputMode="decimal" value={form.customerAmount} onChange={e=>setForm({...form,customerAmount:e.target.value})}/></label>}</div><label className="row">备注<textarea maxLength={500} value={form.note} onChange={e=>setForm({...form,note:e.target.value})}/></label><button disabled={busy}>保存追加应收</button></form></details>}
+ {voidId&&canFill&&<form onSubmit={e=>{e.preventDefault();void act(async()=>{await api.orderAction(data.order.id,`charges/${voidId}/void`,{reason});setVoidId('');});}}><label className="row">收费纠错原因<textarea required maxLength={500} value={reason} onChange={e=>setReason(e.target.value)}/></label><div className="actions"><button disabled={busy}>作废错误收费</button><button type="button" className="secondary" onClick={()=>setVoidId('')}>取消</button></div></form>}
+ </section>;
+}

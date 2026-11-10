@@ -20,3 +20,10 @@ export function pickBusinessDate(incoming: string, current: string): string {
   }
   return current;
 }
+
+export function dashboardPresetRange(today:string,preset:string):{from:string;to:string}{
+  if(!isIsoDate(today))return{from:today,to:today};
+  if(preset==='month')return{from:today.slice(0,8)+'01',to:today};
+  if(preset==='week'){const d=new Date(today+'T00:00:00Z');d.setUTCDate(d.getUTCDate()-(d.getUTCDay()+6)%7);return{from:d.toISOString().slice(0,10),to:today};}
+  return{from:today,to:today};
+}

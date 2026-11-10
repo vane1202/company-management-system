@@ -1,7 +1,11 @@
+import { isServiceAccount } from './serviceAccounts';
+import { AdAccountsWorkspace } from "./AdAccountsWorkspace";
 import { SalaryWorkspace } from "./SalaryWorkspace";
+import { WorkspaceBackbar, useWorkspaceNavigation } from "./WorkspaceNavigation";
 import { OrderWorkspace } from "./OrderWorkspace";
 import { FinanceWorkspace } from "./FinanceWorkspace";
 import { DailyForm } from "./DailyForms";
+import { LeadWorkspace } from "./LeadWorkspace";
 import { detailLines } from "./dailyDetail";
 import { ModuleSettings } from "./ModuleSettings";
 import { SystemSettings } from "./SystemSettings";
@@ -40,19 +44,20 @@ export function App() {
   const [modules, setModules] = useState<Record<string, boolean> | null>(null);
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState<User | null>(null);
-  const [page, setPage] = useState<Page>(() => fillEntryFromPath(window.location.pathname) ?? "home");
+  const navigation = useWorkspaceNavigation(user?.id, user?.role);
+  const page = navigation.route.page;
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [error, setError] = useState("");
   const [today, setToday] = useState("");
   const [backfillDays, setBackfillDays] = useState(3);
   const [disclaimer, setDisclaimer] = useState("");
+  const [pageErrors, setPageErrors] = useState<Partial<Record<Page, string>>>({});
   const entry = fillEntryFromPath(window.location.pathname);
 
   useEffect(() => {
-    const onPopState = () => { setError(""); setPage(fillEntryFromPath(window.location.pathname) ?? "home"); };
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
-  }, []);
+    setError(""); setMobileNavOpen(false);
+  }, [page, navigation.route.orderId]);
+  useEffect(() => { setPageErrors({}); }, [user?.id, user?.role]);
 
   function applySession(nextUser: User, payload?: SessionMeta) {
     const meta = readSessionMeta(payload);
@@ -113,9 +118,15 @@ export function App() {
   function goTo(next: Page) {
     setError("");
     setMobileNavOpen(false);
-    setPage(next);
-    const nextPath = (next === "fans" || next === "orders") && canUseFillEntry(user!.role, next) ? fillEntries[next].path : "/";
-    if (window.location.pathname !== nextPath) window.history.pushState(null, "", nextPath);
+    navigation.navigate({ page: next });
+  }
+  const pageError = (id: Page) => (value: string) => setPageErrors(current => ({ ...current, [id]: value }));
+  function pagePanel(id: Page, children: ReactNode) {
+    if (!items.some(item => item.id === id)) return null;
+    if (!(id in navigation.views) && activePage !== id) return null;
+    return <section key={`${user!.id}:${user!.role}:${id}`} className="workspace-page" hidden={activePage !== id} aria-label={items.find(item => item.id === id)?.label}>
+      {pageErrors[id] && <p role="alert" className="error">{pageErrors[id]}</p>}{children}
+    </section>;
   }
   async function logout() {
     await api.logout();
@@ -127,7 +138,7 @@ export function App() {
     <div className={`page app-shell ${managementRole ? "management-shell" : ""} ${user.role === "boss" ? "boss-shell" : ""}`}>
       <a className="skip-link" href="#main-content">跳到主要内容</a>
       <aside className={`app-sidebar ${mobileNavOpen ? "mobile-nav-open" : ""}`}>
-        <div className="sidebar-brand-row"><a href="/" className="sidebar-brand"><span className="sidebar-brand-mark"><DashboardIcon name="home" /></span><span><b>内部管理系统</b><small>公司日常工作台</small></span></a>{managementRole && <button type="button" className="mobile-menu-toggle secondary" aria-expanded={mobileNavOpen} aria-controls="workspace-navigation" onClick={() => setMobileNavOpen(open => !open)}>{mobileNavOpen ? "收起菜单" : "全部菜单"}</button>}</div>
+        <div className="sidebar-brand-row"><button type="button" onClick={() => navigation.up({ page: "home" })} className="sidebar-brand" aria-label="返回工作台首页"><span className="sidebar-brand-mark"><DashboardIcon name="home" /></span><span><b>内部管理系统</b><small>公司日常工作台</small></span></button>{managementRole && <button type="button" className="mobile-menu-toggle secondary" aria-expanded={mobileNavOpen} aria-controls="workspace-navigation" onClick={() => setMobileNavOpen(open => !open)}>{mobileNavOpen ? "收起菜单" : "全部菜单"}</button>}</div>
         <span className="nav-section-label">工作空间</span>
         <nav id="workspace-navigation" className="nav" aria-label="主要导航">
           {items.map((item) => <button key={item.id} aria-current={activePage === item.id ? "page" : undefined} className={activePage === item.id ? "active" : ""} onClick={() => goTo(item.id)}><DashboardIcon name={item.id} /><span>{item.label}</span></button>)}
@@ -148,26 +159,28 @@ export function App() {
         </div>
       </header>
       <main id="main-content" tabIndex={-1}>
+      {activePage !== "home" && <WorkspaceBackbar page={activePage} detail={activePage === "orders" && !!navigation.route.orderId} homeLabel={items[0].label} pageLabel={items.find(item => item.id === activePage)!.label} onUp={() => navigation.up()} onHome={() => navigation.up({ page: "home" })} />}
       {error && <p className="error">{error}</p>}
-      {user.accountKind === "cs_wechat" && <p className="notice">当前填报微信：<strong>{user.wechatId}</strong>{user.phoneLabel ? `（${user.phoneLabel}）` : ""}。加粉与订单长期归属于此微信号；退出后需管理员重新发码。</p>}
-      {activePage === "home" && <Home user={user} today={today} backfillDays={backfillDays} disclaimer={disclaimer} onNavigate={goTo} />}
-      {activePage === "fans" && <FanForm today={today} onError={setError} />}
-      {activePage === "summary" && <FanSummaryPage today={today} onError={setError} supervisor={user.role === "cs_supervisor"} onNavigate={goTo} />}
-      {activePage === "orders" && <OrderWorkspace today={today} user={user} />}
-      {activePage === "ops" && <OpsPage today={today} onError={setError} readOnly={user.role === "boss"} />}
-      {activePage === "editor" && <EditorPage today={today} onError={setError} readOnly={user.role === "boss"} />}
-      {activePage === "dashboard" && <DashboardPage onError={setError} />}
-      {activePage === "modules" && <><ModuleSettings onError={setError} onChange={setModules} /><SystemSettings defaultDays={backfillDays} /></>}
-      {activePage === "people" && <PeoplePage today={today} onError={setError} />}
-      {activePage === "csAccounts" && <CsAccountsPage supervisor={user.role === "cs_supervisor"} />}
-      {activePage === "finance" && <FinanceWorkspace today={today} readOnly />}
-      {activePage === "salaries" && <SalaryWorkspace today={today} readOnly={user.role !== "finance"} />}
+      {isServiceAccount(user.accountKind) && <p className="notice">当前填报接待账号：<strong>{user.serviceAccountLabel??user.wechatId}</strong>{user.phoneLabel ? `（${user.phoneLabel}）` : ""}。加粉与订单长期归属于此接待账号；退出后需管理员重新发码。</p>}
+      {pagePanel("home", <Home user={user} today={today} backfillDays={backfillDays} disclaimer={disclaimer} onNavigate={goTo} onOpenOrder={id=>navigation.navigate({page:"orders",orderId:id})} />)}
+      {pagePanel("fans", <FanForm today={today} onError={pageError("fans")} platform={user.servicePlatform}/>)}
+      {pagePanel("summary", <FanSummaryPage today={today} onError={pageError("summary")} supervisor={user.role === "cs_supervisor"} onNavigate={goTo} />)}
+      {pagePanel("orders", <OrderWorkspace today={today} user={user} selectedId={navigation.views.orders?.orderId ?? ""} onSelectOrder={id => navigation.navigate({ page: "orders", orderId: id })} />)}
+      {pagePanel("ops", <OpsPage today={today} onError={pageError("ops")} readOnly={user.role === "boss"} />)}
+      {pagePanel("editor", <EditorPage today={today} onError={pageError("editor")} readOnly={user.role === "boss"} />)}
+      {pagePanel("dashboard", <DashboardPage onError={pageError("dashboard")} />)}
+      {pagePanel("modules", <><ModuleSettings onError={pageError("modules")} onChange={setModules} /><SystemSettings defaultDays={backfillDays} /></>)}
+      {pagePanel("people", <PeoplePage today={today} onError={pageError("people")} />)}
+      {pagePanel("csAccounts", <CsAccountsPage supervisor={user.role === "cs_supervisor"} />)}
+      {pagePanel("finance", <FinanceWorkspace today={today} readOnly />)}
+      {pagePanel("salaries", <SalaryWorkspace today={today} readOnly={user.role !== "finance"} />)}
+
       </main>
       </div>
       <nav className="bottom-nav" aria-label="底部导航">
         {items.slice(0, 5).map((item) => (
           <button key={item.id} aria-current={activePage === item.id ? "page" : undefined} className={activePage === item.id ? "active" : ""} onClick={() => goTo(item.id)}>
-            {item.id === "csAccounts" ? "客服微信" : item.label}
+            {item.id === "csAccounts" ? "客服接待账号" : item.label}
           </button>
         ))}
       </nav>
@@ -216,7 +229,7 @@ function Login({ onLogin, entry }: { onLogin: (user: User, extras?: SessionMeta)
         </div>
         {error && <p className="error">{error}</p>}
         <button type="submit" disabled={pending}>{pending ? "登录中…" : "登录"}</button>
-        {entry && <button type="button" className="secondary" onClick={() => setEmployeeLogin(false)}>返回客服微信登记</button>}
+        {entry && <button type="button" className="secondary" onClick={() => setEmployeeLogin(false)}>返回客服接待账号登记</button>}
       </form>
     </div>
   );
@@ -271,30 +284,32 @@ function Home({
   today,
   backfillDays,
   disclaimer,
-  onNavigate
+  onNavigate,
+  onOpenOrder
 }: {
   user: User;
   today: string;
   backfillDays: number;
   disclaimer: string;
   onNavigate: (page: Page) => void;
+  onOpenOrder:(id:string)=>void;
 }) {
   if (user.role === "finance") return <FinanceWorkspace today={today} />;
-  if (user.role === "boss") return <DashboardHome today={today} onNavigate={onNavigate} />;
+  if (user.role === "boss") return <DashboardHome today={today} onNavigate={onNavigate} onOpenOrder={onOpenOrder} />;
   if (user.role === "admin") return <AdminHome onNavigate={onNavigate} />;
   if (user.role === "cs_supervisor") return <SupervisorHome today={today} onNavigate={onNavigate} />;
   return (
     <section className="card">
       <h2>今日 {today || "—"}</h2>
-      <p className="notice">业务日按东八区计算。客服加粉入口可放进微信群公告，每天打开同一链接即可，系统不会自动往群里发消息。</p>
+      <p className="notice">业务日按东八区计算。客服加粉入口可放进接待账号群公告，每天打开同一链接即可，系统不会自动往群里发消息。</p>
       {user.role === "cs" && <p className="notice">你只能填报并查看自己的加粉与订单。补报窗口为近 {backfillDays} 个业务日（含今天）。填写 0 表示当天已报零粉，未提交则是未报。</p>}
       {user.role === "assistant" && <p className="notice">原助理流程已停用，请由后台管理员调整账号角色。</p>}
     </section>
   );
 }
 
-function FanForm({ today, onError }: { today: string; onError: (value: string) => void }) {
-  return <DailyForm kind="fan_report" today={today} onError={onError} />;
+function FanForm({ today, onError,platform }: { today: string; onError: (value: string) => void;platform?:string|null }) {
+  return <><LeadWorkspace today={today} editable platform={platform}/><details className="card"><summary>主页日报与当日沟通汇报</summary><DailyForm kind="fan_report" today={today} onError={onError} servicePlatform={platform}/></details></>;
 }
 
 function FanSummaryPage({ today, onError, supervisor = false, onNavigate }: { today: string; onError: (value: string) => void; supervisor?: boolean; onNavigate: (page: Page) => void }) {
@@ -337,12 +352,15 @@ function FanSummaryPage({ today, onError, supervisor = false, onNavigate }: { to
   const noReports = loaded && !loading && !empty && teams.every((team) => team.details.every((item) => item.status !== "reported"));
 
   return (
-    <section className="card" aria-busy={loading}>
+    <><LeadWorkspace today={today}/><details className="card" aria-busy={loading}><summary>原始加粉日报与当日沟通汇报</summary><section>
+
       <h2>加粉日报汇总</h2>
+      <p className="notice">当日沟通情况可包含往日客户；月进粉仅作累计汇报。初步转化请看上方客户明细考核。</p>
       <div className="actions" style={{ marginBottom: 12 }}>
         <input aria-label="汇总业务日" type="date" value={date} onChange={(e) => { setDate(e.target.value); setAccountId(""); }} />
-        <select aria-label="按客服微信号筛选加粉" value={accountId} onChange={(e) => setAccountId(e.target.value)}><option value="">全部客服微信及原员工账号</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.wechatId}{account.phoneLabel ? ` · ${account.phoneLabel}` : ""}</option>)}</select>
+        <select aria-label="按客服接待账号筛选加粉" value={accountId} onChange={(e) => setAccountId(e.target.value)}><option value="">全部客服接待账号及原员工账号</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.wechatId}{account.phoneLabel ? ` · ${account.phoneLabel}` : ""}</option>)}</select>
         <button type="button" disabled={loading} onClick={() => load(date)}>{loading ? "查询中…" : "查询"}</button>
+
         <a className="btn secondary" href={api.fanExportUrl(date, accountId)}>导出 CSV</a>
       </div>
       {loading && loaded && <p className="notice" role="status">正在读取 {date} 的加粉记录…</p>}
@@ -370,7 +388,7 @@ function FanSummaryPage({ today, onError, supervisor = false, onNavigate }: { to
           <div className="table-wrap">
             <table>
               <thead>
-                <tr><th>客服微信 / 原账号</th><th>加粉数</th><th>填报</th></tr>
+                <tr><th>客服接待账号 / 原账号</th><th>加粉数</th><th>填报</th></tr>
               </thead>
               <tbody>
                 {team.details.map((item) => (
@@ -385,12 +403,12 @@ function FanSummaryPage({ today, onError, supervisor = false, onNavigate }: { to
           </div>
         </div>
       ))}
-    </section>
+    </section></details></>
   );
 }
 
 function OpsPage({ today, onError, readOnly }: { today: string; onError: (value: string) => void; readOnly?: boolean }) {
-  return <DailyForm kind="ops_report" today={today} onError={onError} readOnly={readOnly} />;
+  return <><DailyForm kind="ops_report" today={today} onError={onError} readOnly={readOnly} /><AdAccountsWorkspace today={today} readOnly={readOnly} /></>;
 }
 
 function EditorPage({ today, onError, readOnly }: { today: string; onError: (value: string) => void; readOnly?: boolean }) {
@@ -439,7 +457,7 @@ function PeoplePage({ today, onError }: { today: string; onError: (value: string
 
   async function refresh() {
     setTeams((await api.teams()).teams);
-    setUsers((await api.users()).users.filter((item) => item.accountKind !== "cs_wechat"));
+    setUsers((await api.users()).users.filter((item) => !isServiceAccount(item.accountKind)));
     setLoaded(true);
   }
   /** 保存已成功后再刷新列表；刷新失败单独说明，不把已保存误报为失败。 */
@@ -451,6 +469,7 @@ function PeoplePage({ today, onError }: { today: string; onError: (value: string
     const text = toErrorMessage(err, "保存失败");
     if (setLocal) setLocal(text); else onError(text);
     toast.error(`${prefix}：${text}`);
+
   }
   useEffect(() => {
     if (isIsoDate(today)) setForm((current) => ({ ...current, membershipStart: current.membershipStart || today }));
@@ -493,8 +512,9 @@ function PeoplePage({ today, onError }: { today: string; onError: (value: string
       </div>
       <div className="card">
         <h2>员工账号与权限</h2>
-        {scopeUser && <form className="review-card" onSubmit={async (e) => { e.preventDefault(); const target = scopeUser; setSavingUser(target.id); try { await api.setSupervisorTeams(target.id, scopeIds); } catch (err) { fail(`${target.displayName} 负责小组未保存`, err); setSavingUser(""); return; } setSavingUser(""); setScopeUser(null); onError(""); toast.success(`已保存 ${target.displayName} 的负责小组（${scopeIds.length} 个）`); await refreshAfterSave(); }}><h3>设置 {scopeUser.displayName} 的负责小组</h3><p className="notice">未勾选任何小组时，主管不能查看业务数据或登记客服微信。</p>{teams.map((team) => <label className="row" key={team.id}><input type="checkbox" checked={scopeIds.includes(team.id)} onChange={(e) => setScopeIds(e.target.checked ? [...scopeIds,team.id] : scopeIds.filter((id) => id !== team.id))} />{team.name}</label>)}<div className="actions"><button disabled={!!savingUser}>{savingUser ? "保存中…" : "保存负责小组"}</button><button type="button" className="secondary" onClick={() => setScopeUser(null)}>取消</button></div></form>}
-        <p className="notice">管理、运营、拍剪等人员在这里开通。固定客服手机请到“客服微信号”发放登记码，无需为每位轮班客服创建员工账号。</p>
+        {scopeUser && <form className="review-card" onSubmit={async (e) => { e.preventDefault(); const target = scopeUser; setSavingUser(target.id); try { await api.setSupervisorTeams(target.id, scopeIds); } catch (err) { fail(`${target.displayName} 负责小组未保存`, err); setSavingUser(""); return; } setSavingUser(""); setScopeUser(null); onError(""); toast.success(`已保存 ${target.displayName} 的负责小组（${scopeIds.length} 个）`); await refreshAfterSave(); }}><h3>设置 {scopeUser.displayName} 的负责小组</h3><p className="notice">未勾选任何小组时，主管不能查看业务数据或登记客服接待账号。</p>{teams.map((team) => <label className="row" key={team.id}><input type="checkbox" checked={scopeIds.includes(team.id)} onChange={(e) => setScopeIds(e.target.checked ? [...scopeIds,team.id] : scopeIds.filter((id) => id !== team.id))} />{team.name}</label>)}<div className="actions"><button disabled={!!savingUser}>{savingUser ? "保存中…" : "保存负责小组"}</button><button type="button" className="secondary" onClick={() => setScopeUser(null)}>取消</button></div></form>}
+        <p className="notice">管理、运营、拍剪等人员在这里开通。固定客服手机请到“客服接待账号”发放登记码，无需为每位轮班客服创建员工账号。</p>
+
         <form
           onSubmit={async (event) => {
             event.preventDefault();
@@ -564,7 +584,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 function FanDetailCards({ team }: { team: FanSummary }) {
   return <><p className="notice">月累计为当日已填主页的累计快照；未填主页不在此汇总内。{team.statsIncomplete ? "含历史未分类记录，统计不完整。" : ""}</p>
-    {team.details.map((member) => <article className="review-card" key={member.userId}><strong>{member.wechatId || member.displayName}</strong><span className="chip">{member.accountKind === "cs_wechat" ? "客服微信" : "原员工账号"}</span>
+    {team.details.map((member) => <article className="review-card" key={member.userId}><strong>{member.wechatId || member.displayName}</strong><span className="chip">{isServiceAccount(member.accountKind) ? "客服接待账号" : "原员工账号"}</span>
       {(member.pages ?? []).map((page) => <div key={page.reportId}>{detailLines("fan_report", page).map((line) => <p key={line}>{line}</p>)}</div>)}
     </article>)}
   </>;

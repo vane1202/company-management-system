@@ -14,7 +14,6 @@ frontend/dist/
 .pgdata/
 *.tsbuildinfo
 .vite/
-EOF
 .dev-progress.md
 .pg-test-pass
 

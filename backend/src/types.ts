@@ -27,7 +27,10 @@ export type PublicUser = {
   role: UserRole;
   isActive: boolean;
   mustChangePassword: boolean;
-  accountKind?: "employee" | "cs_wechat";
+  accountKind?: "employee" | "cs_wechat" | "cs_service";
+  servicePlatform?: 'whatsapp'|'messenger'|'legacy_wechat'|null;
+  accountIdentifier?:string|null;
+  serviceAccountLabel?:string|null;
   wechatId?: string | null;
   phoneLabel?: string | null;
   deviceVersion?: number;

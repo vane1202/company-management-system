@@ -82,11 +82,11 @@ export function createDashboardRouter(db: Pool, config: AppConfig): Router {
         business_date: string;
       }>(
         db,
-        `SELECT DISTINCT ON (user_id, persona_name)
-                user_id, persona_name, inventory_snapshot, business_date::text
+        `SELECT DISTINCT ON (COALESCE(editor_name,user_id::text), persona_name)
+                COALESCE(editor_name,user_id::text) AS user_id, persona_name, inventory_snapshot, business_date::text
            FROM editor_reports
           WHERE business_date BETWEEN $1 AND $2
-          ORDER BY user_id, persona_name, business_date DESC`,
+          ORDER BY COALESCE(editor_name,user_id::text), persona_name, business_date DESC`,
         [period.from, period.to]
       );
 
@@ -287,12 +287,14 @@ async function loadOpsUsdBundle(
       ORDER BY user_id, persona_name, business_date DESC`,
     params
   );
+  const ledger=await queryOne<{count:number;balance:string}>(db,`SELECT count(*)::int AS count,COALESCE(sum(a.opening_usd+COALESCE((SELECT sum(t.credited_usd) FROM ad_topups t WHERE t.account_ref=a.code AND t.voided_at IS NULL AND t.paid_on<=$1),0)-COALESCE((SELECT sum(r.spend_usd) FROM ops_reports r WHERE r.ad_account_ref=a.code AND r.business_date BETWEEN a.opened_on AND $1),0)),0)::text AS balance FROM ad_accounts a WHERE a.opened_on<=$1`,[to]);
   return {
+    balanceMethod:ledger?.count?"account_ledger":"legacy_persona_snapshot",
     currency: "USD",
     spendUsd: formatMoney(totals?.spend ?? "0"),
     consultCount: Number(totals?.consults ?? 0),
     clickCount: Number(totals?.clicks ?? 0),
-    endingBalanceUsd:
+    endingBalanceUsd:ledger?.count?formatMoney(ledger.balance):
       lastMoneySnapshotsThenSum(
         balances.map((row) => ({
           user_id: row.user_id,

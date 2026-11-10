@@ -1,3 +1,4 @@
+import { isDeviceAccount } from '../lib/csAccounts.js';
 import { Router, type Request, type Response } from "express";
 import { rateLimit } from "express-rate-limit";
 import type { Pool } from "pg";
@@ -65,7 +66,7 @@ export function createAuthRouter(db: Pool, config: AppConfig): Router {
 
       const user = await findUserByUsername(db, username);
       const ok = user ? await verifyPassword(password, user.password_hash) : false;
-      if (!user || !user.is_active || !ok || user.account_kind === "cs_wechat") {
+      if (!user || !user.is_active || !ok || isDeviceAccount(user.account_kind)) {
         await writeAudit(db, {
           actorId: user?.id ?? null,
           action: "login_failed",
@@ -116,7 +117,7 @@ export function createAuthRouter(db: Pool, config: AppConfig): Router {
     try {
       if (!req.actor) throw new HttpError(401, "未登录");
       const currentPassword = String(req.body?.currentPassword ?? "");
-      if (req.actor.accountKind === "cs_wechat") throw new HttpError(403, "客服微信通过管理员登记码重新登记，不使用员工密码");
+      if (isDeviceAccount(req.actor.accountKind)) throw new HttpError(403, "客服接待账号通过管理员登记码重新登记，不使用员工密码");
       const newPassword = String(req.body?.newPassword ?? "");
       const user = await findUserByUsername(db, req.actor.username);
       if (!user || !(await verifyPassword(currentPassword, user.password_hash))) {
@@ -170,7 +171,7 @@ export async function establishSession(req: Request, user: DbUser): Promise<void
   await new Promise<void>((resolve, reject) => req.session.regenerate((error) => error ? reject(error) : resolve()));
   req.session.userId = user.id;
   req.session.csrfToken = randomBytes(32).toString("hex");
-  if (user.account_kind === "cs_wechat") {
+  if (isDeviceAccount(user.account_kind)) {
     req.session.deviceVersion = user.device_version ?? 0;
     req.session.cookie.maxAge = 30 * 24 * 60 * 60 * 1000;
   }
@@ -216,7 +217,7 @@ export function attachActor(loader: (id: string) => Promise<Actor | undefined>) 
     try {
       if (req.session.userId) {
         const actor = await loader(req.session.userId);
-        if (actor && actor.isActive && (actor.accountKind !== "cs_wechat" || req.session.deviceVersion === actor.deviceVersion)) req.actor = actor;
+        if (actor && actor.isActive && (!isDeviceAccount(actor.accountKind) || req.session.deviceVersion === actor.deviceVersion)) req.actor = actor;
         else { delete req.session.userId; delete req.session.deviceVersion; }
       }
       next();

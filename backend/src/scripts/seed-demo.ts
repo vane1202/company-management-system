@@ -45,11 +45,11 @@ try {
   await client.query("BEGIN");
   const teamA = await client.query(
     "INSERT INTO teams (name, wechat_group_note) VALUES ($1, $2) RETURNING id",
-    ["一组", "演示用微信群A（虚构）"]
+    ["一组", "演示用接待账号群A（虚构）"]
   );
   const teamB = await client.query(
     "INSERT INTO teams (name, wechat_group_note) VALUES ($1, $2) RETURNING id",
-    ["二组", "演示用微信群B（虚构）"]
+    ["二组", "演示用接待账号群B（虚构）"]
   );
   const teamIds: Record<string, string> = { 一组: teamA.rows[0].id, 二组: teamB.rows[0].id };
 
