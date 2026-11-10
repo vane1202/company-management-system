@@ -6,6 +6,7 @@ import { effectiveOrderAmount, fanStateSegments, missingReporters, yuan } from "
 import { InfoTip } from "./InfoTip";
 import { toErrorMessage } from "./errors";
 import { loadAdminHome, loadSupervisorHome, loaded } from "./roleHomeData";
+import { Skeleton } from "./Skeleton";
 
 type Navigate = (page: Page) => void;
 function HomeHeading({ title, subtitle, loading, refresh }: { title: string; subtitle: string; loading: boolean; refresh: () => void }) {
@@ -27,8 +28,9 @@ function FanStateBar({ total, replied, readNoReply, unread, invalid }: { total: 
     {data.overflow > 0 && <p className="data-flag">四种状态合计比加粉总数多 {data.overflow} 人，请核对填报</p>}
   </section>;
 }
-function HomeMetric({ label, value, note, page, onNavigate }: { label: string; value: ReactNode; note?: string; page: Page; onNavigate: Navigate }) {
-  return <button type="button" className="role-metric" onClick={() => onNavigate(page)}><span>{label}<DashboardIcon name="arrow" /></span><strong>{value ?? "—"}</strong>{note && <small>{note}</small>}</button>;
+function HomeMetric({ label, value, note, page, onNavigate, pending = false }: { label: string; value: ReactNode; note?: string; page: Page; onNavigate: Navigate; pending?: boolean }) {
+  // pending：读取中且尚无数据时显示灰色占位，读取完仍为“—”才表示无数据。
+  return <button type="button" className="role-metric" onClick={() => onNavigate(page)}><span>{label}<DashboardIcon name="arrow" /></span><strong>{pending ? <Skeleton width="2.6em" height="1em" /> : value ?? "—"}</strong>{note && <small>{note}</small>}</button>;
 }
 function HomeAction({ page, title, detail, onNavigate }: { page: Page; title: string; detail: string; onNavigate: Navigate }) {
   return <button type="button" className="role-home-action" onClick={() => onNavigate(page)}><DashboardIcon name={page} /><span><strong>{title}</strong><small>{detail}</small></span><DashboardIcon name="arrow" /></button>;
@@ -116,10 +118,10 @@ export function SupervisorHome({ today, onNavigate }: { today: string; onNavigat
     <CompactHeading title="本组工作台" caption={`${today} · 今日`} loading={loading} refresh={refresh} />
     {noScope ? <section className="role-home-panel role-empty"><h2>尚未分配负责小组</h2><p>请联系后台管理员设置负责小组，设置后可查看组内数据并登记客服微信。</p></section> : <>
       <div className="role-kpis" aria-label="本组今日加粉概况">
-        <HomeMetric label="加粉总数" value={total("totalAdded")} page="summary" onNavigate={onNavigate} />
-        <HomeMetric label="今日有效" value={total("validToday")} page="summary" onNavigate={onNavigate} />
-        <HomeMetric label="取得沟通" value={total("commReplied")} page="summary" onNavigate={onNavigate} />
-        <HomeMetric label="无效客源" value={total("commInvalid")} page="summary" onNavigate={onNavigate} />
+        <HomeMetric label="加粉总数" value={total("totalAdded")} page="summary" onNavigate={onNavigate} pending={loading && !data} />
+        <HomeMetric label="今日有效" value={total("validToday")} page="summary" onNavigate={onNavigate} pending={loading && !data} />
+        <HomeMetric label="取得沟通" value={total("commReplied")} page="summary" onNavigate={onNavigate} pending={loading && !data} />
+        <HomeMetric label="无效客源" value={total("commInvalid")} page="summary" onNavigate={onNavigate} pending={loading && !data} />
       </div>
       <FanStateBar total={total("totalAdded")} replied={total("commReplied")} readNoReply={total("commReadNoReply")} unread={total("commUnread")} invalid={total("commInvalid")} />
       {missingList.length > 0 && <section className="role-missing" aria-label="今日未报账号"><strong>今日未报 {missingList.length}</strong><div className="missing-chips">{missingList.map(item => <button type="button" key={item.userId} className="missing-chip" title={`${item.teamName} · 今日未报，点击查看加粉明细`} onClick={() => onNavigate("summary")}>{item.displayName}</button>)}</div><button type="button" className="text-action" onClick={() => onNavigate("summary")}>明细<DashboardIcon name="arrow" /></button></section>}

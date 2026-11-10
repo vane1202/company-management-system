@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isPayMonth, payrollAmountError, shiftMonth, signedLabel } from "./payrollUi";
+import { isPayMonth, payrollAmountError, payrollNoteError, PAYROLL_NOTE_REQUIRED, shiftMonth, signedLabel } from "./payrollUi";
 
 describe("工资单前端辅助", () => {
   it("本月/上月按自然月切换，跨年正确", () => {
@@ -17,5 +17,10 @@ describe("工资单前端辅助", () => {
     expect(payrollAmountError("1.005")).not.toBe("");
     expect(signedLabel("deduction", "5.00")).toBe("− ¥ 5.00");
     expect(signedLabel("bonus", "5.00")).toBe("+ ¥ 5.00");
+  });
+  it("备注预检：去掉空格后不能为空", () => {
+    expect(payrollNoteError("")).toBe(PAYROLL_NOTE_REQUIRED);
+    expect(payrollNoteError("   ")).toBe("备注必填，写明项目或依据");
+    expect(payrollNoteError("11 月成交提成")).toBe("");
   });
 });

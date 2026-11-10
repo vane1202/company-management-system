@@ -1,3 +1,4 @@
+import { httpErrorMessage, networkErrorMessage } from "./errors";
 export type Role = "boss" | "admin" | "finance" | "assistant" | "ops" | "editor" | "cs" | "cs_supervisor";
 
 export type User = {
@@ -20,22 +21,34 @@ async function requestInner<T>(path: string, options: RequestInit = {}): Promise
     headers.set("Content-Type", "application/json");
   }
   if (csrfToken) headers.set("X-CSRF-Token", csrfToken);
-  const response = await fetch(path, {
-    ...options,
-    headers,
-    credentials: "include"
-  });
-  const text = await response.text();
+  const write = !!options.method && options.method.toUpperCase() !== "GET";
+  let response: Response;
+  let text: string;
+  try {
+    response = await fetch(path, {
+      ...options,
+      headers,
+      credentials: "include"
+    });
+    text = await response.text();
+  } catch (cause) {
+    // 断网、连接被拒或读取响应中断：浏览器给的是英文 TypeError，这里换成中文原因。
+    const error = new Error(networkErrorMessage(write)) as Error & { code?: string; cause?: unknown };
+    error.code = "NETWORK";
+    error.cause = cause;
+    throw error;
+  }
   let data: { error?: string; code?: string; csrfToken?: string } = {};
   if (text) {
     try {
       data = JSON.parse(text);
     } catch {
-      throw new Error(response.ok ? "服务器返回无法解析的响应" : `请求失败（${response.status}）`);
+      if (response.ok) throw new Error("服务器返回无法解析的响应");
+      data = {};
     }
   }
   if (!response.ok) {
-    const error = new Error(data.error || `请求失败（${response.status}）`) as Error & { code?: string; status?: number };
+    const error = new Error(httpErrorMessage(response.status, data.error, write)) as Error & { code?: string; status?: number };
     error.code = data.code;
     error.status = response.status;
     throw error;
