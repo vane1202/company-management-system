@@ -9,6 +9,32 @@ function environment(role){
  vm.runInNewContext(script,{window,document:{addEventListener(){}},URL,URLSearchParams,Response,Date});
  return {fetch:window.fetch,json:async(path,method='GET',body)=>{const response=await window.fetch(path,{method,body:JSON.stringify(body)});return {status:response.status,body:await response.json()};},network:()=>networkRequests};
 }
+test('财务专项核定与营业额独立；历史未分类收款不冒充售后收入',async()=>{
+ const e=environment('boss'),today=(await e.json('/api/auth/me')).body.today;
+ const d=(await e.json('/api/dashboard/live-business?from='+today+'&to='+today)).body;
+ assert.equal(d.totals.performanceCny,'1770.50');assert.equal(d.paidPerformance.amountCny,'1290.50');
+ assert.equal(d.afterSales.recordCount,0);assert.equal(d.afterSales.unclassifiedReceiptCount,3);
+ for(const role of ['boss','finance'])assert.equal((await environment(role).json('/api/finance/live-performance')).status,200);
+ for(const role of ['admin','cs_supervisor'])assert.equal((await environment(role).json('/api/finance/live-performance')).status,403);
+ assert.equal((await environment('finance').json('/api/finance/live-performance','POST',{})).status,403);
+ assert.equal(e.network(),0);
+});
+test('主管首页营业额与BOSS营业额同口径：不含追加收费、扣除跑单与退款标记源单',async()=>{
+ const boss=environment('boss'),sup=environment('cs_supervisor'),today=(await boss.json('/api/auth/me')).body.today;
+ const yesterday=new Date(Date.parse(today+'T00:00:00Z')-86400000).toISOString().slice(0,10);
+ for(const day of [today,yesterday]){
+  const mine=(await sup.json(`/api/orders?from=${day}&to=${day}`)).body,ids=new Set(mine.orders.map(o=>o.id));
+  const live=(await boss.json(`/api/dashboard/live-business?from=${day}&to=${day}`)).body;
+  const sales=live.events.filter(e=>e.kind==='sale'&&ids.has(e.order_id)&&!e.order.cancelled&&e.order.status!=='refunded');
+  const expected=(sales.reduce((n,e)=>n+Math.round(Number(e.amount)*100),0)/100).toFixed(2);
+  assert.equal(mine.totals.turnover,expected,day);assert.equal(mine.totals.turnoverCount,sales.length,day);
+ }
+ const t=(await sup.json(`/api/orders?from=${today}&to=${today}`)).body.totals;assert.equal(t.turnover,'1770.50');assert.equal(t.amount,'1970.50');
+ const y=(await sup.json(`/api/orders?from=${yesterday}&to=${yesterday}`)).body.totals;assert.deepEqual([y.turnover,y.cancelled,y.turnoverCount],['550.00','330.00',1]);
+ const cancelled=(await sup.json('/api/order-records/demo-order-5')).body;assert.equal(cancelled.order.cancelled,true);assert.equal(cancelled.cancellations.length,1);
+ assert.equal((await sup.json('/api/order-records/demo-order-6/cancellations','POST',{version:1,reason:'演示'})).status,403);
+ assert.equal(sup.network(),0);assert.equal(boss.network(),0);
+});
 test('线索演示按接待账号与承接日期隔离，旧客今日明确需求仍归原批次',async()=>{
  const boss=environment('boss'),today=(await boss.json('/api/auth/me')).body.today;
  const a=(await boss.json('/api/fan-leads?from='+today+'&to='+today)).body;
@@ -25,14 +51,14 @@ test('public preview identities are fictional and business access follows the pr
  for(const path of ['/api/orders','/api/fan-reports/summary','/api/dashboard/summary','/api/salaries'])assert.equal((await admin.json(path)).status,403);
 });
 test('supervisor sees one fictional group and cannot query another fictional account',async()=>{
- const e=environment('cs_supervisor');const orders=await e.json('/api/orders');assert.equal(orders.body.orders.length,2);assert.ok(orders.body.orders.every(row=>row.userId==='demo-wechat-1'));assert.deepEqual(orders.body.totals,{amount:'1970.50',refunds:'0.00'});
+ const e=environment('cs_supervisor');const orders=await e.json('/api/orders');assert.equal(orders.body.orders.length,4);assert.ok(orders.body.orders.every(row=>row.userId==='demo-wechat-1'));assert.deepEqual(orders.body.totals,{amount:'2850.50',refunds:'0.00',cancelled:'330.00',turnover:'2320.50',turnoverCount:3});
  assert.deepEqual((await e.json('/api/orders?userId=demo-wechat-2')).body.orders,[]);assert.equal((await e.json('/api/cs-accounts')).body.accounts.length,2);const fans=(await e.json('/api/fan-reports/summary')).body.teams;assert.equal(fans.length,1);assert.equal(fans[0].expectedCount,2);assert.equal(fans[0].reportedCount,1);assert.deepEqual(fans[0].missing.map(m=>m.displayName),['Messenger · demo.messenger.03']);assert.equal(fans[0].totalAdded,7);assert.equal((await e.json('/api/admin/users')).status,403);
 });
 test('BOSS filters dates/statuses and uses the latest monthly snapshot rather than summing snapshots',async()=>{
  const e=environment('boss');const meta=(await e.json('/api/auth/me')).body;const today=meta.today;
  const day=(await e.json('/api/dashboard/summary')).body;assert.deepEqual(day.period,{from:today,to:today});assert.equal(day.metrics.revenue,'2150.50');assert.equal(day.metrics.refunds,'180.00');
  const from=today.slice(0,7)+'-01';const period=(await e.json('/api/dashboard/summary?from='+from+'&to='+today)).body;assert.equal(period.metrics.msMonth,216);assert.equal(period.metrics.wsMonth,83);
- const filtered=(await e.json('/api/orders?status=refunded')).body;assert.equal(filtered.orders.length,1);assert.deepEqual(filtered.totals,{amount:'180.00',refunds:'180.00'});
+ const filtered=(await e.json('/api/orders?status=refunded')).body;assert.equal(filtered.orders.length,1);assert.deepEqual(filtered.totals,{amount:'180.00',refunds:'180.00',cancelled:'0.00',turnover:'0.00',turnoverCount:0});
 });
 test('all preview writes are refused and never contact the actual backend',async()=>{
  for(const role of ['admin','boss','cs_supervisor','finance']){const e=environment(role);for(const path of ['/api/orders','/api/cs-accounts/registration-codes','/api/admin/users','/api/modules','/api/admin/settings','/api/finance/settlements','/api/order-records']){assert.equal((await e.json(path,'POST',{role:'boss',amount:'999.00'})).status,403);}assert.equal(e.network(),0);}
@@ -105,17 +131,17 @@ test('sourcing charge, procurement payable, customer balance and actual supplier
 
 test('BOSS business home counts a prior-day order charge and shipping on their own occurrence dates',async()=>{
  const e=environment('boss'),d=(await e.json('/api/dashboard/live-business')).body;
- assert.equal(d.totals.newSalesCny,'1770.50');assert.equal(d.totals.additionalCny,'300.00');assert.equal(d.totals.performanceCny,'2070.50');assert.equal(d.totals.expenseCny,'1415.00');assert.equal(d.totals.supplierPaidCny,'600.00');assert.equal(d.totals.newOrderCount,2);
+ assert.equal(d.totals.newSalesCny,'1770.50');assert.equal(d.totals.additionalCny,'300.00');assert.equal(d.totals.performanceCny,'1770.50');assert.equal(d.totals.expenseCny,'1415.00');assert.equal(d.totals.supplierPaidCny,'600.00');assert.equal(d.totals.newOrderCount,2);
  assert.equal(d.totals.excludedSourceCny,'180.00');assert.equal(d.totals.companyReceivedCny,'1613.90');assert.deepEqual(d.totals.customerReceipts,{CNY:'1290.50',TWD:'1200.00',USD:'140.00'});
  assert.equal(d.ads.spendUsd,'29.20');assert.equal(d.legacyCost.count,1);
- const prior=d.rooms.find(r=>r.roomCode==='DEMO-LIVE-02');assert.equal(prior.totals.performanceCny,'100.00');assert.equal(prior.totals.expenseCny,'15.00');assert.equal(prior.totals.newOrderCount,0);
+ const prior=d.rooms.find(r=>r.roomCode==='DEMO-LIVE-02');assert.equal(prior.totals.performanceCny,'0.00');assert.equal(prior.totals.expenseCny,'15.00');assert.equal(prior.totals.newOrderCount,0);
  assert.equal(d.rooms.find(r=>r.roomCode==='DEMO-LIVE-01').personas.length,1);
- const sum=key=>d.rooms.reduce((n,r)=>n+Math.round(Number(r.totals[key])*100),0);assert.equal(sum('performanceCny'),207050);assert.equal(sum('expenseCny'),141500);
+ const sum=key=>d.rooms.reduce((n,r)=>n+Math.round(Number(r.totals[key])*100),0);assert.equal(sum('performanceCny'),177050);assert.equal(sum('expenseCny'),141500);
  assert.equal(e.network(),0);
 });
 test('live-room filters leave company advertising scoped to the same dates; other roles cannot read the home endpoint',async()=>{
  const e=environment('boss'),r=(await e.json('/api/dashboard/live-business?room=DEMO-LIVE-02&host='+encodeURIComponent('演示主播乙'))).body;
- assert.equal(r.totals.performanceCny,'100.00');assert.equal(r.totals.expenseCny,'15.00');assert.equal(r.ads.spendUsd,'29.20');assert.equal(r.rooms.length,1);
+ assert.equal(r.totals.performanceCny,'0.00');assert.equal(r.totals.expenseCny,'15.00');assert.equal(r.ads.spendUsd,'29.20');assert.equal(r.rooms.length,1);
  const date=(await e.json('/api/auth/me')).body.today,prior=new Date(Date.parse(date+'T00:00:00Z')-86400000).toISOString().slice(0,10);
  const p=(await e.json('/api/dashboard/live-business?from='+prior+'&to='+prior+'&room=DEMO-LIVE-02')).body;assert.equal(p.totals.performanceCny,'850.00');assert.equal(p.totals.expenseCny,'630.00');assert.equal(p.ads.spendUsd,'0.00');
  for(const role of ['admin','finance','cs_supervisor'])assert.equal((await environment(role).json('/api/dashboard/live-business')).status,403);

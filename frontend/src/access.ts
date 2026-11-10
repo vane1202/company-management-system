@@ -30,7 +30,7 @@ export function navItems(role: Role): { id: Page; label: string }[] {
   if (role === "admin") return [{ id: "home", label: "系统管理" }, { id: "people", label: "账号与小组" }, { id: "csAccounts", label: "客服接待账号" }, { id: "modules", label: "模块管理" }];
   if (role === "boss") return [
     { id: "home", label: "管理总览" },
-    { id: "orders", label: "消费汇总" },
+    { id: "orders", label: "直播间经营" },
     { id: "finance", label: "收款与结算" },
     { id: "ops", label: "推广汇总" },
     { id: "dashboard", label: "经营估算" },

@@ -3,7 +3,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import type { Page } from "./access";
 import { DashboardIcon } from "./DashboardIcon";
 import { reportingOverview } from "./dashboardOverview";
-import { effectiveOrderAmount, missingReporters, yuan } from "./dashboardDisplay";
+import { missingReporters, yuan } from "./dashboardDisplay";
 import { InfoTip } from "./InfoTip";
 import { toErrorMessage } from "./errors";
 import { loadAdminHome, loadSupervisorHome, loaded } from "./roleHomeData";
@@ -107,7 +107,9 @@ export function SupervisorHome({ today, onNavigate }: { today: string; onNavigat
   const noScope = teams?.length === 0;
   const total = (key: "totalAdded" | "validToday" | "commReplied" | "commReadNoReply" | "commUnread" | "commInvalid") => teams && !noScope && teams.every(team => team[key] != null) ? teams.reduce((sum, team) => sum + (team[key] ?? 0), 0) : null;
   const missingList = missingReporters(teams);
-  const effective = orders ? effectiveOrderAmount(orders.totals.amount, orders.totals.refunds) : null;
+  // 与 BOSS 首页“直播间营业额”同口径：后端按开单卡料价＋代购费汇总，不含追加收费，排除跑单与历史退款标记源单。
+  const turnover = orders?.totals.turnover ?? null;
+  const turnoverCount = orders ? orders.totals.turnoverCount ?? orders.orders.filter(order => order.status !== "refunded" && !order.cancelled).length : null;
   const errors = sourceErrors([["本组加粉", data?.fans], ["本组订单", data?.orders], ["本组接待账号", data?.accounts]]);
   return <div className="management-dashboard role-home supervisor-home" aria-busy={loading}>
     <CompactHeading title="本组工作台" caption={`${today} · 今日`} loading={loading} refresh={refresh} />
@@ -120,10 +122,10 @@ export function SupervisorHome({ today, onNavigate }: { today: string; onNavigat
       </div>
       <FanStateBar total={total("totalAdded")} replied={total("commReplied")} readNoReply={total("commReadNoReply")} unread={total("commUnread")} invalid={total("commInvalid")} />
       {missingList.length > 0 && <section className="role-missing" aria-label="今日未报账号"><strong>今日未报 {missingList.length}</strong><div className="missing-chips">{missingList.map(item => <button type="button" key={item.userId} className="missing-chip" title={`${item.teamName} · 今日未报，点击查看加粉明细`} onClick={() => onNavigate("summary")}>{item.displayName}</button>)}</div><button type="button" className="text-action" onClick={() => onNavigate("summary")}>明细<DashboardIcon name="arrow" /></button></section>}
-      <section className="role-home-panel role-order-preview"><div className="role-panel-title"><h2>今日订单概况<InfoTip label="订单口径" text={`有效金额 = 订单金额 ${yuan(orders?.totals.amount)}（含退款源订单）− 退款 ${yuan(orders?.totals.refunds)}。按今日业务日统计，人民币。`} /></h2><button type="button" className="text-action" onClick={() => onNavigate("orders")}>全部消费<DashboardIcon name="arrow" /></button></div><div className="role-order-values"><div><span>有效金额</span><strong>{yuan(effective)}</strong></div><div><span>有效订单</span><strong>{orders ? orders.orders.filter(order => order.status !== "refunded").length : "—"}<small>笔</small></strong></div></div></section>
+      <section className="role-home-panel role-order-preview"><div className="role-panel-title"><h2>今日订单概况<InfoTip label="营业额口径" text="与 BOSS 首页营业额同一口径：只计开单卡的料价和代购费，按开单卡日期统计；设计雕刻等追加收费另列，不计入；已登记跑单和历史退款标记的订单不计入。人民币。" /></h2><button type="button" className="text-action" onClick={() => onNavigate("orders")}>全部消费<DashboardIcon name="arrow" /></button></div><div className="role-order-values"><div><span>营业额</span><strong>{yuan(turnover)}</strong></div><div><span>有效开单</span><strong>{turnoverCount ?? "—"}<small>笔</small></strong></div></div></section>
     </>}
     <HomeErrors errors={errors} retry={refresh} />
-    {!noScope && <section className="role-home-panel"><div className="role-panel-title"><h2>今日加粉填报<InfoTip label="填报口径" text="按接待账号及原员工账号计数，多主页不重复计数。填报 0 仍计为已报。" /></h2><button type="button" className="text-action" onClick={() => onNavigate("summary")}>查看明细<DashboardIcon name="arrow" /></button></div>
+    {!noScope && <section className="role-home-panel"><div className="role-panel-title"><h2>本组加粉日报填报进度<InfoTip label="填报口径" text="按接待账号及原员工账号计数，多主页不重复计数。填报 0 仍计为已报。" /></h2><button type="button" className="text-action" onClick={() => onNavigate("summary")}>查看明细<DashboardIcon name="arrow" /></button></div>
       <div className="role-reporting-line"><strong>{reporting?.reported ?? "—"}<small> / {reporting?.expected ?? "—"} 账号</small></strong><span>{reporting?.percentage == null ? reporting ? "暂无应报账号" : "暂不可用" : `完成 ${reporting.percentage}%`}</span></div>
       <progress className="reporting-progress" aria-label="本组今日加粉填报完成度" max={reporting?.expected || 1} value={reporting?.reported ?? 0} />
       {teams?.map(team => <div className="role-team-row" key={team.teamId}><div><strong>{team.teamName}</strong><small>已报 {team.reportedCount} / 应报 {team.expectedCount}</small></div><span>未报 {team.missingCount}</span></div>)}

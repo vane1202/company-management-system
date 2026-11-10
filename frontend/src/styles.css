@@ -729,6 +729,16 @@ progress::-moz-progress-bar { background: #4c7954; border-radius: 1rem; }
 
 /* BOSS: business performance, incurred order costs and company-wide advertising first. */
 .live-business-overview{display:grid;gap:16px;min-width:0}
+.live-summary-link{display:flex;justify-content:flex-end;margin-top:-8px}.live-summary-link .text-action{min-height:44px;font-size:13px}
+.live-workspace-period{display:flex;flex-wrap:wrap;gap:12px;align-items:center}.live-workspace-period>details>summary{cursor:pointer;min-height:44px;display:flex;align-items:center;font-size:13px;color:var(--jade)}
+.live-date-form{display:flex;flex-wrap:wrap;gap:10px;align-items:end}.live-date-form label{display:grid;gap:6px;font-size:12px;color:var(--muted)}.live-date-form input{min-width:0}
+.live-detail-tabs{display:flex;gap:6px;margin-bottom:22px;border-bottom:1px solid var(--line);padding-bottom:12px}.live-detail-tabs button{min-height:44px}.live-detail-tabs .selected{background:#e5efe6;color:var(--jade)}
+.live-detail-total{font-size:24px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.live-event-panel .panel-heading{flex-wrap:wrap}
+.live-additional-section{margin-top:24px;padding-top:18px;border-top:1px solid var(--line)}.live-additional-section .panel-heading h3{font-size:15px;margin:0}.live-additional-section .panel-heading strong{font-variant-numeric:tabular-nums}
+.live-secondary-kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.live-secondary-kpis>button{display:grid;gap:8px;text-align:left;min-width:0;background:var(--card);border:1px solid var(--line);padding:16px;border-radius:12px}.live-secondary-kpis strong{font-size:22px;font-variant-numeric:tabular-nums}.live-secondary-kpis small{font-size:11px;color:var(--muted);overflow-wrap:anywhere}.live-after-sale-record{padding:18px 0;border-top:1px solid var(--line)}.live-after-sale-record h3{font-size:16px;margin:0}.live-after-sale-record .panel-heading{flex-wrap:wrap}@media(max-width:540px){.live-secondary-kpis{gap:8px}.live-secondary-kpis>button{padding:12px}.live-secondary-kpis>button>span{font-size:12px}.live-secondary-kpis strong{font-size:19px}}
+.live-business-overview .commerce-heading h1{font-size:28px;overflow-wrap:anywhere}
+@media(max-width:540px){.live-business-overview .commerce-heading{flex-wrap:wrap;gap:12px}.live-business-overview .commerce-heading>div:first-child{flex:1;min-width:0}.live-business-overview .commerce-heading h1{font-size:22px}.live-business-overview .commerce-heading .actions{flex-direction:column;gap:6px}.live-business-overview .commerce-heading button{font-size:12px;padding:8px 10px;min-height:44px}}
+@media(max-width:540px){.live-workspace-period{gap:8px}.live-workspace-period .overview-segments{flex:1}.live-date-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:100%}.live-date-form button{grid-column:1/-1}.live-detail-total{font-size:21px}.workspace-backbar .workspace-back{max-width:70%;white-space:normal;text-align:left}}
 .live-filter-panel>summary{cursor:pointer;min-height:36px;display:flex;align-items:center;color:var(--muted);font-size:13px}
 .live-filter-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;padding:8px 0}
 .live-filter-grid label{min-width:0}.live-filter-grid select{width:100%;min-width:0}

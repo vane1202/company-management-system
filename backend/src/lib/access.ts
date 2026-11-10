@@ -19,7 +19,10 @@ export function enforceRoleBoundary(req: Request, _res: Response, next: NextFunc
     const fans = (/^\/api\/fan-reports\/(summary|export)$/.test(req.path) || /^\/api\/fan-leads(\/|$)/.test(req.path)) && read;
     const orders = (/^\/api\/orders(\/export)?\/?$/.test(req.path) || /^\/api\/order-records(\/|$)/.test(req.path)) && read;
     const accounts = /^\/api\/cs-accounts(\/|$)/.test(req.path);
-    if (!metadata && !fans && !orders && !accounts) return next(new HttpError(403, "客服主管仅可查看本组加粉、消费和管理本组客服接待账号"));
+    // 唯一写入例外：登记／撤销本组订单的跑单。路由内再按业务日历史小组范围校验。
+    const uuidPart = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+    const cancellation = req.method === "POST" && new RegExp(`^/api/order-records/${uuidPart}/cancellations(/${uuidPart}/void)?/?$`, "i").test(req.path);
+    if (!metadata && !fans && !orders && !accounts && !cancellation) return next(new HttpError(403, "客服主管仅可查看本组加粉、消费和管理本组客服接待账号"));
   }
   next();
 }

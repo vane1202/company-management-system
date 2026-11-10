@@ -214,7 +214,7 @@ describe("客服微信登记与数据归属（独立 PostgreSQL 库）", () => {
     const sup = await login("supervisor");
     const response = (await sup.agent.get(`/api/orders?from=${today}&to=${today}&status=placed`).expect(200)).body;
     expect(response.orders.map((row: any) => row.userId)).toEqual([ids.wxA]);
-    expect(response.totals).toEqual({ amount: "20.00", refunds: "0.00" });
+    expect(response.totals).toEqual({ amount: "20.00", refunds: "0.00", cancelled: "0.00", turnover: "20.00", turnoverCount: 1 });
     expect((await sup.agent.get(`/api/orders?userId=${ids.wxB}`).expect(200)).body.orders).toEqual([]);
     const csv = (await sup.agent.get("/api/orders/export").expect(200)).text;
     expect(csv).toContain("fixture-order-A"); expect(csv).not.toContain("fixture-order-B");

@@ -1,9 +1,10 @@
 import type { Page } from "./access";
 import type { Role } from "./api";
 import { canUseFillEntry, fillEntries, fillEntryFromPath } from "./fillEntries";
+import { validLiveView, liveViewKey, type LiveView } from './liveBusinessNavigation';
 
 const pages: readonly Page[] = ["home", "finance", "fans", "summary", "orders", "ops", "editor", "dashboard", "people", "csAccounts", "salaries", "modules"];
-export type WorkspaceRoute = { page: Page; orderId?: string };
+export type WorkspaceRoute = { page: Page; orderId?: string; live?: LiveView; orderList?: true };
 type Trail = { key: string; route: WorkspaceRoute; position: number; scrollY: number };
 export type WorkspaceEntry = Trail & { owner: string; parents: Trail[] };
 export type WorkspaceSnapshot = { entry: WorkspaceEntry; views: Partial<Record<Page, WorkspaceRoute>> };
@@ -22,7 +23,12 @@ export function readWorkspaceRoute(href: string): WorkspaceRoute {
   const url = new URL(href);
   const page = fillEntryFromPath(url.pathname) ?? (pages.includes(url.searchParams.get("page") as Page) ? url.searchParams.get("page") as Page : "home");
   const id = url.searchParams.get("order");
-  return page === "orders" && id && /^[a-z\d_-]{1,128}$/i.test(id) ? { page, orderId: id } : { page };
+  const route:WorkspaceRoute = page === "orders" && id && /^[a-z\d_-]{1,128}$/i.test(id) ? { page, orderId: id } : { page };
+  if(page==='orders'){
+    try{const live=JSON.parse(url.searchParams.get('live')||'null');if(validLiveView(live))route.live=live;}catch{/* Invalid external state falls back to the room list. */}
+    if(url.searchParams.get('view')==='orders')route.orderList=true;
+  }
+  return route;
 }
 export function workspaceUrl(href: string, route: WorkspaceRoute, role: Role): string {
   const url = new URL(href);
@@ -32,14 +38,21 @@ export function workspaceUrl(href: string, route: WorkspaceRoute, role: Role): s
   else url.searchParams.set("page", route.page);
   if (route.page === "orders" && route.orderId) url.searchParams.set("order", route.orderId);
   else url.searchParams.delete("order");
+  if(route.page==='orders'&&route.live)url.searchParams.set('live',JSON.stringify(route.live));else url.searchParams.delete('live');
+  if(route.page==='orders'&&route.orderList)url.searchParams.set('view','orders');else url.searchParams.delete('view');
   url.hash = "";
   return url.pathname + url.search;
 }
-export function sameRoute(a: WorkspaceRoute, b: WorkspaceRoute): boolean { return a.page === b.page && a.orderId === b.orderId; }
-export function parentRoute(route: WorkspaceRoute): WorkspaceRoute { return { page: route.page === "orders" && route.orderId ? "orders" : "home" }; }
+export function sameRoute(a: WorkspaceRoute, b: WorkspaceRoute): boolean { return a.page === b.page && a.orderId === b.orderId && a.orderList===b.orderList && liveViewKey(a.live)===liveViewKey(b.live); }
+export function parentRoute(route: WorkspaceRoute): WorkspaceRoute {
+  if(route.page==='orders'&&route.orderId){const {orderId,...parent}=route;return parent;}
+  if(route.page==='orders'&&route.orderList)return{page:'orders',...(route.live?{live:route.live}:{})};
+  if(route.page==='orders'&&route.live&&route.live.view!=='rooms'){const {roomKey,...live}=route.live;return{page:'orders',live:{...live,view:'rooms'}};}
+  return{page:'home'};
+}
 function validTrail(value: unknown): value is Trail {
   const v = value as Trail | null;
-  return !!v && typeof v.key === "string" && v.key.length < 100 && Number.isSafeInteger(v.position) && v.position >= 0 && Number.isFinite(v.scrollY) && v.scrollY >= 0 && !!v.route && pages.includes(v.route.page) && (!v.route.orderId || v.route.page === "orders" && typeof v.route.orderId === "string" && /^[a-z\d_-]{1,128}$/i.test(v.route.orderId));
+  return !!v && typeof v.key === "string" && v.key.length < 100 && Number.isSafeInteger(v.position) && v.position >= 0 && Number.isFinite(v.scrollY) && v.scrollY >= 0 && !!v.route && pages.includes(v.route.page) && (!v.route.orderId || v.route.page === "orders" && typeof v.route.orderId === "string" && /^[a-z\d_-]{1,128}$/i.test(v.route.orderId)) && (!v.route.live||v.route.page==='orders'&&validLiveView(v.route.live)) && (!v.route.orderList||v.route.page==='orders'&&v.route.orderList===true);
 }
 function stateObject(state: unknown): Record<string, unknown> { return state && typeof state === "object" ? state as Record<string, unknown> : {}; }
 
@@ -86,7 +99,7 @@ export class WorkspaceHistory {
   private capture() {
     this.entry = { ...this.entry, scrollY: Math.max(0, this.host.scrollY) };
     this.scroll.set(this.entry.key, this.entry.scrollY);
-    if (!this.entry.route.orderId) this.lastPageScroll[this.entry.route.page] = this.entry.scrollY;
+    if (!this.entry.route.orderId && !this.entry.route.live) this.lastPageScroll[this.entry.route.page] = this.entry.scrollY;
     this.write(false);
   }
   private emit() { this.notify(this.snapshot()); }
@@ -94,7 +107,7 @@ export class WorkspaceHistory {
     if (sameRoute(route, this.entry.route)) return;
     this.capture();
     const previous = this.entry;
-    this.entry = { key: newKey(), route, owner: this.owner, position: previous.position + 1, scrollY: route.orderId ? 0 : this.lastPageScroll[route.page] ?? 0, parents: [...previous.parents.slice(-31), { key: previous.key, route: previous.route, position: previous.position, scrollY: previous.scrollY }] };
+    this.entry = { key: newKey(), route, owner: this.owner, position: previous.position + 1, scrollY: route.orderId || route.live ? 0 : this.lastPageScroll[route.page] ?? 0, parents: [...previous.parents.slice(-31), { key: previous.key, route: previous.route, position: previous.position, scrollY: previous.scrollY }] };
     this.views[route.page] = route;
     this.write(true);
     this.emit();

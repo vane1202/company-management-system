@@ -1,4 +1,5 @@
 import { CompanyPayments } from "./CompanyPayments";
+import {PaidPerformance} from './PaidPerformance';
 import { AdAccountsWorkspace } from "./AdAccountsWorkspace";
 import { useEffect, useRef, useState } from "react";
 import { api, type Currency, type FinanceData } from "./api";
@@ -42,6 +43,7 @@ export function FinanceWorkspace({today,readOnly=false}:{today:string;readOnly?:
     {voidId&&!readOnly&&<section className="card commerce-correction"><h2>作废结算登记</h2><p>用于登记纠错，将恢复第三方待结金额并保留原记录；不会改变客户付款，也不表示资金已退款。</p><form onSubmit={e=>{e.preventDefault();void action(async()=>{await api.financeAction(`settlements/${voidId}/void`,{reason});setVoidId("");},`结算已作废（流水 ${data.settlements.find(x=>x.id===voidId)?.reference??""}），原记录保留`);}}><Field label="作废原因"><input required maxLength={500} value={reason} onChange={e=>setReason(e.target.value)}/></Field><div className="commerce-line"><button disabled={busy}>{busy?"保存中…":"确认作废"}</button><button className="secondary" type="button" onClick={()=>setVoidId("")}>取消</button></div></form></section>}
     </>}
     <CompanyPayments today={today} readOnly={readOnly} />
+    <PaidPerformance today={today} readOnly={readOnly}/>
     <AdAccountsWorkspace today={today} readOnly={readOnly} />
   </div>;
 }

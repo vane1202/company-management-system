@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { WorkspaceHistory, parentRoute, readWorkspaceRoute, workspaceUrl, type NavigationHost, type WorkspaceSnapshot } from "./workspaceHistory";
+import {defaultLiveView} from './liveBusinessNavigation';
 import type { Page } from "./access";
 
 class BrowserFixture implements NavigationHost {
@@ -52,6 +53,41 @@ function setup(href?: string) {
 }
 
 describe("统一工作台返回与浏览器历史", () => {
+  it('财务核定与售后收款为独立明细，日期与直播间上下文可刷新和返回',()=>{
+    for(const view of ['paid','afterSales'] as const){
+      const route={page:'orders' as const,live:{...defaultLiveView(),view,filters:{room:'LIVE-01',host:'主播甲',persona:'',operator:''}}};
+      const url=workspaceUrl('https://example.test/?role=boss',route,'boss');
+      const {navigation,browser}=setup('https://example.test'+url);
+      expect(readWorkspaceRoute(browser.location.href)).toEqual(route);
+      navigation.up();expect(navigation.snapshot().entry.route.live?.view).toBe('rooms');
+      expect(navigation.snapshot().entry.route.live?.filters.room).toBe('LIVE-01');
+    }
+  });
+  it('直播间列表、收支与订单逐级返回，保留日期、平台来源筛选和各级位置',()=>{
+    const {browser,navigation}=setup();
+    const rooms={page:'orders' as const,live:{...defaultLiveView(),range:{from:'2026-11-01',to:'2026-11-10'},filters:{room:'',host:'',persona:'来源甲',operator:'客服甲'}}};
+    browser.scroll(260);navigation.navigate(rooms);browser.scroll(420);
+    const income={page:'orders' as const,live:{...rooms.live,view:'income' as const,roomKey:'LIVE-02'}};
+    navigation.navigate(income);browser.scroll(180);
+    navigation.navigate({...income,orderId:'order-02'});
+    expect(readWorkspaceRoute(browser.location.href)).toEqual({...income,orderId:'order-02'});
+    navigation.up();expect(navigation.snapshot().entry.route).toEqual(income);expect(browser.scrollY).toBe(180);
+    navigation.up();expect(navigation.snapshot().entry.route).toEqual(rooms);expect(browser.scrollY).toBe(420);
+    navigation.up();expect(navigation.snapshot().entry.route).toEqual({page:'home'});expect(browser.scrollY).toBe(260);
+  });
+  it('直接打开直播间费用时，返回列表而不离站；刷新可解析相同上下文',()=>{
+    const detail={page:'orders' as const,live:{...defaultLiveView(),view:'expenses' as const,roomKey:'__unassigned__'}};
+    const url=workspaceUrl('https://example.test/?role=boss',detail,'boss');
+    const {navigation,browser}=setup('https://example.test'+url);
+    expect(readWorkspaceRoute(browser.location.href)).toEqual(detail);
+    navigation.up();expect(navigation.snapshot().entry.route).toEqual({page:'orders',live:defaultLiveView()});
+    expect(browser.goes).toEqual([]);
+  });
+  it('畸形直播间链接不注入筛选或破坏旧订单链接',()=>{
+    expect(readWorkspaceRoute('https://example.test/?page=orders&live=bad-json&order=demo-1')).toEqual({page:'orders',orderId:'demo-1'});
+    const url=workspaceUrl('https://example.test/?page=orders&view=orders&live=bad-json',{page:'home'},'boss');
+    expect(url).toBe('/');
+  });
   it("四个汇总目的地均能回首页，原首页位置保持", () => {
     for (const page of ["editor", "summary", "ops", "orders"] as Page[]) {
       const { browser, navigation } = setup();
