@@ -70,7 +70,9 @@ describe("成交、客户付款与财务结算隔离",()=>{
   const before=await read();const url=`/api/order-records/${id}/cancellations`;
   const estimateBefore=(await get('boss',`/api/dashboard/summary?from=${yesterday}&to=${yesterday}`).expect(200)).body.metrics;
   await post('cashier',url,{version:before.details.version-1,reason:'跑单'}).expect(409);
-  for(const who of ['boss','admin','finance','supervisor'])await post(who,url,{version:before.details.version,reason:'跑单'}).expect(403);
+  for(const who of ['boss','admin','finance'])await post(who,url,{version:before.details.version,reason:'跑单'}).expect(403);
+  // 该单开单日早于客服入组日期，按业务日历史小组范围不属于主管所辖。
+  await post('supervisor',url,{version:before.details.version,reason:'跑单'}).expect(404);
   await post('othercs',url,{version:before.details.version,reason:'其他客服'}).expect(404);
   await post('cashier',url,{version:before.details.version,reason:' '}).expect(400);
   const cancellation=(await post('cashier',url,{version:before.details.version,reason:'客户跨日明确放弃付款'}).expect(200)).body.id;
@@ -90,6 +92,51 @@ describe("成交、客户付款与财务结算隔离",()=>{
   await post('cashier',`${url}/${cancellation}/void`,{version:after.details.version,reason:'客服误报，客户继续购买'}).expect(200);
   expect((await summary(yesterday)).performanceCny).toBe('11000.00');expect((await read()).cancellations[0].void_reason).toBe('客服误报，客户继续购买');
   expect((await db.query("SELECT count(*)::int AS n FROM audit_logs WHERE entity_id=$1 AND action IN ('order_cancellation_create','order_cancellation_void')",[id])).rows[0].n).toBe(2);
+ });
+ it('本组主管可登记与撤销本组跑单；别组、无小组主管及财务／BOSS／管理员被拒；审计记录操作人',async()=>{
+  const id=await order({customerCurrency:'CNY',items:[{kind:'material',label:'主管跑单料子',priceCny:'200.00'}]});
+  const read=async()=> (await get('supervisor','/api/order-records/'+id).expect(200)).body;
+  const url=`/api/order-records/${id}/cancellations`;let r=await read();
+  for(const who of ['boss','admin','finance'])await post(who,url,{version:r.details.version,reason:'无权'}).expect(403);
+  await post('unassigned',url,{version:r.details.version,reason:'无小组'}).expect(404);
+  const cancellation=(await post('supervisor',url,{version:r.details.version,reason:'主管核实客户放弃'}).expect(200)).body.id;
+  r=await read();expect(r.order.cancelled).toBe(true);expect(r.cancellations[0]).toMatchObject({created_by_name:'supervisor',reason:'主管核实客户放弃',booked_on:today});
+  for(const who of ['boss','admin','finance'])await post(who,`${url}/${cancellation}/void`,{version:r.details.version,reason:'无权'}).expect(403);
+  await post('unassigned',`${url}/${cancellation}/void`,{version:r.details.version,reason:'无小组'}).expect(404);
+  await post('supervisor',`${url}/${cancellation}/void`,{version:r.details.version,reason:'主管撤销：客户继续购买'}).expect(200);
+  r=await read();expect(r.order.cancelled).toBe(false);expect(r.cancellations[0]).toMatchObject({voided_by_name:'supervisor',void_reason:'主管撤销：客户继续购买'});
+  const logs=(await db.query("SELECT actor_id,action,after_data FROM audit_logs WHERE entity_id=$1 AND action IN ('order_cancellation_create','order_cancellation_void') ORDER BY created_at",[id])).rows;
+  expect(logs.map((l:any)=>[l.actor_id,l.action,l.after_data.actorRole])).toEqual([[users.supervisor,'order_cancellation_create','cs_supervisor'],[users.supervisor,'order_cancellation_void','cs_supervisor']]);
+  // 主管只读其他订单资料：收款、追加、发货仍仅归属客服。
+  await post('supervisor',`/api/order-records/${id}/payments`,{requestKey:randomUUID(),paymentDate:today,amount:'1.00',currency:'CNY',purpose:'deposit',channel:'测试'}).expect(403);
+  // 别组订单：另一小组客服的开单，本组主管不可见、不可登记。
+  const otherTeam=(await db.query("INSERT INTO teams(name) VALUES('虚构别组') RETURNING id")).rows[0].id;
+  await db.query("INSERT INTO team_memberships(user_id,team_id,start_date) VALUES($1,$2,$3) ON CONFLICT DO NOTHING",[users.othercs,otherTeam,today]);
+  const foreign=await order({customerCurrency:'CNY'},'othercs'),fv=(await get('othercs','/api/order-records/'+foreign).expect(200)).body.details.version;
+  await post('supervisor',`/api/order-records/${foreign}/cancellations`,{version:fv,reason:'别组'}).expect(404);
+  const own=(await post('othercs',`/api/order-records/${foreign}/cancellations`,{version:fv,reason:'别组客服自行登记'}).expect(200)).body.id;
+  const fv2=(await get('othercs','/api/order-records/'+foreign).expect(200)).body.details.version;
+  await post('supervisor',`/api/order-records/${foreign}/cancellations/${own}/void`,{version:fv2,reason:'别组'}).expect(404);
+ });
+ it('主管首页营业额与BOSS营业额同口径：不含追加收费，扣跑单',async()=>{
+  const day=`/api/orders?from=${today}&to=${today}`,before=(await get('supervisor',day).expect(200)).body.totals;
+  const kept=await order({customerCurrency:'CNY',items:[{kind:'material',label:'计入营业额',priceCny:'100.00'}]});
+  await post('cashier',`/api/order-records/${kept}/charges`,{requestKey:randomUUID(),businessDate:today,label:'设计雕刻追加',amountCny:'50.00'}).expect(200);
+  const gone=await order({customerCurrency:'CNY',items:[{kind:'material',label:'将跑单',priceCny:'200.00'}]});
+  await post('supervisor',`/api/order-records/${gone}/cancellations`,{version:(await get('supervisor','/api/order-records/'+gone)).body.details.version,reason:'跑单'}).expect(200);
+  const after=(await get('supervisor',day).expect(200)).body;
+  const cents=(v:string)=>Math.round(Number(v)*100);
+  expect(cents(after.totals.turnover)-cents(before.turnover)).toBe(11000);
+  expect(after.totals.turnoverCount-before.turnoverCount).toBe(1);
+  expect(cents(after.totals.amount)-cents(before.amount)).toBe(38000);
+  expect(cents(after.totals.cancelled)-cents(before.cancelled)).toBe(22000);
+  expect(after.orders.find((o:any)=>o.id===kept).bookingAmount).toBe('110.00');
+  // 与 BOSS 直播间营业额逐笔核对：同一批订单的开单事件之和相等。
+  const ids=new Set(after.orders.map((o:any)=>o.id));
+  const live=(await get('boss',`/api/dashboard/live-business?from=${today}&to=${today}`).expect(200)).body;
+  const sales=live.events.filter((e:any)=>e.kind==='sale'&&ids.has(e.order_id)&&!e.order.cancelled&&e.order.status!=='refunded');
+  expect(sales.reduce((n:number,e:any)=>n+cents(e.amount),0)).toBe(cents(after.totals.turnover));
+  expect(sales.length).toBe(after.totals.turnoverCount);
  });
  it('收款和跑单并发时只允许一种结果；已有定金不能伪造未付款跑单',async()=>{
   const id=await order({customerCurrency:'CNY'}),version=(await get('cashier','/api/order-records/'+id)).body.details.version;

@@ -1,3 +1,5 @@
+2026-11-10 21:00 说明（未完成发布）：营业额与售后调整这批改动（迁移 011_order_cancellations、012_paid_performance_after_sales，含跑单冲抵、财务核定已付款业绩、售后收款与业务毛利、BOSS 首页分层导航）已由 Codex 于 2026-11-10 20:49（Asia/Taipei）装到本地并重启后端，011/012 随启动执行。之后按用户确认补充：主管可登记／撤销本组跑单、主管首页营业额与 BOSS 同口径、已付款业绩加载占位与作废提示；这部分尚待本次修改再装到本地，演示站与 GitHub 均未更新。口径定稿见 [LIVE_TURNOVER_REQUIREMENTS.md](LIVE_TURNOVER_REQUIREMENTS.md)。
+
 2026-11-10 最新更新：WhatsApp/Messenger客服接待账号、预录名单及登记码选择流程已部署，本地与虚构演示版本 fd47e43d 已核验。人设/主页仅为引流来源，客户按实际承接小组归属，小组固定对应直播间，具体名单等待主管。详见 [SERVICE_ACCOUNTS.md](SERVICE_ACCOUNTS.md)，下方旧固定微信方案及旧部署状态为历史记录。
 
 2026-11-10 更新：客服微信号线索考核已部署本地与独立演示（版本 b0b9e0c0）。新增客户明细、同批当日/7日转化率、分类筛选及完整性核对；日报沟通为当日汇报，与新增客户转化分开。详见 [FAN_LEAD_CONVERSION.md](FAN_LEAD_CONVERSION.md)。以下旧版本记录保留。

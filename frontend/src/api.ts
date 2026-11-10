@@ -127,7 +127,7 @@ export const api = {
     ),
   saveEditor: (payload: Record<string, unknown>) =>
     requestInner("/api/editor-reports", { method: "PUT", body: JSON.stringify(payload) }),
-  orders: (accountId?: string, filters?: { from?: string; to?: string; status?: string }) => requestInner<{ orders: Order[]; totals: { amount: string; refunds: string; cancelled?:string } }>(`/api/orders?${new URLSearchParams({ ...(accountId ? {userId:accountId} : {}), ...filters })}`),
+  orders: (accountId?: string, filters?: { from?: string; to?: string; status?: string }) => requestInner<{ orders: Order[]; totals: { amount: string; refunds: string; cancelled?:string; turnover?:string; turnoverCount?:number } }>(`/api/orders?${new URLSearchParams({ ...(accountId ? {userId:accountId} : {}), ...filters })}`),
   settings: () => requestInner<{ settings: Record<string,string> }>("/api/admin/settings"),
   saveSettings: (fan_report_backfill_days: number) => requestInner("/api/admin/settings", { method: "PUT", body: JSON.stringify({ fan_report_backfill_days }) }),
   createOrder: (payload: Record<string, unknown>) =>
@@ -248,6 +248,7 @@ export type EditorReport = {
 
 export type Order = {
   cancelled?:boolean;
+  bookingAmount?:string;
   id: string;
   workflowEnabled?: boolean;
   personaCode?:string;personaName?:string;liveRoomCode?:string;hostName?:string;customerCode?:string;operatorName?:string;

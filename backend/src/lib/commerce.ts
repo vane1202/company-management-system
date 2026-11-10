@@ -44,6 +44,17 @@ export async function visibleOrder(db: DB, actor: PublicUser, id: string, lock=f
 }
 export async function writeOrder(db: DB, actor: PublicUser, id: string) {
   if(actor.role!=="cs")throw new HttpError(403,"仅归属客服可填报订单资料");
+  return lockedOrder(db,actor,id);
+}
+/**
+ * 跑单登记与撤销：归属客服，或按业务日历史小组范围管辖该单的主管。
+ * BOSS、财务、管理员不能操作。范围由服务端 visibleOrder 校验，别组订单返回 404。
+ */
+export async function cancellationOrder(db: DB, actor: PublicUser, id: string) {
+  if(actor.role!=="cs"&&actor.role!=="cs_supervisor")throw new HttpError(403,"仅归属客服或本组主管可登记跑单");
+  return lockedOrder(db,actor,id);
+}
+async function lockedOrder(db: DB, actor: PublicUser, id: string) {
   const order=await visibleOrder(db,actor,id,true);
   // Read cancellation state after acquiring the order lock. A subquery in the
   // locking SELECT can retain its pre-wait snapshot when another writer commits.

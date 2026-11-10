@@ -5,7 +5,7 @@ import type { AppConfig } from "../config.js";
 import { HttpError } from "../types.js";
 import { writeAudit } from "../audit.js";
 import { addMoney, centsToMoney, moneyToCents } from "../lib/money.js";
-import { afterSaleCharge, amount, buyingFee, currency, dateField, hashPayload, replay, textField, uuid, visibleOrder, writeOrder } from "../lib/commerce.js";
+import { afterSaleCharge, amount, cancellationOrder, buyingFee, currency, dateField, hashPayload, replay, textField, uuid, visibleOrder, writeOrder } from "../lib/commerce.js";
 
 import { effectiveDue, orderIdentity } from "../lib/orderLifecycle.js";
 import { createOrderChargesRouter } from "./orderCharges.js";
@@ -58,7 +58,7 @@ export function createOrderRecordsRouter(db: Pool, config: AppConfig) {
     res.json({order,cancellations,details:{personaName:details.persona_name,operatorName:details.operator_name,source:details.source,customerCurrency:details.customer_currency,customerDue:totalDue,baseCustomerDue:details.customer_due,personaCode:details.persona_code,liveRoomCode:details.live_room_code,hostName:details.host_name,customerCode:details.customer_code,shippedOn:details.shipped_on,version:details.version},items,charges,payments,expenses,attachments,paid,balance,expenseTotal:addMoney(expenses.filter(e=>!e.voided_at).map(e=>e.amount_cny)),legacy:false});
   }));
   router.post('/:id/cancellations',mutate(async(c,req)=>{
-    const id=uuid(req.params.id),{order,details}=await writeOrder(c,req.actor!,id),b=req.body??{};
+    const id=uuid(req.params.id),{order,details}=await cancellationOrder(c,req.actor!,id),b=req.body??{};
     if(Number(b.version)!==details.version)throw new HttpError(409,'订单已变更，请刷新后再登记跑单');
     if(order.cancelled)throw new HttpError(409,'此单已登记跑单，不重复冲抵');
     if(!['placed','in_production'].includes(order.status)||details.shipped_on)throw new HttpError(409,'已发货或退款订单不能登记为未付款跑单');
@@ -67,18 +67,18 @@ export function createOrderRecordsRouter(db: Pool, config: AppConfig) {
     const reason=textField(b.reason,'跑单原因',500),base=(await c.query('SELECT sum(price_cny+buying_fee_cny)::text AS amount FROM order_items WHERE order_id=$1',[id])).rows[0].amount;
     amount(base,'开单金额',true);
     const entry=(await c.query('INSERT INTO order_cancellations(order_id,booked_on,base_amount_cny,reason,created_by) VALUES($1,$2,$3,$4,$5) RETURNING id',[id,order.business_date,base,reason,req.actor!.id])).rows[0];
-    await touch(c,id);await audit(c,req,'order_cancellation_create',id,{cancellationId:entry.id,reason,bookedOn:order.business_date,baseAmountCny:base,method:'reverse_original_booking_day'});
+    await touch(c,id);await audit(c,req,'order_cancellation_create',id,{cancellationId:entry.id,reason,bookedOn:order.business_date,baseAmountCny:base,method:'reverse_original_booking_day',actorRole:req.actor!.role});
     return{id:entry.id};
   }));
   router.post('/:id/cancellations/:cancellationId/void',mutate(async(c,req)=>{
-    const id=uuid(req.params.id),{details}=await writeOrder(c,req.actor!,id),b=req.body??{};
+    const id=uuid(req.params.id),{details}=await cancellationOrder(c,req.actor!,id),b=req.body??{};
     if(Number(b.version)!==details.version)throw new HttpError(409,'订单已变更，请刷新后再撤销跑单');
     const entry=(await c.query('SELECT * FROM order_cancellations WHERE id=$1 AND order_id=$2 FOR UPDATE',[uuid(req.params.cancellationId),id])).rows[0];
     if(!entry)throw new HttpError(404,'跑单记录不存在');
     if(entry.voided_at)throw new HttpError(409,'跑单记录已撤销，请刷新');
     const reason=textField(b.reason,'撤销跑单原因',500);
     await c.query('UPDATE order_cancellations SET voided_at=now(),voided_by=$2,void_reason=$3 WHERE id=$1',[entry.id,req.actor!.id,reason]);
-    await touch(c,id);await audit(c,req,'order_cancellation_void',id,{cancellationId:entry.id,reason,bookedOn:entry.booked_on,baseAmountCny:entry.base_amount_cny});
+    await touch(c,id);await audit(c,req,'order_cancellation_void',id,{cancellationId:entry.id,reason,bookedOn:entry.booked_on,baseAmountCny:entry.base_amount_cny,actorRole:req.actor!.role});
     return{id:entry.id};
   }));
   router.patch("/:id",mutate(async(c,req)=>{
