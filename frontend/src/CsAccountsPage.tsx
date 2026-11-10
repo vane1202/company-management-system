@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import { api, type CsAccount, type Team } from "./api";
 import { toErrorMessage } from "./errors";
 import { FillEntryLinks } from "./FillEntryLinks";
+import { toast } from "./Toast";
+
+const REFRESH_AFTER_SAVE_FAILED = "已保存，但列表刷新失败，请点刷新";
 
 export function CsAccountsPage({ supervisor = false }: { supervisor?: boolean }) {
   const [teams, setTeams] = useState<Team[]>([]);
@@ -20,19 +23,25 @@ export function CsAccountsPage({ supervisor = false }: { supervisor?: boolean })
     setTeams(groups.teams); setAccounts(list.accounts);
   }
   useEffect(() => { refresh().catch((err) => setError(toErrorMessage(err))); }, []);
+  function fail(prefix: string, err: unknown) { const text = toErrorMessage(err, "保存失败"); setError(text); toast.error(`${prefix}：${text}`); }
+  /** 保存已成功后再刷新；刷新失败单独说明，不误报为保存失败。 */
+  async function refreshAfterSave() { try { await refresh(); } catch { setError(REFRESH_AFTER_SAVE_FAILED); toast.error(REFRESH_AFTER_SAVE_FAILED); } }
   async function issue(accountId?: string) {
     if (pending) return;
     setPending(true); setError(""); setMessage(""); setIssued(null);
-    try { setIssued(await api.issueCsRegistrationCode(accountId ? { accountId } : { teamId })); setSelected(null); }
-    catch (err) { setError(toErrorMessage(err)); }
+    const target = accountId ? accounts.find((a) => a.id === accountId)?.wechatId ?? "该微信号" : `小组「${teams.find((t) => t.id === teamId)?.name ?? ""}」新微信号`;
+    try { setIssued(await api.issueCsRegistrationCode(accountId ? { accountId } : { teamId })); setSelected(null); toast.success(`已为 ${target} 生成一次性登记码`); }
+    catch (err) { fail(`${target} 登记码未生成`, err); }
     finally { setPending(false); }
   }
   async function toggle(account: CsAccount) {
     if (pending) return;
     setPending(true); setError(""); setIssued(null);
-    try { await api.setCsAccountStatus(account.id, !account.isActive); await refresh(); setMessage(account.isActive ? "已停用，原登录已失效，历史数据保留。" : "已启用，请生成重新登记码后使用。"); }
-    catch (err) { setError(toErrorMessage(err)); }
-    finally { setPending(false); }
+    try { await api.setCsAccountStatus(account.id, !account.isActive); }
+    catch (err) { fail(`${account.wechatId} ${account.isActive ? "停用" : "启用"}失败`, err); setPending(false); return; }
+    toast.success(account.isActive ? `${account.wechatId} 已停用，原登录已失效，历史数据保留。` : `${account.wechatId} 已启用，请生成重新登记码后使用。`);
+    await refreshAfterSave();
+    setPending(false);
   }
   return <section className="cs-accounts-page">
     <div className="card"><h2>客服微信号</h2><p className="notice">一个公司客服微信号对应一份长期业务档案。换人不换号，数据继续积累在原账号下；员工工资仍按员工维护。</p>
@@ -42,12 +51,12 @@ export function CsAccountsPage({ supervisor = false }: { supervisor?: boolean })
         <button type="submit" disabled={pending || !teamId}>生成新微信号登记码</button>
       </form>
       {!teams.length && <p className="notice">{supervisor ? "尚未分配负责小组，请联系后台管理员。" : "请先在账号与小组新增小组，再发放登记码。"}</p>}
-      {editing && <form className="review-card" onSubmit={async (event) => { event.preventDefault(); setPending(true); setError(""); try { const result = await api.updateCsAccount(editing.id, editForm); setEditing(null); setIssued(null); await refresh(); setMessage(result.needsRegistration ? "微信号已更新，原数据保留；请重新发码登记。" : "设备备注已更新。"); } catch (err) { setError(toErrorMessage(err)); } finally { setPending(false); } }}>
+      {editing && <form className="review-card" onSubmit={async (event) => { event.preventDefault(); setPending(true); setError(""); const before = editing.wechatId; let result: Awaited<ReturnType<typeof api.updateCsAccount>>; try { result = await api.updateCsAccount(editing.id, editForm); } catch (err) { fail(`${before} 资料未更新`, err); setPending(false); return; } setEditing(null); setIssued(null); toast.success(result.needsRegistration ? `${before} 的微信号已更新为 ${editForm.wechatId.trim()}，原数据保留；请重新发码登记。` : `${before} 的设备备注已更新。`); await refreshAfterSave(); setPending(false); }}>
         <h3>更新 {editing.wechatId}</h3><p className="notice">用于更正微信号或同一微信改名，原数据保留。更换为另一个微信账号请新登记，以免混合数据。修改微信号将退出原登录。</p>
-        <label className="row">微信号<input required maxLength={64} value={editForm.wechatId} onChange={(e) => setEditForm({ ...editForm, wechatId: e.target.value })} /></label><label className="row">设备备注<input maxLength={64} value={editForm.phoneLabel} onChange={(e) => setEditForm({ ...editForm, phoneLabel: e.target.value })} /></label><div className="actions"><button disabled={pending}>保存更新</button><button type="button" className="secondary" onClick={() => setEditing(null)}>取消</button></div>
+        <label className="row">微信号<input required maxLength={64} value={editForm.wechatId} onChange={(e) => setEditForm({ ...editForm, wechatId: e.target.value })} /></label><label className="row">设备备注<input maxLength={64} value={editForm.phoneLabel} onChange={(e) => setEditForm({ ...editForm, phoneLabel: e.target.value })} /></label><div className="actions"><button disabled={pending}>{pending ? "保存中…" : "保存更新"}</button><button type="button" className="secondary" onClick={() => setEditing(null)}>取消</button></div>
       </form>}
       {selected && <div className="notice" role="region" aria-label="确认重新登记"><p>为 <strong>{selected.wechatId}</strong> 重新发码，会立即退出原浏览器。新码只能登记这个微信号，原数据继续保留。</p><div className="actions"><button disabled={pending} onClick={() => issue(selected.id)}>确认重新发码</button><button className="secondary" disabled={pending} onClick={() => setSelected(null)}>取消</button></div></div>}
-      {issued && <div className="cs-issued-code" role="status"><h3>一次性登记码</h3><label htmlFor="issued-cs-code">仅本次显示，请交给对应客服手机使用</label><input id="issued-cs-code" value={issued.code} readOnly /><p>有效期至 {new Date(issued.expiresAt).toLocaleString("zh-CN")}，使用一次后失效。</p><p>{issued.message}</p><div className="actions"><button type="button" className="secondary" onClick={async () => { try { await navigator.clipboard.writeText(issued.code); setMessage("登记码已复制"); } catch { setMessage("请长按上方登记码手动复制"); } }}>复制登记码</button><button type="button" className="secondary" onClick={() => setIssued(null)}>收起登记码</button></div></div>}
+      {issued && <div className="cs-issued-code" role="status"><h3>一次性登记码</h3><label htmlFor="issued-cs-code">仅本次显示，请交给对应客服手机使用</label><input id="issued-cs-code" value={issued.code} readOnly /><p>有效期至 {new Date(issued.expiresAt).toLocaleString("zh-CN")}，使用一次后失效。</p><p>{issued.message}</p><div className="actions"><button type="button" className="secondary" onClick={async () => { try { await navigator.clipboard.writeText(issued.code); toast.success("登记码已复制"); } catch { setMessage("请长按上方登记码手动复制"); } }}>复制登记码</button><button type="button" className="secondary" onClick={() => setIssued(null)}>收起登记码</button></div></div>}
     </div>
     <div className="card"><h3>已登记微信号（{accounts.length}）</h3><div className="row"><label htmlFor="cs-search">筛选微信号或设备备注</label><input id="cs-search" value={filter} onChange={(e) => setFilter(e.target.value)} /></div>
       {!accounts.length && <p className="notice">尚未登记。客服在填报入口填写微信号并使用登记码后，会显示在这里。</p>}

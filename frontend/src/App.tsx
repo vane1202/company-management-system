@@ -18,6 +18,8 @@ import { navItems, roleLabel, type Page } from "./access";
 import { createRequestGate } from "./requestGate";
 import { toErrorMessage } from "./errors";
 import { readSessionMeta, type SessionMeta } from "./sessionMeta";
+import { toast } from "./Toast";
+import { BootSkeleton, Skeleton } from "./Skeleton";
 import {
   api,
   type AdminUser,
@@ -88,9 +90,9 @@ export function App() {
     })();
   }, []);
 
-  if (!ready) return <div className="page">加载中…</div>;
+  if (!ready) return <BootSkeleton />;
   if (!user) return <Login onLogin={hydrateUser} entry={entry} />;
-  if (!today) return <div className="page">加载中…</div>;
+  if (!today) return <BootSkeleton />;
   if (user.mustChangePassword) {
     return <ChangePassword user={user} onDone={() => setUser({ ...user, mustChangePassword: false })} />;
   }
@@ -118,6 +120,7 @@ export function App() {
   async function logout() {
     await api.logout();
     await api.loadCsrf();
+    toast.clear();
     setError(""); setMobileNavOpen(false); setUser(null); setModules(null);
   }
   return (
@@ -149,7 +152,7 @@ export function App() {
       {user.accountKind === "cs_wechat" && <p className="notice">当前填报微信：<strong>{user.wechatId}</strong>{user.phoneLabel ? `（${user.phoneLabel}）` : ""}。加粉与订单长期归属于此微信号；退出后需管理员重新发码。</p>}
       {activePage === "home" && <Home user={user} today={today} backfillDays={backfillDays} disclaimer={disclaimer} onNavigate={goTo} />}
       {activePage === "fans" && <FanForm today={today} onError={setError} />}
-      {activePage === "summary" && <FanSummaryPage today={today} onError={setError} />}
+      {activePage === "summary" && <FanSummaryPage today={today} onError={setError} supervisor={user.role === "cs_supervisor"} onNavigate={goTo} />}
       {activePage === "orders" && <OrderWorkspace today={today} user={user} />}
       {activePage === "ops" && <OpsPage today={today} onError={setError} readOnly={user.role === "boss"} />}
       {activePage === "editor" && <EditorPage today={today} onError={setError} readOnly={user.role === "boss"} />}
@@ -223,17 +226,26 @@ function ChangePassword({ user, onDone }: { user: User; onDone: () => void }) {
   const [currentPassword, setCurrent] = useState("");
   const [newPassword, setNew] = useState("");
   const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
   return (
     <div className="login-wrap">
       <form
         className="card login-card"
         onSubmit={async (event) => {
           event.preventDefault();
+          if (pending) return;
+          setPending(true);
+          setError("");
           try {
             await api.changePassword(currentPassword, newPassword);
+            toast.success(`${user.displayName}：新密码已保存`);
             onDone();
           } catch (err) {
-            setError(toErrorMessage(err, "修改失败"));
+            const text = toErrorMessage(err, "修改失败");
+            setError(text);
+            toast.error(`修改密码失败：${text}`);
+          } finally {
+            setPending(false);
           }
         }}
       >
@@ -248,7 +260,7 @@ function ChangePassword({ user, onDone }: { user: User; onDone: () => void }) {
           <input type="password" value={newPassword} onChange={(e) => setNew(e.target.value)} />
         </div>
         {error && <p className="error">{error}</p>}
-        <button type="submit">保存新密码</button>
+        <button type="submit" disabled={pending}>{pending ? "保存中…" : "保存新密码"}</button>
       </form>
     </div>
   );
@@ -285,25 +297,33 @@ function FanForm({ today, onError }: { today: string; onError: (value: string) =
   return <DailyForm kind="fan_report" today={today} onError={onError} />;
 }
 
-function FanSummaryPage({ today, onError }: { today: string; onError: (value: string) => void }) {
+function FanSummaryPage({ today, onError, supervisor = false, onNavigate }: { today: string; onError: (value: string) => void; supervisor?: boolean; onNavigate: (page: Page) => void }) {
   const [date, setDate] = useState(today);
   const [accounts, setAccounts] = useState<CsAccount[]>([]);
   const [accountId, setAccountId] = useState("");
   const [teams, setTeams] = useState<FanSummary[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [loadedDate, setLoadedDate] = useState("");
   const gate = useState(() => createRequestGate())[0];
 
   async function load(next = date) {
     if (!canQueryByDate(next)) return;
     const ticket = gate.next();
+    setLoading(true);
     try {
       const [data, choices] = await Promise.all([api.fanSummary(next, undefined, accountId), api.csAccounts(next)]);
       if (!ticket.isCurrent()) return;
       setTeams(data.teams);
       setAccounts(choices.accounts);
+      setLoaded(true);
+      setLoadedDate(next);
       onError("");
     } catch (err) {
       if (!ticket.isCurrent()) return;
       onError(toErrorMessage(err, "加载失败"));
+    } finally {
+      if (ticket.isCurrent()) setLoading(false);
     }
   }
   useEffect(() => {
@@ -312,17 +332,32 @@ function FanSummaryPage({ today, onError }: { today: string; onError: (value: st
   useEffect(() => {
     if (canQueryByDate(date)) load(date);
   }, [date, accountId]);
+  const empty = loaded && !loading && teams.every((team) => team.details.length === 0);
+  // 有应报账号但全部未报：同样提示“还没有加粉记录”，下方仍列出未报名单。
+  const noReports = loaded && !loading && !empty && teams.every((team) => team.details.every((item) => item.status !== "reported"));
 
   return (
-    <section className="card">
+    <section className="card" aria-busy={loading}>
       <h2>加粉日报汇总</h2>
       <div className="actions" style={{ marginBottom: 12 }}>
         <input aria-label="汇总业务日" type="date" value={date} onChange={(e) => { setDate(e.target.value); setAccountId(""); }} />
         <select aria-label="按客服微信号筛选加粉" value={accountId} onChange={(e) => setAccountId(e.target.value)}><option value="">全部客服微信及原员工账号</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.wechatId}{account.phoneLabel ? ` · ${account.phoneLabel}` : ""}</option>)}</select>
-        <button type="button" onClick={() => load(date)}>查询</button>
+        <button type="button" disabled={loading} onClick={() => load(date)}>{loading ? "查询中…" : "查询"}</button>
         <a className="btn secondary" href={api.fanExportUrl(date, accountId)}>导出 CSV</a>
       </div>
-      {teams.map((team) => (
+      {loading && loaded && <p className="notice" role="status">正在读取 {date} 的加粉记录…</p>}
+      {loading && !loaded && <div className="card" aria-hidden="true">
+        <Skeleton block width="30%" height="1.1rem" />
+        <div className="metrics">{[0, 1, 2, 3].map((i) => <div className="metric" key={i}><b><Skeleton width="2.5em" height="1.2em" /></b><span><Skeleton width="4em" /></span></div>)}</div>
+        <Skeleton block width="100%" height="2.6rem" />
+        <Skeleton block width="100%" height="2.6rem" />
+      </div>}
+      {(empty || noReports) && <div className="empty-state" role="status">
+        <strong>{loadedDate} 还没有加粉记录</strong>
+        <p>{supervisor ? "可切换上方日期查看其他业务日；如果本组客服还没出现在这里，请去“本组客服微信”确认微信已登记。" : "可切换上方日期查看其他业务日。"}</p>
+        {supervisor && <button type="button" className="secondary" onClick={() => onNavigate("csAccounts")}>去本组客服微信</button>}
+      </div>}
+      {!empty && teams.map((team) => (
         <div key={team.teamId} className="card">
           <h3>{team.teamName}</h3>
           <div className="metrics">
@@ -384,7 +419,12 @@ function DashboardPage({ onError }: { onError: (value: string) => void }) {
 function PeoplePage({ today, onError }: { today: string; onError: (value: string) => void }) {
   const [teams, setTeams] = useState<Team[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [teamName, setTeamName] = useState("");
+  const [teamPending, setTeamPending] = useState(false);
+  const [teamError, setTeamError] = useState("");
+  const [userPending, setUserPending] = useState(false);
+  const [userError, setUserError] = useState("");
   const [scopeUser, setScopeUser] = useState<AdminUser | null>(null);
   const [scopeIds, setScopeIds] = useState<string[]>([]);
   const [savingUser, setSavingUser] = useState("");
@@ -400,6 +440,17 @@ function PeoplePage({ today, onError }: { today: string; onError: (value: string
   async function refresh() {
     setTeams((await api.teams()).teams);
     setUsers((await api.users()).users.filter((item) => item.accountKind !== "cs_wechat"));
+    setLoaded(true);
+  }
+  /** 保存已成功后再刷新列表；刷新失败单独说明，不把已保存误报为失败。 */
+  async function refreshAfterSave() {
+    try { await refresh(); }
+    catch { const text = "已保存，但列表刷新失败，请点刷新"; onError(text); toast.error(text); }
+  }
+  function fail(prefix: string, err: unknown, setLocal?: (value: string) => void) {
+    const text = toErrorMessage(err, "保存失败");
+    if (setLocal) setLocal(text); else onError(text);
+    toast.error(`${prefix}：${text}`);
   }
   useEffect(() => {
     if (isIsoDate(today)) setForm((current) => ({ ...current, membershipStart: current.membershipStart || today }));
@@ -411,37 +462,57 @@ function PeoplePage({ today, onError }: { today: string; onError: (value: string
   return (
     <section className="grid two">
       <div className="card">
-        <h2>小组</h2>
+        <div className="commerce-line"><h2>小组</h2><button type="button" className="secondary" onClick={() => refresh().then(() => onError("")).catch((err) => onError(toErrorMessage(err)))}>刷新</button></div>
         <form
           onSubmit={async (event) => {
             event.preventDefault();
-            await api.createTeam({ name: teamName });
+            if (teamPending) return;
+            const name = teamName.trim();
+            setTeamPending(true); setTeamError("");
+            try {
+              await api.createTeam({ name: teamName });
+            } catch (err) {
+              fail("新增小组失败", err, setTeamError);
+              return;
+            } finally {
+              setTeamPending(false);
+            }
             setTeamName("");
-            await refresh();
+            toast.success(`已新增小组「${name}」`);
+            await refreshAfterSave();
           }}
         >
           <Field label="小组名称"><input value={teamName} onChange={(e) => setTeamName(e.target.value)} /></Field>
-          <button type="submit">新增小组</button>
+          <button type="submit" disabled={teamPending}>{teamPending ? "保存中…" : "新增小组"}</button>
+          {teamError && <p className="action-error" role="alert">{teamError}</p>}
         </form>
+        {loaded && !teams.length && <div className="empty-state"><strong>还没有小组</strong><p>先新增一个小组，再开通主管和登记微信。</p></div>}
         <ul>
           {teams.map((team) => <li key={team.id}>{team.name}</li>)}
         </ul>
       </div>
       <div className="card">
         <h2>员工账号与权限</h2>
-        {scopeUser && <form className="review-card" onSubmit={async (e) => { e.preventDefault(); setSavingUser(scopeUser.id); try { await api.setSupervisorTeams(scopeUser.id, scopeIds); setScopeUser(null); await refresh(); onError(""); } catch (err) { onError(toErrorMessage(err)); } finally { setSavingUser(""); } }}><h3>设置 {scopeUser.displayName} 的负责小组</h3><p className="notice">未勾选任何小组时，主管不能查看业务数据或登记客服微信。</p>{teams.map((team) => <label className="row" key={team.id}><input type="checkbox" checked={scopeIds.includes(team.id)} onChange={(e) => setScopeIds(e.target.checked ? [...scopeIds,team.id] : scopeIds.filter((id) => id !== team.id))} />{team.name}</label>)}<div className="actions"><button disabled={!!savingUser}>保存负责小组</button><button type="button" className="secondary" onClick={() => setScopeUser(null)}>取消</button></div></form>}
+        {scopeUser && <form className="review-card" onSubmit={async (e) => { e.preventDefault(); const target = scopeUser; setSavingUser(target.id); try { await api.setSupervisorTeams(target.id, scopeIds); } catch (err) { fail(`${target.displayName} 负责小组未保存`, err); setSavingUser(""); return; } setSavingUser(""); setScopeUser(null); onError(""); toast.success(`已保存 ${target.displayName} 的负责小组（${scopeIds.length} 个）`); await refreshAfterSave(); }}><h3>设置 {scopeUser.displayName} 的负责小组</h3><p className="notice">未勾选任何小组时，主管不能查看业务数据或登记客服微信。</p>{teams.map((team) => <label className="row" key={team.id}><input type="checkbox" checked={scopeIds.includes(team.id)} onChange={(e) => setScopeIds(e.target.checked ? [...scopeIds,team.id] : scopeIds.filter((id) => id !== team.id))} />{team.name}</label>)}<div className="actions"><button disabled={!!savingUser}>{savingUser ? "保存中…" : "保存负责小组"}</button><button type="button" className="secondary" onClick={() => setScopeUser(null)}>取消</button></div></form>}
         <p className="notice">管理、运营、拍剪等人员在这里开通。固定客服手机请到“客服微信号”发放登记码，无需为每位轮班客服创建员工账号。</p>
         <form
           onSubmit={async (event) => {
             event.preventDefault();
+            if (userPending) return;
+            const created = { name: form.displayName.trim() || form.username.trim(), role: roleLabel[form.role as keyof typeof roleLabel] ?? form.role };
+            setUserPending(true); setUserError("");
             try {
               await api.createUser({ ...form, managedTeamIds: form.role === "cs_supervisor" && form.teamId ? [form.teamId] : [] });
-              setForm({ ...form, username: "", displayName: "", password: "" });
-              await refresh();
-              onError("");
             } catch (err) {
-              onError(toErrorMessage(err, "创建失败"));
+              fail("开通账号失败", err, setUserError);
+              return;
+            } finally {
+              setUserPending(false);
             }
+            setForm({ ...form, username: "", displayName: "", password: "" });
+            onError("");
+            toast.success(`已开通账号：${created.name}（${created.role}）`);
+            await refreshAfterSave();
           }}
         >
           <Field label="登录名"><input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} /></Field>
@@ -458,7 +529,8 @@ function PeoplePage({ today, onError }: { today: string; onError: (value: string
               {teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
             </select>
           </Field>
-          <button type="submit">开通账号</button>
+          <button type="submit" disabled={userPending}>{userPending ? "保存中…" : "开通账号"}</button>
+          {userError && <p className="action-error" role="alert">{userError}</p>}
         </form>
         <div className="table-wrap">
           <table>
@@ -468,9 +540,9 @@ function PeoplePage({ today, onError }: { today: string; onError: (value: string
                 <tr key={item.id}>
                   <td>{item.displayName}</td>
                   <td>{item.username}</td>
-                  <td><select aria-label={`${item.username}角色`} disabled={savingUser === item.id} value={item.role} onChange={async (e) => { setSavingUser(item.id); try { await api.updateUser(item.id, { role: e.target.value }); await refresh(); onError(""); } catch (err) { onError(toErrorMessage(err)); } finally { setSavingUser(""); } }}>{Object.entries(roleLabel).filter(([key]) => key !== "assistant" || item.role === "assistant").map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></td>
+                  <td><select aria-label={`${item.username}角色`} disabled={savingUser === item.id} value={item.role} onChange={async (e) => { const role = e.target.value; setSavingUser(item.id); try { await api.updateUser(item.id, { role }); } catch (err) { fail(`${item.displayName} 角色未修改`, err); setSavingUser(""); return; } setSavingUser(""); onError(""); toast.success(`已将 ${item.displayName} 的角色改为${roleLabel[role as keyof typeof roleLabel] ?? role}`); await refreshAfterSave(); }}>{Object.entries(roleLabel).filter(([key]) => key !== "assistant" || item.role === "assistant").map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></td>
                   <td>{item.role === "cs_supervisor" ? <><p>{(item.managedTeamIds ?? []).map((id) => teams.find((team) => team.id === id)?.name || id).join("、") || "暂未分配小组"}</p><button className="secondary" type="button" onClick={() => { setScopeUser(item); setScopeIds(item.managedTeamIds ?? []); }}>设置负责小组</button></> : item.currentTeam?.name ?? "—"}</td>
-                  <td><button className="secondary" type="button" disabled={savingUser === item.id} onClick={async () => { setSavingUser(item.id); try { await api.updateUser(item.id, { isActive: !item.isActive }); await refresh(); } catch (err) { onError(toErrorMessage(err)); } finally { setSavingUser(""); } }}>{item.isActive ? "停用账号" : "启用账号"}</button></td>
+                  <td><button className="secondary" type="button" disabled={savingUser === item.id} onClick={async () => { setSavingUser(item.id); try { await api.updateUser(item.id, { isActive: !item.isActive }); } catch (err) { fail(`${item.displayName} ${item.isActive ? "停用" : "启用"}失败`, err); setSavingUser(""); return; } setSavingUser(""); onError(""); toast.success(`已${item.isActive ? "停用" : "启用"}账号：${item.displayName}`); await refreshAfterSave(); }}>{savingUser === item.id ? "保存中…" : item.isActive ? "停用账号" : "启用账号"}</button></td>
                 </tr>
               ))}
             </tbody>

@@ -25,3 +25,9 @@ export function payrollAmountError(value: string): string {
 export function signedLabel(kind: PayrollKind, amount: string): string {
   return `${kind === "deduction" ? "−" : "+"} ¥ ${amount}`;
 }
+
+export const PAYROLL_NOTE_REQUIRED = "备注必填，写明项目或依据";
+/** 前端预检：备注去掉首尾空格后不能为空；最终以服务器校验为准。 */
+export function payrollNoteError(value: string): string {
+  return value.trim() ? "" : PAYROLL_NOTE_REQUIRED;
+}
