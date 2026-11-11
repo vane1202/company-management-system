@@ -36,12 +36,12 @@
   ].map((row) => ({ ...row, note:"虚构演示记录", recordVersion:1, updatedAt:row.businessDate+"T02:00:00Z", isLegacyUnclassified:false }));
   fans.forEach(f=>{const index=accounts.findIndex(a=>a.id===f.userId);if(index===1){f.wsToday=f.addedCount;f.msToday=0;f.wsMonth=f.businessDate===today?83:f.wsMonth;f.msMonth=0;}else{f.msToday=f.addedCount;f.wsToday=0;f.msMonth=f.businessDate===today?216:f.msMonth;f.wsMonth=0;}});
   const orders = [
-    { id:"demo-order-1", userId:accounts[0].id, businessDate:today, orderRef:"DEMO-A-001", customerLabel:"演示客户甲", amount:"1290.50", status:"shipped", customProductCost:"900.00", laborCost:"50.00", shippingCost:"20.00" },
+    { id:"demo-order-1", userId:accounts[0].id, businessDate:today, orderRef:"DEMO-A-001", customerLabel:"演示客户甲", amount:"1290.50", status:"shipped", customProductCost:"900.00", laborCost:"50.00", shippingCost:"20.00", materialCost:"900.00" },
     { id:"demo-order-2", userId:accounts[0].id, businessDate:today, orderRef:"DEMO-A-002", customerLabel:"演示客户乙", amount:"680.00", status:"placed", customProductCost:"400.00", laborCost:"20.00", shippingCost:"10.00" },
     { id:"demo-order-3", userId:accounts[1].id, businessDate:shift(today,-1), orderRef:"DEMO-B-001", customerLabel:"演示客户丙", amount:"950.00", status:"in_production", customProductCost:"600.00", laborCost:"30.00", shippingCost:"15.00" },
     { id:"demo-order-4", userId:accounts[1].id, businessDate:today, orderRef:"DEMO-B-002", customerLabel:"演示客户丁", amount:"180.00", status:"refunded", customProductCost:"80.00", laborCost:"0.00", shippingCost:"0.00" },
     // 两笔昨日虚构开单：一笔已登记跑单（回冲原开单日），一笔未付款、可由本组主管登记跑单。
-    { id:"demo-order-5", userId:accounts[0].id, businessDate:shift(today,-1), orderRef:"DEMO-A-003", customerLabel:"演示客户戊", amount:"330.00", status:"placed", customProductCost:"0.00", laborCost:"0.00", shippingCost:"0.00", cancelled:true },
+    { id:"demo-order-5", userId:accounts[0].id, businessDate:shift(today,-1), orderRef:"DEMO-A-003", customerLabel:"演示客户戊", amount:"330.00", status:"placed", customProductCost:"0.00", laborCost:"0.00", shippingCost:"0.00", cancelled:true, materialCost:"200.00" },
     { id:"demo-order-6", userId:accounts[0].id, businessDate:shift(today,-1), orderRef:"DEMO-A-004", customerLabel:"演示客户己", amount:"550.00", status:"placed", customProductCost:"0.00", laborCost:"0.00", shippingCost:"0.00" }
   ].map((row) => ({ ...row, wechatId:accounts.find((a)=>a.id===row.userId).wechatId, displayName:accounts.find((a)=>a.id===row.userId).wechatId, accountKind:"cs_service", isCustom:true, recordVersion:1, updatedAt:row.businessDate+"T03:00:00Z" }));
   const demoFxRates=[{currency:'TWD',cnyPerUnit:'0.200000',effectiveFrom:shift(today,-800),source:'虚构参考配置'},{currency:'USD',cnyPerUnit:'7.200000',effectiveFrom:shift(today,-800),source:'虚构参考配置'}];
@@ -123,7 +123,7 @@
   }
   payments.forEach(p=>{const o=orders.find(o=>o.id===p.order_id);Object.assign(p,{persona_code:o.personaCode,live_room_code:o.liveRoomCode,host_name:o.hostName,customer_code:o.customerCode,operator_name:o.operatorName});});
   function orderRecord(order){
-    const index=orders.indexOf(order),raw={id:order.id,order_ref:order.orderRef,customer_label:order.customerLabel,business_date:order.businessDate,amount:order.amount,status:order.status,cancelled:!!order.cancelled,wechat_id:order.wechatId,display_name:order.displayName,note:'虚构演示记录',custom_product_cost:order.customProductCost,labor_cost:order.laborCost,shipping_cost:order.shippingCost};
+    const index=orders.indexOf(order),raw={id:order.id,order_ref:order.orderRef,customer_label:order.customerLabel,business_date:order.businessDate,amount:order.amount,status:order.status,cancelled:!!order.cancelled,wechat_id:order.wechatId,display_name:order.displayName,note:'虚构演示记录',custom_product_cost:order.customProductCost,labor_cost:order.laborCost,shipping_cost:order.shippingCost,material_cost_cny:order.materialCost??null};
     if(!order.workflowEnabled)return {order:raw,legacy:true};
     if(index>=4){
       // 虚构未付款开单：无追加、无收款、无成本；料价＋10%代购费即营业额。
@@ -221,17 +221,22 @@
       if(!rooms.has(key))rooms.set(key,{key,roomCode:roomTitle(row.live_room_code),hosts:[],personas:[],totals:empty()});
     }
     function materialCost(key){
-      let n=0n;
-      for(const e of events){
-        if(roomKeyOf(e.order.live_room_code)!==key||e.kind!=='expense'||!MATERIAL.has(e.category))continue;
-        if(e.order.cancelled||e.order.status==='refunded')continue;
-        n+=cents(e.amount);
-      }
+      let orderCard=0n,fallback=0n,excluded=0n;
       for(const o of scoped){
-        if(!matchDate(o.businessDate)||roomKeyOf(o.liveRoomCode)!==key||o.workflowEnabled||o.cancelled||o.status==='refunded')continue;
-        if(cents(o.customProductCost)>0n)n+=cents(o.customProductCost);
+        if(roomKeyOf(o.liveRoomCode)!==key)continue;
+        const hasCard=o.materialCost!=null&&o.materialCost!=='';
+        if(o.cancelled||o.status==='refunded'){
+          if(hasCard&&matchDate(o.businessDate))excluded+=cents(o.materialCost);
+          continue;
+        }
+        if(hasCard){if(matchDate(o.businessDate))orderCard+=cents(o.materialCost);continue;}
+        const rec=orderRecord(o);
+        for(const e of rec.expenses||[]){
+          if(e.voided_at||!MATERIAL.has(e.category)||!matchDate(e.business_date))continue;
+          fallback+=cents(e.amount_cny);
+        }
       }
-      return money(n);
+      return {materialCostCny:money(orderCard+fallback),materialCostSources:{orderCardCny:money(orderCard),expenseFallbackCny:money(fallback),excludedCancelledCny:money(excluded),label:'优先采用开单卡「料子本钱」；仅当该单没有此字段时，才回退已登记的供货款/配货款。跑单订单的料子本钱不计入成本。当日无货主演员场次按 0，不显示待录入。'}};
     }
     function staffFor(key){
       const rows=liveRoomStaffCosts.filter(r=>matchDate(r.business_date)&&roomKeyOf(r.live_room_code)===key);
@@ -246,10 +251,10 @@
       return {hostCommission,assistantCommission,actorSessionFee,totalCny,status:pending?'pending_finance':'ok'};
     }
     function attachProfit(key,performanceCny){
-      const materialCostCny=materialCost(key);
+      const material=materialCost(key);
       const staff=staffFor(key);
-      const liveRoomProfitCny=staff.status==='ok'?money(cents(performanceCny)-cents(materialCostCny)-cents(staff.totalCny)):null;
-      return {materialCostCny,staff,liveRoomProfitCny,status:staff.status,source:'演示指标：料子本钱复用订单供货款/商品成本；提成与货主演员费用为虚构财务录入金额'};
+      const liveRoomProfitCny=staff.status==='ok'?money(cents(performanceCny)-cents(material.materialCostCny)-cents(staff.totalCny)):null;
+      return {...material,staff,liveRoomProfitCny,status:staff.status,source:'演示指标：料子本钱优先开单卡字段，缺省回退供货款/配货款；跑单料本不计入；提成与货主演员费用为虚构财务录入金额'};
     }
     for(const room of rooms.values())room.profit=attachProfit(room.key,room.totals.performanceCny);
     const ads=ops.filter(r=>matchDate(r.businessDate)&&r.spendUsd!=null).map(r=>({id:r.id,date:r.businessDate,persona:r.personaName,account:r.adAccountRef||'历史未关联',amount:r.spendUsd}));

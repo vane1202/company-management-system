@@ -12,12 +12,18 @@ const kinds={sale:'开单卡',charge:'追加收费',expense:'业务费用',recei
 const scopeNote='营业额只计开单卡的料价和代购费，按开单卡日期归属；客户延后付款不影响原日营业额，收款不重复计入。跑单回冲原开单日，原始记录保留。设计雕刻等追加收费按发生日单列，不计入营业额；历史退款标记源单继续单列排除，不等于退款资金流水。费用按费用发生日，实际付款按财务付款日，分别列示。广告消耗为全公司所选日期范围，不随直播间筛选缩小。';
 const profitTips={
   turnover:'开单卡成交价＋10%代购费，按开单日归属；未付款也计入，延后收款不重复计入。追加收费另列，不计入。跑单回冲原开单日，原始记录保留。来源：开单卡。',
-  material:'翡翠料子本钱。演示复用开单已登记的商品供货款、配货采购款（费用类别 goods / sourcing）；历史简版单复用订单上的商品成本。不含工费、运费、证书、包装等。跑单或历史退款标记源单的料本不计入。来源：订单成本记录，不是估算。',
-  staff:'人员费用＝财务已录入的主播提成＋主播助理提成＋按次货主演员费用。金额由财务登记，系统不按比例计算。底薪走工资单，不计入本项。主播或助理提成在本区间尚未录入时显示待财务录入（明确录入 0 为已录入）。来源：财务录入（演示为虚构）。',
-  profit:'直播间毛利＝营业额－料子本钱－主播提成－助理提成－货主演员费用。任一提成未录入则显示待核算，不作估算。本项只用于直播间经营页。经营总览的「毛利（估）」不扣这些项；「实际毛利」仍待财务专项核算。'
+  material:'翡翠料子本钱。优先采用开单卡「料子本钱」字段（按开单日）。仅当该单没有此字段时，才回退该单已登记的供货款/配货款（费用发生日）。不含工费、运费、证书、包装等。跑单订单的料子本钱不计入成本（与营业额排除一致）；历史退款标记源单同样排除。明确登记 0 视为已录入，不作估算。',
+  staff:'人员费用＝财务已录入的主播提成＋主播助理提成＋按次货主演员费用。金额由财务登记，系统不按比例计算。底薪走工资单，不计入本项。主播或助理提成在本区间尚未录入时显示待财务录入（明确录入 0 为已录入）。当日无货主演员场次时该项默认为 0，不显示待录入。来源：财务录入（演示为虚构）。',
+  profit:'直播间毛利＝营业额－料子本钱－主播提成－助理提成－货主演员费用。跑单订单的营业额与料子本钱均不计入。任一提成未录入则显示待核算，不作估算。无货主演员场次按 0。本项只用于直播间经营页。经营总览的「毛利（估）」不扣这些项；「实际毛利」仍待财务专项核算。'
 };
 const showLiveProfit=import.meta.env.MODE==='demo';
 function moneyOrPending(value:string|null|undefined,pending:string){return value==null?pending:value;}
+function materialSourceLabel(p?:{materialCostSources?:{orderCardCny:string;expenseFallbackCny:string}}){
+  const s=p?.materialCostSources;if(!s)return '';
+  const bits=[s.orderCardCny&&s.orderCardCny!=='0.00'?`开单卡 ${s.orderCardCny}`:'',s.expenseFallbackCny&&s.expenseFallbackCny!=='0.00'?`回退供货款 ${s.expenseFallbackCny}`:''].filter(Boolean);
+  return bits.join(' · ');
+}
+
 
 type Props={preset?:string;range?:{from:string;to:string};tick?:number;today?:string;context?:LiveView;onOpenBusiness:(next:LiveView)=>void;onOpenOrder?:(id:string)=>void;onOpenOrders?:()=>void};
 
@@ -75,7 +81,7 @@ export function LiveBusinessOverview({preset='day',range,tick=0,today='',context
    {loading?<p role="status">正在读取直播间经营数据…</p>:!error&&!rows.length?<p className="notice">当前范围暂无已登记的直播间业绩、费用或资金流水。</p>:rows.map(r=>showLiveProfit?<article className="live-room-row live-room-profit-row" key={r.key}>
     <span className="live-room-name"><strong>{r.roomCode}</strong><small>{r.hosts.join('、')||'主播待补'} · 有效开单 {r.totals.newOrderCount} 笔</small><small>{r.personas.join(' / ')||'引流人设待补'}</small><button type="button" className="text-action live-room-open" onClick={()=>open('income',r.key)}>查看收入 / 费用 →</button></span>
     <span><small>营业额 <InfoTip label={`${r.roomCode}营业额口径`} text={profitTips.turnover}/></small><b>{r.totals.performanceCny}</b></span>
-    <span><small>料子本钱 <InfoTip label={`${r.roomCode}料子本钱口径`} text={profitTips.material}/></small><b>{r.profit?.materialCostCny??'—'}</b></span>
+    <span><small>料子本钱 <InfoTip label={`${r.roomCode}料子本钱口径`} text={profitTips.material}/></small><b>{r.profit?.materialCostCny??'—'}</b>{materialSourceLabel(r.profit)&&<small className="live-cost-source">{materialSourceLabel(r.profit)}</small>}</span>
     <span className="live-staff-cell"><small>人员费用 <InfoTip label={`${r.roomCode}人员费用口径`} text={profitTips.staff}/></small><b className={r.profit?.staff.status==='pending_finance'?'live-pending':''}>{moneyOrPending(r.profit?.staff.totalCny,'待财务录入')}</b>
      <details className="live-staff-details"><summary>展开人员构成</summary>
       <p>主播提成<b className={r.profit?.staff.hostCommission.status==='pending_finance'?'live-pending':''}>{moneyOrPending(r.profit?.staff.hostCommission.value,'待财务录入')}</b></p>

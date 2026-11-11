@@ -781,6 +781,11 @@ progress::-moz-progress-bar { background: #4c7954; border-radius: 1rem; }
 .live-staff-details p b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
 .live-staff-details small{display:block;font-size:11px}
 .live-pending{color:#8f4d16;font-weight:650}
+.live-cost-source{display:block;margin-top:2px;font-size:11px;color:var(--muted);line-height:1.35;overflow-wrap:anywhere}
+.order-jade-cost{border:1px dashed #c5d4cb;background:#f6faf6}
+.order-jade-cost strong{display:block}
+label.row small.hint,label.row>small{display:block;margin-top:4px;color:var(--muted);font-weight:400;line-height:1.45}
+
 .live-room-profit-row .live-room-open{min-height:36px;padding:0;margin-top:4px;width:auto;display:inline-flex}
 @media(max-width:799px){
  .live-room-profit-head{display:none}

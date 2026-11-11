@@ -177,13 +177,15 @@ test('BOSS business home counts a prior-day order charge and shipping on their o
  const sum=key=>d.rooms.reduce((n,r)=>n+Math.round(Number(r.totals[key])*100),0);assert.equal(sum('performanceCny'),177050);assert.equal(sum('expenseCny'),141500);
  assert.equal(e.network(),0);
 });
-test('直播间毛利复用已有料本、只扣已录入人员费用；未录入待核算且不改经营总览毛利（估）',async()=>{
+test('直播间毛利优先开单卡料本、缺省回退供货款；跑单料本不计入且不改经营总览毛利（估）',async()=>{
  const e=environment('boss'),d=(await e.json('/api/dashboard/live-business')).body;
  assert.equal(d.profitMethod,'turnover_minus_material_and_entered_staff_costs');
  assert.equal(d.totals.performanceCny,'1770.50');assert.equal(d.totals.expenseCny,'1415.00');
  const a=d.rooms.find(r=>r.roomCode==='DEMO-LIVE-01'),b=d.rooms.find(r=>r.roomCode==='DEMO-LIVE-02');
  assert.equal(a.totals.performanceCny,'1770.50');
  assert.equal(a.profit.materialCostCny,'1300.00');
+ assert.equal(a.profit.materialCostSources.orderCardCny,'900.00');
+ assert.equal(a.profit.materialCostSources.expenseFallbackCny,'400.00');
  assert.equal(a.profit.staff.hostCommission.value,'120.00');
  assert.equal(a.profit.staff.assistantCommission.value,'40.00');
  assert.equal(a.profit.staff.actorSessionFee.value,'80.00');
@@ -198,6 +200,18 @@ test('直播间毛利复用已有料本、只扣已录入人员费用；未录�
  assert.equal(b.profit.staff.totalCny,null);
  assert.equal(b.profit.liveRoomProfitCny,null);
  assert.equal(b.profit.status,'pending_finance');
+ const card=(await e.json('/api/order-records/demo-order-1')).body;
+ assert.equal(card.order.material_cost_cny,'900.00');
+ const fallback=(await e.json('/api/order-records/demo-order-2')).body;
+ assert.equal(fallback.order.material_cost_cny,null);
+ const cancelled=(await e.json('/api/order-records/demo-order-5')).body;
+ assert.equal(cancelled.order.cancelled,true);
+ assert.equal(cancelled.order.material_cost_cny,'200.00');
+ const date=(await e.json('/api/auth/me')).body.today,prior=new Date(Date.parse(date+'T00:00:00Z')-86400000).toISOString().slice(0,10);
+ const y=(await e.json('/api/dashboard/live-business?from='+prior+'&to='+prior)).body;
+ const y1=y.rooms.find(r=>r.roomCode==='DEMO-LIVE-01');
+ assert.equal(y1.profit.materialCostCny,'0.00');
+ assert.equal(y1.profit.materialCostSources.excludedCancelledCny,'200.00');
  const overview=(await e.json('/api/demo/boss-overview')).body;
  assert.equal(overview.metrics.estimatedContribution.value,'2213.26');
  assert.equal(overview.finalContribution.status,'pending_finance');
