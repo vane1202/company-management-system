@@ -6,9 +6,23 @@ const script=fs.readFileSync(require('node:path').join(__dirname,'readonly-api.j
 function environment(role){
  const storage=new Map();let networkRequests=0;
  const window={location:{origin:'https://fictional.example',search:'?role='+role,assign(){}},sessionStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value)},fetch:async()=>{networkRequests++;throw Error('Unexpected backend network request');}};
+ window.CmsBossOverview=require('./boss-overview-metrics.js');
  vm.runInNewContext(script,{window,document:{addEventListener(){}},URL,URLSearchParams,Response,Date});
  return {fetch:window.fetch,json:async(path,method='GET',body)=>{const response=await window.fetch(path,{method,body:JSON.stringify(body)});return {status:response.status,body:await response.json()};},network:()=>networkRequests};
 }
+
+test('P0独立演示首屏与原明细逐笔一致；原币保留；正式后台零请求',async()=>{
+ const e=environment('boss'),d=(await e.json('/api/demo/boss-overview')).body;
+ const old=(await e.json('/api/dashboard/live-business')).body;
+ assert.equal(d.version,'boss-overview-p0/v1');assert.equal(d.metrics.turnover.value,old.totals.performanceCny);
+  assert.equal(d.metrics.receipts.value,'2538.50');assert.equal(d.metrics.visibleCost.value,'325.24');assert.equal(d.metrics.estimatedContribution.value,'2213.26');assert.equal(d.metrics.roi.value,'12.07');
+  assert.equal(d.ledger.filter(r=>r.bucket==='excludedCost').reduce((n,r)=>n+Math.round(Number(r.amount)*100),0),130000);
+ assert.equal(d.finalContribution.status,'pending_finance');assert.equal(d.target,null);
+ for(const role of ['admin','finance','cs_supervisor'])assert.equal((await environment(role).json('/api/demo/boss-overview')).status,403);
+ assert.equal((await e.json('/api/demo/boss-overview','POST',{amount:'1.00'})).status,403);
+ for(const q of ['from=2026-02-30&to=2026-03-01','from=2026-01-01','preset=bad','from=2099-01-01&to=2099-01-01'])assert.equal((await e.json('/api/demo/boss-overview?'+q)).status,400);
+ assert.equal(e.network(),0);
+});
 test('财务专项核定与营业额独立；历史未分类收款不冒充售后收入',async()=>{
  const e=environment('boss'),today=(await e.json('/api/auth/me')).body.today;
  const d=(await e.json('/api/dashboard/live-business?from='+today+'&to='+today)).body;

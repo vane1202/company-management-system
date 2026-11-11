@@ -225,6 +225,32 @@
     return {period:{from,to},dataCounts:{fans:fans.filter(inRange).length,ops:ops.filter(inRange).length,editor:editors.filter(inRange).length},metrics:{...metrics,salaryAllocated,estimate},reviewRequired:false,overallSalary:{allocated:salaryAllocated,note:"演示经营估算只扣虚构底薪分摊（与工资页同一组工资标准），不含提成、奖金、扣款。全部为虚构。",payrollItemsIncluded:false},formula:"收入 - 退款 - 历史推广费 - 工资 - 定制成本 - 工费 - 运费",estimateNote:"仅演示汇总界面；虚构数据不代表公司经营状况。USD 单独展示。",disclaimer:meta.disclaimer,opsUsd:metrics.opsUsd};
   }
   const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{"Content-Type":"application/json","Cache-Control":"no-store"}});
+  // P0 contract exists only in the independent static demo. All rows below are
+  // adapted from the same fictional records used by the existing detail pages.
+  function bossOverview(query) {
+    if(!window.CmsBossOverview)return json({error:'独立演示指标服务未加载'},503);
+    try {
+      const stamp=new Date(),local=new Date(stamp.getTime()+8*3600000),localTime=local.toISOString().slice(11,19);
+      const rows=[];
+      const add=(row)=>rows.push({localTime:'00:00:00',...row}); // fictional sample rows are available from local midnight
+      for(const o of orders){
+        const record=orderRecord(o);
+        add({id:o.id,kind:'booking',date:o.businessDate,amount:bookingAmount(o),currency:'CNY',label:o.orderRef,orderId:o.id,excluded:o.cancelled?'跑单回冲原开单日':o.status==='refunded'?'历史退款标记源单':''});
+        for(const e of record.expenses||[])if(!e.voided_at)add({id:e.id,kind:'cost',date:e.business_date,amount:e.amount_cny,currency:'CNY',label:e.label,category:e.category,orderId:o.id});
+        for(const p of record.payments||[])if(!p.voided_at)add({id:p.id,kind:'payment',date:p.payment_date,amount:p.amount,currency:p.currency,label:o.orderRef+' · '+({deposit:'定金',balance:'尾款',full:'全款'}[p.purpose]||'客户付款'),orderId:o.id});
+      }
+      for(const o of ops)if(o.spendUsd!=null)add({id:o.id,kind:'ad',date:o.businessDate,amount:o.spendUsd,currency:'USD',label:o.adAccountRef+' · 广告消耗'});
+      const lastUpdate=rows.length?stamp.toISOString():null;
+      const dataset={rows,coverage:{from:shift(today,-800),to:today},
+        rates:[{currency:'TWD',cnyPerUnit:'0.200000',effectiveFrom:shift(today,-800),source:'虚构参考配置'},{currency:'USD',cnyPerUnit:'7.200000',effectiveFrom:shift(today,-800),source:'虚构参考配置'}],
+        // A fictional prior-day finance result demonstrates explicit values. Today
+        // is deliberately absent, so the headline must say 待财务核算.
+        finance:[{date:shift(today,-1),materialCost:'600.00',commission:'70.00',collectionFee:'8.00',source:'虚构财务专项核算'}],
+        paidPerformance:paidPerformanceRecords.filter(r=>!r.voided_at).map(r=>({date:r.business_date,amount:r.amount_cny,label:r.live_room_code+' · '+r.host_name})),
+        targets:[],sources:['开单卡','客户付款','费用明细','广告消耗','财务专项核算'].map(name=>({name,updatedAt:name==='财务专项核算'?shift(today,-1)+'T04:00:00Z':lastUpdate}))};
+      return json(window.CmsBossOverview.build(dataset,Object.fromEntries(query),{today,localTime,asOf:stamp.toISOString()}));
+    }catch{return json({error:'演示指标日期或数据格式无效'},400);}
+  }
   window.fetch=async(input,options={})=>{
     const url=new URL(typeof input==="string"?input:input.url,window.location.origin);
     if(!url.pathname.startsWith("/api/"))return nativeFetch(input,options);
@@ -243,6 +269,7 @@
     if(path==="/api/auth/meta")return json(meta);
     if(!["GET","HEAD"].includes(method))return json({error:"这是公开只读演示，不保存任何修改。请在正式后台操作。"},403);
     if(path==="/api/modules")return json({version:1,modules:{fans:true,ops:true,editor:true,orders:true},labels:{fans:"客服加粉",ops:"运营投放",editor:"拍剪",orders:"订单"}});
+    if(path==='/api/demo/boss-overview')return role==='boss'?bossOverview(q):json({error:'仅BOSS可查看演示经营总览'},403);
     if(role==="admin"&&!/^\/api\/(admin|cs-accounts)(\/|$)/.test(path))return json({error:"演示管理员仅管理系统，不查看业务数据"},403);
     if(/^\/api\/salaries(\/|$)/.test(path))return ["finance","boss"].includes(role)?salaryApi(path,q):json({error:"仅财务与BOSS可查看工资"},403);
     if(/^\/api\/finance\/payables\/[^/]+\/attachments$/.test(path))return ['boss','finance'].includes(role)&&payables().expenses.some(e=>path.includes('/'+e.id+'/'))?json({attachments:[]}):json({error:'无公司成本权限'},403);
