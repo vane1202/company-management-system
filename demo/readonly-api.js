@@ -249,6 +249,13 @@
     const scaled=(an*100000n)/ad,rounded=(scaled+5n)/10n;
     return sign+(rounded/10000n)+'.'+String(rounded%10000n).padStart(4,'0');
   }
+  function percent2(num,den){
+    if(num==null||den==null)return null;
+    const n=cents(num),d=cents(den);if(d===0n)return null;
+    const sign=n<0n?'-':'',an=n<0n?-n:n,ad=d<0n?-d:d;
+    const scaled=(an*100000n)/ad,rounded=(scaled+5n)/10n;
+    return sign+(rounded/100n)+'.'+String(rounded%100n).padStart(2,'0');
+  }
   function deltaOf(current,baseline,period){
     if(baseline==null)return {amount_cny:null,ratio:null,baseline_cny:null,period,unavailable_reason:'no_baseline'};
     if(current==null)return {amount_cny:null,ratio:null,baseline_cny:baseline,period,unavailable_reason:'missing_fx'};
@@ -284,8 +291,8 @@
     return {live,ads,total:{original:combined.original,cny_total:missing.length?null:total,fx:combined.fx,status:missing.length?'missing_fx':'ok'}};
   }
   function ratioMetric(numerator,denominator,comparison,status){
-    const value=div4(numerator,denominator);
-    return {value,unit:'multiple',numerator_cny:numerator,denominator_cny:denominator,comparison,status:value==null?(denominator==null||numerator==null?'missing_fx':'not_available'):status};
+    const value=percent2(numerator,denominator);
+    return {value,unit:'percent',numerator_cny:numerator,denominator_cny:denominator,comparison,status:value==null?(denominator==null||numerator==null?'missing_fx':'not_available'):status};
   }
   function iso8(date,clock){return date+'T'+clock+'+08:00';}
   function bossOverview(query){
@@ -308,12 +315,12 @@
     const costTotal={...costs.total,comparison:comparisonsOf(costs.total.cny_total,data=>visibleCostOf(data).total.cny_total,period)};
     const estCustomer=(customer.cny_total!=null&&costTotal.cny_total!=null)?money(cents(customer.cny_total)-cents(costTotal.cny_total)):null;
     const estFinance=(finance.cny_total!=null&&costTotal.cny_total!=null)?money(cents(finance.cny_total)-cents(costTotal.cny_total)):null;
-const estCustomerMetric={original:estCustomer==null?[]:[{currency:'CNY',amount:estCustomer}],cny_total:estCustomer,fx:costTotal.fx.filter((r,i,all)=>all.findIndex(x=>x.currency===r.currency)===i),status:estCustomer==null?'missing_fx':'caliber_pending',comparison:comparisonsOf(estCustomer,data=>{const c=collectionCny(data,'customer'),cost=visibleCostOf(data).total.cny_total;return c!=null&&cost!=null?money(cents(c)-cents(cost)):null;},period)};
-    const estFinanceMetric={original:estFinance==null?[]:[{currency:'CNY',amount:estFinance}],cny_total:estFinance,fx:estCustomerMetric.fx,status:estFinance==null?(finance.status==='not_available'?'not_available':'missing_fx'):'caliber_pending',comparison:comparisonsOf(estFinance,data=>{const c=collectionCny(data,'finance'),cost=visibleCostOf(data).total.cny_total;return c!=null&&cost!=null?money(cents(c)-cents(cost)):null;},period)};
+const estCustomerMetric={original:estCustomer==null?[]:[{currency:'CNY',amount:estCustomer}],cny_total:estCustomer,fx:costTotal.fx.filter((r,i,all)=>all.findIndex(x=>x.currency===r.currency)===i),status:estCustomer==null?'missing_fx':'ok',comparison:comparisonsOf(estCustomer,data=>{const c=collectionCny(data,'customer'),cost=visibleCostOf(data).total.cny_total;return c!=null&&cost!=null?money(cents(c)-cents(cost)):null;},period)};
+    const estFinanceMetric={original:estFinance==null?[]:[{currency:'CNY',amount:estFinance}],cny_total:estFinance,fx:estCustomerMetric.fx,status:estFinance==null?(finance.status==='not_available'?'not_available':'missing_fx'):'ok',comparison:comparisonsOf(estFinance,data=>{const c=collectionCny(data,'finance'),cost=visibleCostOf(data).total.cny_total;return c!=null&&cost!=null?money(cents(c)-cents(cost)):null;},period)};
     const adsCny=costs.ads.cny_total;
-    const roiCustomer=ratioMetric(customer.cny_total,adsCny,comparisonsOf(div4(customer.cny_total,adsCny),data=>div4(collectionCny(data,'customer'),visibleCostOf(data).ads.cny_total),period),'caliber_pending');
-    const roiFinance=ratioMetric(finance.cny_total,adsCny,comparisonsOf(div4(finance.cny_total,adsCny),data=>div4(data.paidPerformance.amountCny,visibleCostOf(data).ads.cny_total),period),'caliber_pending');
-    const roiTurnover=ratioMetric(turnover.cny_total,adsCny,comparisonsOf(div4(turnover.cny_total,adsCny),data=>div4(data.totals.performanceCny,visibleCostOf(data).ads.cny_total),period),'ok');
+    const roiCustomer=ratioMetric(customer.cny_total,adsCny,comparisonsOf(percent2(customer.cny_total,adsCny),data=>percent2(collectionCny(data,'customer'),visibleCostOf(data).ads.cny_total),period),'ok');
+    const roiFinance=ratioMetric(finance.cny_total,adsCny,comparisonsOf(percent2(finance.cny_total,adsCny),data=>percent2(data.paidPerformance.amountCny,visibleCostOf(data).ads.cny_total),period),'ok');
+    const roiTurnover=ratioMetric(turnover.cny_total,adsCny,comparisonsOf(percent2(turnover.cny_total,adsCny),data=>percent2(data.totals.performanceCny,visibleCostOf(data).ads.cny_total),period),'ok');
     const ratesUsed=[fxUsed('USD'),fxUsed('TWD')].filter(Boolean);
     return json({
       contract_version:'0.1-draft',
@@ -328,7 +335,7 @@ const estCustomerMetric={original:estCustomer==null?[]:[{currency:'CNY',amount:e
         finance_costing:null,
         fx_rates:'2026-11-01T00:00:00+08:00'
       },
-      flags:{pending_finance:true,caliber_pending:['net_contribution_collection_source','roi_collection_source'],missing_month_target:true,live_entry_pending:true},
+      flags:{pending_finance:true,caliber_pending:[],missing_month_target:true,live_entry_pending:true},
       turnover,
       collections:{
         customer_payments:customer,
@@ -342,14 +349,14 @@ const estCustomerMetric={original:estCustomer==null?[]:[{currency:'CNY',amount:e
       },
       net_contribution:{
         estimated_note:'未扣料成本、提成、代收手续费',
-        collection_source_used:'pending',
+        collection_source_used:'both',
         estimated_by_source:{customer_payments:estCustomerMetric,finance_paid_performance:estFinanceMetric},
         final:{status:'pending_finance',label:'待财务核算',value:null,components:{material_cost:null,commission:null,collection_fee:null,granularity:'pending'}}
       },
       roi:{
         default_basis:'collections',
         available_bases:['collections','turnover'],
-        collection_source_used:'pending',
+        collection_source_used:'both',
         values:{
           collections_by_source:{customer_payments:roiCustomer,finance_paid_performance:roiFinance},
           turnover:roiTurnover

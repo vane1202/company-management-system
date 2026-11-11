@@ -122,10 +122,7 @@
   },
   "flags": {
     "pending_finance": true,
-    "caliber_pending": [
-      "net_contribution_collection_source",
-      "roi_collection_source"
-    ],
+    "caliber_pending": [],
     "missing_month_target": true,
     "live_entry_pending": true
   },
@@ -177,7 +174,7 @@
 - `difference.cny_total` = 客服登记折算合计 − 财务核定折算合计。任一侧缺汇率或未录入时，差额为 `null`，不得估算。
 - `direction`：`customer_payments_higher` | `finance_higher` | `equal` | `unknown`。
 
-**未决（请 Codex / 业务确认，前端暂标「口径待定」）**：预估净贡献与 ROI 默认分子「已收款」究竟用客服登记、财务核定，还是另有规则。在确认前，后端应同时给出按两个来源计算的预估净贡献和 ROI，并设置 `flags.caliber_pending` 含 `net_contribution_collection_source`、`roi_collection_source`。**不要**悄悄选一个来源当成唯一结论。
+**已确认（2026-11-11）**：预估净贡献与 ROI 的「已收款」**按两个来源分别计算并并列展示**（客服登记收款流水 / 财务核定已付款业绩），不合并、不二选一。不要再为这一点标注「口径待定」，也不要把其中一个来源当成唯一结论。
 
 ### 2.3 可见成本 `visible_cost`
 
@@ -202,15 +199,15 @@
 - **预估净贡献** = 已收款 − 可见成本，系统自动算，必须标注「未扣料成本、提成、代收手续费」。
 - **最终净贡献** = 预估净贡献 − 料成本 − 提成 − 代收手续费。这三项由财务经录入接口提交；财务未录入的日期，最终净贡献显示「待财务核算」，**不得用预估值代替或自行估算**。
 
-草案形状（已收款来源待确认，故按来源并列）：
+已确认形状（两个已收款来源并列）：
 
 ```json
 {
   "estimated_note": "未扣料成本、提成、代收手续费",
-  "collection_source_used": "pending",
+  "collection_source_used": "both",
   "estimated_by_source": {
-    "customer_payments": { "original": [], "cny_total": "938.18", "fx": [], "status": "caliber_pending", "comparison": {} },
-    "finance_paid_performance": { "original": [], "cny_total": "-331.82", "fx": [], "status": "caliber_pending", "comparison": {} }
+    "customer_payments": { "original": [], "cny_total": "938.18", "fx": [], "status": "ok", "comparison": {} },
+    "finance_paid_performance": { "original": [], "cny_total": "-331.82", "fx": [], "status": "ok", "comparison": {} }
   },
   "final": {
     "status": "pending_finance",
@@ -226,7 +223,7 @@
 }
 ```
 
-- `collection_source_used`：`pending` | `customer_payments` | `finance_paid_performance`。确认后可改为只返回一个 `estimated`，并去掉对应 `caliber_pending`。
+- `collection_source_used`：已确认为 `both`（按客服登记、财务核定分别给出预估净贡献）。保留 `customer_payments` / `finance_paid_performance` 仅供兼容，P0 不应再使用 `pending`，也不要把两个来源收成一个 `estimated`。
 - `final.value` 在 `pending_finance` 时必须为 `null`。`final.label` 固定为「待财务核算」直到财务录入。
 - 财务录入接口的粒度（按日 / 按单）仍待与财务确认，`components.granularity` 用 `pending` | `daily` | `per_order`。P0 不发明提成比例或税率。
 - 预估与最终 **不得** 使用同一标签、同一字段。
@@ -239,20 +236,19 @@
 {
   "default_basis": "collections",
   "available_bases": ["collections", "turnover"],
-  "collection_source_used": "pending",
+  "collection_source_used": "both",
   "values": {
     "collections_by_source": {
-      "customer_payments": { "value": "12.3501", "unit": "multiple", "numerator_cny": "2560.50", "denominator_cny": "207.32", "comparison": {}, "status": "caliber_pending" },
-      "finance_paid_performance": { "value": "6.2247", "unit": "multiple", "numerator_cny": "1290.50", "denominator_cny": "207.32", "comparison": {}, "status": "caliber_pending" }
+      "customer_payments": { "value": "1235.05", "unit": "percent", "numerator_cny": "2560.50", "denominator_cny": "207.32", "comparison": {}, "status": "ok" },
+      "finance_paid_performance": { "value": "622.47", "unit": "percent", "numerator_cny": "1290.50", "denominator_cny": "207.32", "comparison": {}, "status": "ok" }
     },
-    "turnover": { "value": "8.5399", "unit": "multiple", "numerator_cny": "1770.50", "denominator_cny": "207.32", "comparison": {}, "status": "ok" }
+    "turnover": { "value": "853.99", "unit": "percent", "numerator_cny": "1770.50", "denominator_cny": "207.32", "comparison": {}, "status": "ok" }
   }
 }
 ```
 
-- `value` 为「倍数」小数（已收款 ÷ 广告消耗），不是百分数。广告消耗为 0 或缺汇率时 `value` 为 `null`。
-- 展示单位用「倍」。若业务要求改成百分比，由 Codex 改 `unit` 并在任务记录说明，前端再跟随。
-- 已收款来源未确认时，与净贡献相同：两个来源都返回，并标「口径待定」。
+- **已确认（2026-11-11）**：`unit` 固定为 `percent`。`value` 是百分数（分子 ÷ 广告消耗 × 100），保留两位小数，例如财务核定来源 `622.47` 展示为 `622.47%`。**不是**倍数（不要展示「6.2247 倍」）。广告消耗为 0 或缺汇率时 `value` 为 `null`。
+- **已确认（2026-11-11）**：已收款分子按两个来源分别计算并并列；切换到营业额时只展示一个百分数。页面不再为已收款来源标注「口径待定」。
 
 ---
 
@@ -306,13 +302,18 @@
 
 ---
 
-## 6. 请 Codex 确认的问题（未确认前前端按本草案降级展示）
+## 6. 口径确认与仍待 Codex / 业务确认的问题
 
-1. 预估净贡献、ROI 的「已收款」用客服登记流水还是财务核定，或是其他规则。
-2. 周 / 月 / 自定义区间下「vs 昨日」「vs 上周同期」的窗口定义。
-3. ROI 对外展示单位是「倍」还是百分比。
-4. 财务未录入核定与「已核定为 0」的区分。
-5. 汇率生效日相对「付款日 / 开单日 / 区间结束日」如何选取；谁来维护配置表。
-6. 月目标的录入入口与权限。
-7. 可见成本是否永远排除实际付款、工资；直播间费用与财务料成本/提成重叠问题（第 5 节第 1 条）。
-8. 财务三项成本录入的粒度（按日 / 按单）。
+**已确认（2026-11-11），前端不再为这两点标注「口径待定」：**
+
+1. 预估净贡献、ROI 的「已收款」按客服登记流水与财务核定**分别计算、并列展示**，不二选一、不合并。
+2. ROI 对外展示单位为**百分比**（例如 `622.47%`）。契约字段 `roi.values.*.unit` 为 `percent`，`value` 为百分数（分子 ÷ 广告消耗 × 100，保留两位小数）。
+
+**仍待确认（未确认前前端按本草案降级展示，相关 ⓘ 可保留「口径待定 / 待确认」）：**
+
+1. 周 / 月 / 自定义区间下「vs 昨日」「vs 上周同期」的窗口定义。
+2. 财务未录入核定与「已核定为 0」的区分。
+3. 汇率生效日相对「付款日 / 开单日 / 区间结束日」如何选取；谁来维护配置表。
+4. 月目标的录入入口与权限。
+5. 可见成本是否永远排除实际付款、工资；直播间费用与财务料成本/提成重叠问题（第 5 节第 1 条）。
+6. 财务三项成本录入的粒度（按日 / 按单）。

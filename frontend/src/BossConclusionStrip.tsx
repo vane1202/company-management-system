@@ -7,7 +7,7 @@ import {
   formatClock,
   formatCny,
   formatDelta,
-  formatMultiple,
+  formatRoiPercent,
   displayOriginalAmounts,
   formatOriginalAmounts,
   loadBossOverview,
@@ -21,10 +21,10 @@ import {
 } from "./bossOverviewContract";
 
 const TURNOVER_TIP = "定义：开单营业额。分子：开单卡料价＋代购费。分母：无。归属：按开单卡日期。跑单从原开单日扣回，追加收费（设计、雕刻等）不计入。数据来源：开单卡。与下方直播间营业额明细同一口径。";
-const COLLECTIONS_TIP = "定义：已收款，两个来源并列，不合并。① 客服登记收款流水，按付款日、原币种入账后再按配置汇率折成人民币。② 财务核定「已付款业绩」（按日、直播间、主播一条）。差额＝客服登记折算合计－财务核定折算合计。数据来源：客户收款流水、财务核定记录。预估净贡献和 ROI 暂按两个来源分别计算，已收款口径待定。";
+const COLLECTIONS_TIP = "定义：已收款，两个来源并列，不合并。① 客服登记收款流水，按付款日、原币种入账后再按配置汇率折成人民币。② 财务核定「已付款业绩」（按日、直播间、主播一条）。差额＝客服登记折算合计－财务核定折算合计。数据来源：客户收款流水、财务核定记录。预估净贡献和 ROI 已确认按这两个来源分别计算并并列展示。";
 const COST_TIP = "定义：可见成本＝直播间费用＋广告消耗，均折算人民币。直播间费用只展示现有「费用发生日」字段，暂不拆分主播薪酬、提成、料成本；可能与财务录入的料成本、提成有重叠，口径待定。广告消耗为全公司所选日期范围的实际投放，现为美元，按配置汇率折算。工资、公司付款、料成本、提成、代收手续费不计入可见成本。";
-const NET_TIP = "定义：两层净贡献，标签不得混用。预估净贡献＝已收款－可见成本，系统自动算，未扣料成本、提成、代收手续费。因「已收款」用客服登记还是财务核定尚未确认，此处按两个来源分别展示，并标口径待定。最终净贡献＝预估净贡献－料成本－提成－代收手续费，这三项由财务录入；未录入时只显示「待财务核算」，不用预估值代替。";
-const ROI_TIP = "定义：ROI＝分子÷广告消耗（折算人民币）。默认分子为已收款，可切换为开单营业额。已收款来源待确认时，按客服登记与财务核定分别给出倍数。广告消耗为 0 或缺汇率时不计算。数据来源：已收款（见已收款说明）、开单营业额、广告消耗。";
+const NET_TIP = "定义：两层净贡献，标签不得混用。预估净贡献＝已收款－可见成本，系统自动算，未扣料成本、提成、代收手续费。已收款已确认按客服登记与财务核定分别计算并并列展示。最终净贡献＝预估净贡献－料成本－提成－代收手续费，这三项由财务录入；未录入时只显示「待财务核算」，不用预估值代替。";
+const ROI_TIP = "定义：ROI＝分子÷广告消耗（折算人民币）×100，以百分比展示，例如 622.47%。默认分子为已收款，可切换为开单营业额。已收款已确认按客服登记与财务核定分别计算并并列展示。广告消耗为 0 或缺汇率时不计算。数据来源：已收款（见已收款说明）、开单营业额、广告消耗。";
 
 type Props = {
   preset: string;
@@ -138,7 +138,7 @@ export function BossConclusionStrip({ preset, range, tick, onRetry }: Props) {
 function EstimatedNet({ data }: { data: BossOverviewResponse | null }) {
   if (!data) return <p className="boss-conclusion-value">—</p>;
   const by = data.net_contribution.estimated_by_source;
-  if (data.net_contribution.collection_source_used === "pending" && by) {
+  if (by && data.net_contribution.collection_source_used !== "customer_payments" && data.net_contribution.collection_source_used !== "finance_paid_performance") {
     return <div className="boss-conclusion-dual">
       <div><span>按客服登记</span><strong>{formatCny(by.customer_payments.cny_total, by.customer_payments.status)}</strong></div>
       <div><span>按财务核定</span><strong>{formatCny(by.finance_paid_performance.cny_total, by.finance_paid_performance.status)}</strong></div>
@@ -152,7 +152,7 @@ function RoiBlock({ data, basis }: { data: BossOverviewResponse | null; basis: "
   const metric = basis === "turnover" ? data.roi.values.turnover : data.roi.values.collections_by_source?.customer_payments ?? data.roi.values.collections;
   const body = basis === "turnover"
     ? <RatioLine metric={data.roi.values.turnover} caption="按开单营业额" />
-    : (data.roi.collection_source_used === "pending" && data.roi.values.collections_by_source
+    : (data.roi.values.collections_by_source && data.roi.collection_source_used !== "customer_payments" && data.roi.collection_source_used !== "finance_paid_performance"
       ? <div className="boss-conclusion-dual">
           <RatioLine metric={data.roi.values.collections_by_source.customer_payments} caption="按客服登记" />
           <RatioLine metric={data.roi.values.collections_by_source.finance_paid_performance} caption="按财务核定" />
@@ -167,7 +167,7 @@ function RoiBlock({ data, basis }: { data: BossOverviewResponse | null; basis: "
 function RatioLine({ metric, caption }: { metric?: RatioMetric; caption: string }) {
   return <div>
     <span>{caption}</span>
-    <strong>{formatMultiple(metric?.value ?? null)}</strong>
+    <strong>{formatRoiPercent(metric?.value ?? null)}</strong>
   </div>;
 }
 

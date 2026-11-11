@@ -86,7 +86,7 @@ export type BossOverviewResponse = {
   };
   net_contribution: {
     estimated_note: string;
-    collection_source_used: "pending" | "customer_payments" | "finance_paid_performance";
+    collection_source_used: "both" | "pending" | "customer_payments" | "finance_paid_performance";
     estimated?: MoneyMetric;
     estimated_by_source?: {
       customer_payments: MoneyMetric;
@@ -107,7 +107,7 @@ export type BossOverviewResponse = {
   roi: {
     default_basis: "collections" | "turnover";
     available_bases: Array<"collections" | "turnover">;
-    collection_source_used: "pending" | "customer_payments" | "finance_paid_performance";
+    collection_source_used: "both" | "pending" | "customer_payments" | "finance_paid_performance";
     values: {
       collections?: RatioMetric;
       collections_by_source?: {
@@ -199,8 +199,9 @@ export function formatRatioPercent(ratio: string): string {
   return `${negative ? "-" : "+"}${whole}.${frac}%`;
 }
 
-export function formatMultiple(value: string | null | undefined): string {
-  return value == null || value === "" ? "—" : `${value} 倍`;
+/** ROI 展示为百分数，如 622.47%；value 已是百分数，不再乘 100。 */
+export function formatRoiPercent(value: string | null | undefined): string {
+  return value == null || value === "" ? "—" : `${value}%`;
 }
 
 export function showMonthTarget(preset: string | undefined, rangeSelected: boolean, flagMissing: boolean, delta: ComparisonDelta | null | undefined): boolean {

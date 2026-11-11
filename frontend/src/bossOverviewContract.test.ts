@@ -5,7 +5,7 @@ import {
   formatCny,
   formatDelta,
   formatFxRates,
-  formatMultiple,
+  formatRoiPercent,
   displayOriginalAmounts,
   formatOriginalAmounts,
   formatRatioPercent,
@@ -37,8 +37,9 @@ describe("经营结论条：展示格式（不参与核算）", () => {
     expect(formatCny(null, "missing_fx")).toBe("缺汇率，未折算");
     expect(formatCny(null)).toBe("—");
     expect(formatCny("938.18")).toBe("¥ 938.18");
-    expect(formatMultiple("12.3501")).toBe("12.3501 倍");
-    expect(formatMultiple(null)).toBe("—");
+    expect(formatRoiPercent("622.47")).toBe("622.47%");
+    expect(formatRoiPercent("1235.05")).toBe("1235.05%");
+    expect(formatRoiPercent(null)).toBe("—");
   });
   it("对比：无目标则隐藏；无基线显示破折号；比率按契约小数量出百分数", () => {
     expect(formatDelta(null, "昨").visible).toBe(false);
@@ -72,7 +73,7 @@ describe("经营结论条：展示格式（不参与核算）", () => {
       period: { from: "2026-11-11", to: "2026-11-11", preset: "day" },
       fx: { status: "ok", missing_currencies: [], rates_used: [], prompt: null },
       updated_at: { customer_payments: null, paid_performance: null, live_expenses: null, ads: null, finance_costing: null },
-      flags: { pending_finance: true, caliber_pending: ["net_contribution_collection_source"], missing_month_target: true },
+      flags: { pending_finance: true, caliber_pending: [], missing_month_target: true },
       turnover: { original: [{ currency: "CNY", amount: "1770.50" }], cny_total: "1770.50", fx: [] },
       collections: {
         customer_payments: { original: [], cny_total: "2560.50", fx: [] },
@@ -86,7 +87,7 @@ describe("经营结论条：展示格式（不参与核算）", () => {
       },
       net_contribution: {
         estimated_note: "未扣料成本、提成、代收手续费",
-        collection_source_used: "pending",
+        collection_source_used: "both",
         estimated_by_source: {
           customer_payments: { original: [], cny_total: "938.18", fx: [] },
           finance_paid_performance: { original: [], cny_total: "-331.82", fx: [] }
@@ -96,13 +97,13 @@ describe("经营结论条：展示格式（不参与核算）", () => {
       roi: {
         default_basis: "collections",
         available_bases: ["collections", "turnover"],
-        collection_source_used: "pending",
+        collection_source_used: "both",
         values: {
           collections_by_source: {
-            customer_payments: { value: "12.3501", numerator_cny: "2560.50", denominator_cny: "207.32" },
-            finance_paid_performance: { value: "6.2247", numerator_cny: "1290.50", denominator_cny: "207.32" }
+            customer_payments: { value: "1235.05", unit: "percent", numerator_cny: "2560.50", denominator_cny: "207.32" },
+            finance_paid_performance: { value: "622.47", unit: "percent", numerator_cny: "1290.50", denominator_cny: "207.32" }
           },
-          turnover: { value: "8.5399", numerator_cny: "1770.50", denominator_cny: "207.32" }
+          turnover: { value: "853.99", unit: "percent", numerator_cny: "1770.50", denominator_cny: "207.32" }
         }
       }
     };
@@ -110,5 +111,8 @@ describe("经营结论条：展示格式（不参与核算）", () => {
     expect(sample.net_contribution.final.value).toBeNull();
     expect(sample.net_contribution.estimated_by_source?.customer_payments.cny_total).toBe("938.18");
     expect(sample.net_contribution.estimated_by_source?.finance_paid_performance.cny_total).toBe("-331.82");
+    expect(sample.flags.caliber_pending).toEqual([]);
+    expect(sample.roi.values.collections_by_source?.finance_paid_performance.value).toBe("622.47");
+    expect(sample.roi.values.turnover.unit).toBe("percent");
   });
 });
