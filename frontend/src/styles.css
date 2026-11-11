@@ -810,3 +810,57 @@ progress::-moz-progress-bar { background: #4c7954; border-radius: 1rem; }
 .boss-range:has(.boss-range-error) { flex-wrap: wrap; }
 .boss-range .boss-range-error { flex-basis: 100%; grid-column: 1 / -1; margin: 0; text-align: right; }
 @media (max-width: 540px) { .boss-range .boss-range-error { text-align: left; } }
+
+
+
+/* P0 经营总览首屏结论条：移动端优先，375px 不横向滚动，尽量首屏完整可见。 */
+.boss-conclusion-strip{min-width:0;max-width:100%;padding:8px 10px 6px;border:1px solid var(--line,#dce3dc);border-radius:12px;background:var(--card,#fff);display:grid;gap:6px;overflow-x:hidden;overflow-wrap:anywhere}
+.boss-conclusion-strip.is-pending{padding:12px}
+.boss-conclusion-head{display:flex;justify-content:space-between;align-items:center;gap:8px;min-width:0}
+.boss-conclusion-head h2{margin:0;font-size:15px;line-height:1.2}
+.boss-conclusion-head>div{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0}
+.boss-conclusion-updated,.boss-conclusion-original,.boss-conclusion-note,.boss-conclusion-comp{margin:0;color:var(--muted,#69766e);font-size:10px;line-height:1.35}
+.boss-conclusion-pending{margin:4px 0;font-size:18px;font-weight:650}
+.boss-conclusion-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;min-width:0}
+.boss-conclusion-card{min-width:0;padding:7px 8px 6px;border:1px solid #e4ebe4;border-radius:10px;background:#fbfcfb;display:grid;gap:2px}
+.boss-conclusion-span{grid-column:1/-1}
+.boss-conclusion-card>header{display:flex;align-items:center;justify-content:space-between;gap:6px;min-width:0}
+.boss-conclusion-card h3{margin:0;font-size:12px;font-weight:650;display:flex;align-items:center;gap:2px}
+.boss-conclusion-value{margin:0;font-size:19px;font-weight:650;letter-spacing:-.03em;line-height:1.1;font-variant-numeric:tabular-nums}
+.boss-conclusion-dual{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.boss-conclusion-dual span,.boss-conclusion-layer{display:block;color:#65746c;font-size:10px}
+.boss-conclusion-dual strong{display:block;font-size:16px;font-weight:650;letter-spacing:-.02em;line-height:1.15;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.boss-conclusion-dual small{display:block;color:#7a877f;font-size:10px;line-height:1.3}
+.boss-conclusion-diff{margin:1px 0 0;font-size:11px}
+.boss-conclusion-diff b{font-variant-numeric:tabular-nums}
+.boss-conclusion-layer{margin:2px 0 0}
+.boss-conclusion-final{margin:0;font-size:16px;font-weight:650}
+.boss-conclusion-final.is-pending{font-size:15px;color:#7d5200}
+.boss-conclusion-comp{display:flex;flex-wrap:wrap;gap:2px 8px}
+.boss-roi-toggle{display:flex;gap:4px}
+.boss-roi-toggle button{min-height:32px;padding:0 8px;font-size:11px;border-radius:8px}
+@media(max-width:799px){
+  .boss-overview .boss-conclusion-strip{padding:6px 6px 4px;border-radius:10px;gap:4px}
+  .boss-conclusion-head h2{font-size:14px}
+  .boss-conclusion-grid{gap:0;border:1px solid #e4ebe4;border-radius:10px;overflow:hidden;background:#fbfcfb}
+  .boss-conclusion-card{padding:6px 8px;border:0;border-radius:0;background:transparent}
+  .boss-conclusion-card:not(.boss-conclusion-span){border-bottom:1px solid #e4ebe4}
+  .boss-conclusion-card:not(.boss-conclusion-span)+.boss-conclusion-card:not(.boss-conclusion-span){border-left:1px solid #e4ebe4}
+  .boss-conclusion-span{border-top:1px solid #e4ebe4}
+  .boss-conclusion-value{font-size:18px}
+  .boss-conclusion-dual strong{font-size:15px}
+  .boss-roi-toggle button{min-height:32px}
+  .boss-conclusion-comp.is-empty{display:none}
+  .boss-conclusion-updated{font-size:10px;line-height:1.35}
+}
+@media(min-width:800px){
+  .boss-conclusion-strip{padding:12px 14px 10px;gap:8px}
+  .boss-conclusion-head h2{font-size:16px}
+  .boss-conclusion-updated,.boss-conclusion-original,.boss-conclusion-note,.boss-conclusion-comp{font-size:11px}
+  .boss-conclusion-grid{grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
+  .boss-conclusion-card:not(.boss-conclusion-span){grid-column:span 3}
+  .boss-conclusion-span{grid-column:span 2}
+  .boss-conclusion-value{font-size:24px}
+  .boss-conclusion-dual strong{font-size:18px}
+  .boss-conclusion-card{padding:10px 12px}
+}

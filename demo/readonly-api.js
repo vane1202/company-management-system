@@ -168,9 +168,9 @@
   const paidPerformanceRecords=[{id:'demo-paid-1',business_date:today,live_room_code:'DEMO-LIVE-01',host_name:'演示主播甲',amount_cny:'1290.50',note:'虚构财务专项核定，系统不计算主播提成',created_by_name:'演示财务',voided_at:null,void_reason:null}];
   // 与 BOSS 营业额同口径：开单卡料价＋代购费；历史简版单用原金额。
   function bookingAmount(o){const d=orderRecord(o);return d.legacy?o.amount:money(d.items.reduce((n,i)=>n+cents(i.price_cny)+cents(i.buying_fee_cny),0n));}
-  function liveBusiness(query) {
+  function buildLiveBusiness(query) {
     const period=dashboard(query).period,selected=Object.fromEntries(['room','host','persona','operator'].map(k=>[k,query.get(k)||'']));
-    if(![period.from,period.to].every(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)&&Number.isFinite(Date.parse(d)))||period.from>period.to)return json({error:'日期范围无效'},400);
+    if(![period.from,period.to].every(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)&&Number.isFinite(Date.parse(d)))||period.from>period.to)return {error:'日期范围无效',status:400};
     const matchDate=d=>d>=period.from&&d<=period.to;
     const scoped=orders.filter(o=>(!selected.room||(selected.room==='__unassigned__'?!o.liveRoomCode:o.liveRoomCode===selected.room))&&(!selected.host||o.hostName===selected.host)&&(!selected.persona||o.personaCode===selected.persona)&&(!selected.operator||o.operatorName===selected.operator));
     const empty=()=>({performanceCny:'0.00',newSalesCny:'0.00',grossSalesCny:'0.00',cancelledSalesCny:'0.00',grossOrderCount:0,cancelledOrderCount:0,excludedAdditionalCny:'0.00',additionalCny:'0.00',expenseCny:'0.00',supplierPaidCny:'0.00',companyReceivedCny:'0.00',excludedSourceCny:'0.00',newOrderCount:0,expenseCount:0,customerReceipts:{CNY:'0.00',TWD:'0.00',USD:'0.00'}});
@@ -204,8 +204,160 @@
     const paidPerformance={amountCny:paidRecords.length?sumMoney(paidRecords,'amount_cny'):null,recordCount:paidRecords.length,scope:'room_host',records:paidRecords.map(r=>({...r,date:r.business_date}))};
     const afterSales={receipts:{CNY:'0.00',TWD:'0.00',USD:'0.00'},recordCount:0,unclassifiedReceiptCount:events.filter(e=>e.kind==='receipt').length,records:[]};
     const legacy=scoped.filter(o=>!o.workflowEnabled&&cents(o.customProductCost)+cents(o.laborCost)+cents(o.shippingCost)>0n);
-    return json({period,selected,totals,paidPerformance,afterSales,rooms:[...rooms.values()].sort((a,b)=>Number(cents(b.totals.performanceCny)-cents(a.totals.performanceCny))),events,options:orders.map(o=>({room:o.liveRoomCode,host:o.hostName,persona:o.personaCode,persona_name:o.personaName,operator:o.operatorName})),ads:{scope:'company',spendUsd:sumMoney(ads,'amount'),records:ads,unknownCount:0},legacyCost:{count:legacy.length,amountCny:money(legacy.reduce((n,o)=>n+cents(o.customProductCost)+cents(o.laborCost)+cents(o.shippingCost),0n))},refundMethod:'cancelled_and_legacy_refunded_orders_reverse_original_booking_day',turnoverMethod:'booking_price_plus_buying_fee_excludes_additional_charges'});
+    return {period,selected,totals,paidPerformance,afterSales,rooms:[...rooms.values()].sort((a,b)=>Number(cents(b.totals.performanceCny)-cents(a.totals.performanceCny))),events,options:orders.map(o=>({room:o.liveRoomCode,host:o.hostName,persona:o.personaCode,persona_name:o.personaName,operator:o.operatorName})),ads:{scope:'company',spendUsd:sumMoney(ads,'amount'),records:ads,unknownCount:0},legacyCost:{count:legacy.length,amountCny:money(legacy.reduce((n,o)=>n+cents(o.customProductCost)+cents(o.laborCost)+cents(o.shippingCost),0n))},refundMethod:'cancelled_and_legacy_refunded_orders_reverse_original_booking_day',turnoverMethod:'booking_price_plus_buying_fee_excludes_additional_charges'};
   }
+
+  function liveBusiness(query) {
+    const result=buildLiveBusiness(query);
+    if(result.error)return json({error:result.error},result.status||400);
+    return json(result);
+  }
+  /* 演示汇率配置表（虚构，含生效日）。禁止使用 5.2 一类估算值。 */
+  const demoFx={
+    CNY:{rate:'1.000000',effective_on:'2026-01-01'},
+    USD:{rate:'7.100000',effective_on:'2026-11-01'},
+    TWD:{rate:'0.230000',effective_on:'2026-11-01'}
+  };
+  function fxUsed(currency){const row=demoFx[currency];return row?{currency,quote_currency:'CNY',rate:row.rate,effective_on:row.effective_on,source:'demo_config'}:null;}
+  function convertToCny(amount,currency){
+    const row=demoFx[currency];if(!row)return null;
+    const n=cents(amount),micro=BigInt(row.rate.replace('.',''));
+    const decimals=row.rate.split('.')[1]?.length??0,base=10n**BigInt(decimals);
+    const sign=n<0n?-1n:1n,abs=n<0n?-n:n;
+    return money(sign*(abs*micro)/base);
+  }
+  function originalAndTotal(parts){
+    const original=parts.filter(p=>p&&p.amount!=null&&cents(p.amount)!==0n).map(p=>({currency:p.currency,amount:p.amount}));
+    const seen=new Map();
+    for(const row of original){seen.set(row.currency,money(cents(seen.get(row.currency)||'0.00')+cents(row.amount)));}
+    const merged=['CNY','TWD','USD'].filter(c=>seen.has(c)).map(c=>({currency:c,amount:seen.get(c)}));
+    const fx=[],missing=[];let total=0n;
+    for(const row of merged){
+      const used=fxUsed(row.currency);if(!used){missing.push(row.currency);continue;}
+      const converted=convertToCny(row.amount,row.currency);if(converted==null){missing.push(row.currency);continue;}
+      total+=cents(converted);if(row.currency!=='CNY')fx.push(used);else fx.push(used);
+    }
+    return {original:merged,cny_total:missing.length?null:money(total),fx,status:missing.length?'missing_fx':'ok',missing};
+  }
+  function periodDays(from,to){return Math.round((Date.parse(to)-Date.parse(from))/86400000)+1;}
+  function previousEqualPeriod(from,to){const n=periodDays(from,to);return {from:shift(from,-n),to:shift(from,-1)};}
+  function shiftedPeriod(from,to,days){return {from:shift(from,days),to:shift(to,days)};}
+  function div4(num,den){
+    if(num==null||den==null)return null;
+    const n=cents(num),d=cents(den);if(d===0n)return null;
+    const sign=n<0n?'-':'',an=n<0n?-n:n,ad=d<0n?-d:d;
+    const scaled=(an*100000n)/ad,rounded=(scaled+5n)/10n;
+    return sign+(rounded/10000n)+'.'+String(rounded%10000n).padStart(4,'0');
+  }
+  function deltaOf(current,baseline,period){
+    if(baseline==null)return {amount_cny:null,ratio:null,baseline_cny:null,period,unavailable_reason:'no_baseline'};
+    if(current==null)return {amount_cny:null,ratio:null,baseline_cny:baseline,period,unavailable_reason:'missing_fx'};
+    const amount=money(cents(current)-cents(baseline));
+    if(cents(baseline)===0n)return {amount_cny:amount,ratio:null,baseline_cny:baseline,period,unavailable_reason:cents(current)===0n?null:'zero_baseline'};
+    return {amount_cny:amount,ratio:div4(amount,baseline),baseline_cny:baseline,period,unavailable_reason:null};
+  }
+  function comparisonsOf(current,getValue,period){
+    const y=previousEqualPeriod(period.from,period.to),w=shiftedPeriod(period.from,period.to,-7);
+    const yData=buildLiveBusiness(new URLSearchParams({from:y.from,to:y.to}));
+    const wData=buildLiveBusiness(new URLSearchParams({from:w.from,to:w.to}));
+    const yVal=yData.error?null:getValue(yData),wVal=wData.error?null:getValue(wData);
+    return {vs_yesterday:deltaOf(current,yVal,y),vs_same_weekday_last_week:deltaOf(current,wVal,w),vs_month_target:null};
+  }
+  function metric(parts,getValue,period){
+    const core=originalAndTotal(parts);
+    return {original:core.original,cny_total:core.cny_total,fx:core.fx,status:core.status,comparison:comparisonsOf(core.cny_total,getValue,period)};
+  }
+  function collectionCny(data,kind){
+    if(kind==='customer'){
+      const receipts=data.totals.customerReceipts;
+      return originalAndTotal([{currency:'CNY',amount:receipts.CNY},{currency:'TWD',amount:receipts.TWD},{currency:'USD',amount:receipts.USD}]).cny_total;
+    }
+    return data.paidPerformance.amountCny;
+  }
+  function visibleCostOf(data){
+    const live=originalAndTotal([{currency:'CNY',amount:data.totals.expenseCny}]);
+    const ads=originalAndTotal(data.ads.spendUsd&&cents(data.ads.spendUsd)!==0n?[{currency:'USD',amount:data.ads.spendUsd}]:[]);
+    const missing=[...new Set([...(live.missing||[]),...(ads.missing||[])])];
+    const total=(live.cny_total!=null&&ads.cny_total!=null)?money(cents(live.cny_total)+cents(ads.cny_total)):null;
+    const parts=[];if(cents(data.totals.expenseCny)!==0n)parts.push({currency:'CNY',amount:data.totals.expenseCny});if(data.ads.spendUsd&&cents(data.ads.spendUsd)!==0n)parts.push({currency:'USD',amount:data.ads.spendUsd});
+    const combined=originalAndTotal(parts);
+    return {live,ads,total:{original:combined.original,cny_total:missing.length?null:total,fx:combined.fx,status:missing.length?'missing_fx':'ok'}};
+  }
+  function ratioMetric(numerator,denominator,comparison,status){
+    const value=div4(numerator,denominator);
+    return {value,unit:'multiple',numerator_cny:numerator,denominator_cny:denominator,comparison,status:value==null?(denominator==null||numerator==null?'missing_fx':'not_available'):status};
+  }
+  function iso8(date,clock){return date+'T'+clock+'+08:00';}
+  function bossOverview(query){
+    const current=buildLiveBusiness(query);
+    if(current.error)return json({error:current.error},current.status||400);
+    const period=current.period;
+    const preset=query.get('preset')||(!query.get('from')&&!query.get('to')?'day': (period.from===period.to?'day':'custom'));
+    const custom=!!(query.get('from')||query.get('to'));
+    const label=custom?'自定义区间':preset==='week'?'本周':preset==='month'?'本月':'今日';
+    const turnover=metric([{currency:'CNY',amount:current.totals.performanceCny}],data=>data.totals.performanceCny,period);
+    const customerParts=[{currency:'CNY',amount:current.totals.customerReceipts.CNY},{currency:'TWD',amount:current.totals.customerReceipts.TWD},{currency:'USD',amount:current.totals.customerReceipts.USD}];
+    const customer=metric(customerParts,data=>collectionCny(data,'customer'),period);
+    const financeAmount=current.paidPerformance.amountCny;
+    const finance=financeAmount==null
+      ? {original:[],cny_total:null,fx:[],status:'not_available',comparison:comparisonsOf(null,data=>data.paidPerformance.amountCny,period)}
+      : metric([{currency:'CNY',amount:financeAmount}],data=>data.paidPerformance.amountCny,period);
+    const differenceTotal=(customer.cny_total!=null&&finance.cny_total!=null)?money(cents(customer.cny_total)-cents(finance.cny_total)):null;
+    const direction=differenceTotal==null?'unknown':cents(differenceTotal)>0n?'customer_payments_higher':cents(differenceTotal)<0n?'finance_higher':'equal';
+    const costs=visibleCostOf(current);
+    const costTotal={...costs.total,comparison:comparisonsOf(costs.total.cny_total,data=>visibleCostOf(data).total.cny_total,period)};
+    const estCustomer=(customer.cny_total!=null&&costTotal.cny_total!=null)?money(cents(customer.cny_total)-cents(costTotal.cny_total)):null;
+    const estFinance=(finance.cny_total!=null&&costTotal.cny_total!=null)?money(cents(finance.cny_total)-cents(costTotal.cny_total)):null;
+const estCustomerMetric={original:estCustomer==null?[]:[{currency:'CNY',amount:estCustomer}],cny_total:estCustomer,fx:costTotal.fx.filter((r,i,all)=>all.findIndex(x=>x.currency===r.currency)===i),status:estCustomer==null?'missing_fx':'caliber_pending',comparison:comparisonsOf(estCustomer,data=>{const c=collectionCny(data,'customer'),cost=visibleCostOf(data).total.cny_total;return c!=null&&cost!=null?money(cents(c)-cents(cost)):null;},period)};
+    const estFinanceMetric={original:estFinance==null?[]:[{currency:'CNY',amount:estFinance}],cny_total:estFinance,fx:estCustomerMetric.fx,status:estFinance==null?(finance.status==='not_available'?'not_available':'missing_fx'):'caliber_pending',comparison:comparisonsOf(estFinance,data=>{const c=collectionCny(data,'finance'),cost=visibleCostOf(data).total.cny_total;return c!=null&&cost!=null?money(cents(c)-cents(cost)):null;},period)};
+    const adsCny=costs.ads.cny_total;
+    const roiCustomer=ratioMetric(customer.cny_total,adsCny,comparisonsOf(div4(customer.cny_total,adsCny),data=>div4(collectionCny(data,'customer'),visibleCostOf(data).ads.cny_total),period),'caliber_pending');
+    const roiFinance=ratioMetric(finance.cny_total,adsCny,comparisonsOf(div4(finance.cny_total,adsCny),data=>div4(data.paidPerformance.amountCny,visibleCostOf(data).ads.cny_total),period),'caliber_pending');
+    const roiTurnover=ratioMetric(turnover.cny_total,adsCny,comparisonsOf(div4(turnover.cny_total,adsCny),data=>div4(data.totals.performanceCny,visibleCostOf(data).ads.cny_total),period),'ok');
+    const ratesUsed=[fxUsed('USD'),fxUsed('TWD')].filter(Boolean);
+    return json({
+      contract_version:'0.1-draft',
+      disclaimer:meta.disclaimer,
+      period:{from:period.from,to:period.to,preset:custom&&preset==='custom'?'custom':(query.get('preset')||'day'),label},
+      fx:{status:'ok',missing_currencies:[],rates_used:ratesUsed,prompt:null},
+      updated_at:{
+        customer_payments:iso8(today,'06:00:00'),
+        paid_performance:iso8(today,'04:00:00'),
+        live_expenses:iso8(today,'03:00:00'),
+        ads:iso8(today,'11:20:00'),
+        finance_costing:null,
+        fx_rates:'2026-11-01T00:00:00+08:00'
+      },
+      flags:{pending_finance:true,caliber_pending:['net_contribution_collection_source','roi_collection_source'],missing_month_target:true,live_entry_pending:true},
+      turnover,
+      collections:{
+        customer_payments:customer,
+        finance_paid_performance:finance,
+        difference:{original:differenceTotal==null?[]:[{currency:'CNY',amount:differenceTotal}],cny_total:differenceTotal,fx:[],status:differenceTotal==null?'not_available':'ok',direction,formula:'customer_payments.cny_total - finance_paid_performance.cny_total'}
+      },
+      visible_cost:{
+        total:costTotal,
+        live_expenses:{original:costs.live.original,cny_total:costs.live.cny_total,fx:costs.live.fx,status:costs.live.status},
+        ads:{original:costs.ads.original,cny_total:costs.ads.cny_total,fx:costs.ads.fx,status:costs.ads.status}
+      },
+      net_contribution:{
+        estimated_note:'未扣料成本、提成、代收手续费',
+        collection_source_used:'pending',
+        estimated_by_source:{customer_payments:estCustomerMetric,finance_paid_performance:estFinanceMetric},
+        final:{status:'pending_finance',label:'待财务核算',value:null,components:{material_cost:null,commission:null,collection_fee:null,granularity:'pending'}}
+      },
+      roi:{
+        default_basis:'collections',
+        available_bases:['collections','turnover'],
+        collection_source_used:'pending',
+        values:{
+          collections_by_source:{customer_payments:roiCustomer,finance_paid_performance:roiFinance},
+          turnover:roiTurnover
+        }
+      }
+    });
+  }
+
   function dashboard(query) {
     const preset=query.get("preset")||"day";
     const weekday=(new Date(today+"T00:00:00Z").getUTCDay()+6)%7;
@@ -264,6 +416,7 @@
     if(q.has("reviewStatus"))return json({error:"审核筛选已停用"},400);
     if(path==="/api/orders"&&role!=="admin"){const rows=filteredOrders(q).map(o=>({...o,bookingAmount:bookingAmount(o)})),valid=rows.filter(r=>!r.cancelled&&r.status!=="refunded");return json({orders:rows,totals:{amount:sumMoney(rows,"amount"),refunds:sumMoney(rows.filter((r)=>r.status==="refunded"&&!r.cancelled),"amount"),cancelled:sumMoney(rows.filter(r=>r.cancelled),"amount"),turnover:sumMoney(valid,"bookingAmount"),turnoverCount:valid.length}});}
     if(role==="boss"){
+      if(path==="/api/dashboard/boss-overview")return bossOverview(q);
       if(path==="/api/dashboard/live-business")return liveBusiness(q);
       if(path==="/api/dashboard/summary")return json(dashboard(q));
       if(path==="/api/dashboard/series")return dashboardSeries(q);

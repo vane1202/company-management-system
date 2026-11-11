@@ -1,4 +1,5 @@
 import { dashboardPresetRange } from "./dates";
+import { BossConclusionStrip } from "./BossConclusionStrip";
 import { LiveBusinessOverview } from "./LiveBusinessOverview";
 import type { LiveView } from './liveBusinessNavigation';
 import { LeadHomePreview } from "./LeadHomePreview";
@@ -74,6 +75,7 @@ export function DashboardHome({ today, onNavigate, onOpenBusiness }: { today: st
       <p className="boss-period-caption">{snapshot ? `${snapshot.period.from} 至 ${snapshot.period.to}` : loading ? "正在读取统计区间…" : "统计暂不可用"}<span className="boss-updated">{!loading && updated ? `${updated} 更新` : ""}<button type="button" className="overview-refresh boss-refresh-icon" disabled={loading} aria-label={loading ? "读取中" : "刷新数据"} title="刷新数据" onClick={() => setTick(t => t + 1)}><DashboardIcon name="refresh" /></button></span></p>
     </section>
     {!!errors.length && <div className="overview-error" role="alert"><strong>部分数据未能加载</strong>{errors.map(e => <p key={e}>{e}</p>)}<button type="button" onClick={() => setTick(t => t + 1)}>重新加载</button></div>}
+    <BossConclusionStrip preset={preset} range={range} tick={tick} onRetry={() => setTick(t => t + 1)} />
     <LiveBusinessOverview preset={preset} range={range} tick={tick} onOpenBusiness={onOpenBusiness}/>
     {snapshot&&snapshot.dataCounts.fans===0&&snapshot.dataCounts.editor===0&&<p className="overview-empty-banner">该区间暂无加粉或拍剪填报。</p>}
     <div className="boss-core-grid boss-secondary-grid">
