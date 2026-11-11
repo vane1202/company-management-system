@@ -133,3 +133,9 @@ Windows 的 ZIP 打包需使用 `/` 作为条目路径分隔符；发布前确�
 示例今日收款 ¥2,538.50、广告花费 ¥210.24；本月累计收款 ¥2,538.50、花费 ¥1,549.44，均为虚构。新增只读字段 `references.monthToDateAmounts` 提供月度金额；旧 `metrics.roi` / `references.monthToDateRoi` 暂保留作 API 兼容，首页和对应构成弹窗不使用其数值。本轮不更改 Windows 本地安装副本。
 
 前端 72 项、演示指标与只读服务 41 项测试通过，demo 构建成功。浏览器验证 375×812、1440×900、3440×1440 无横向溢出；月视图金额与今日卡片的本月累计一致，手机首屏保留实际毛利待核算状态。
+
+本次金额版源码 `8b86738` 已部署至独立演示站 Cloudflare 版本 `55e41810`（2026-11-11 20:03，UTC+8）。11 个公开资源 HTTP 200 且 SHA256 全部与验收包一致。前版 `959781ee` 保留在部署历史中；Windows 本地安装后台未更新。
+
+![金额版桌面验收](screenshots/boss-spend-amounts-desktop.png)
+
+![金额版手机验收](screenshots/boss-spend-amounts-mobile.png)
