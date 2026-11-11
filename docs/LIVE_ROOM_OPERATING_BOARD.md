@@ -26,3 +26,13 @@
 - 72 项前端、48 项演示指标与只读服务测试通过，共 120 项。覆盖第三方未结汇、历史订单、结束日之后的收款、追加应收、作废、跑单、退款、缺失资料、零应收、跨币种及主播筛选不带入无关直播间。
 - demo、标准 production 构建均通过；标准构建仍为 `index-BGBiiE8G.js`，未包含本次新看板。未访问业务数据库，未部署本地安装后台。
 - 浏览器验收 375×812、1440×900、3440×1440 无横向溢出；付款状态筛选可进入订单、返回保留选择；历史待付和当前待付均可见；无待付的直播间显示空状态；财务明细默认收起、展开后数据与原版一致。
+
+## 独立站发布
+
+源码 `eb271a0a3a2b64b7ecb47a56c4c271cd33705872` 已部署至 <https://demo.nanzhaoarts.com/?role=boss&page=orders>，Cloudflare 版本 `0d3495b9`，2026-11-11 20:29（UTC+8）确认就绪。15 个静态文件中的 14 个公开资源全部 HTTP 200 且 SHA256 与验收包一致；另一个为 `_headers`。前版 `55e41810` 保留在部署历史中。没有更新 Windows 安装后台。
+
+![经营看板桌面](screenshots/live-room-operating-board-desktop.png)
+
+![经营看板手机](screenshots/live-room-operating-board-mobile.png)
+
+![手机订单跟进](screenshots/live-room-followup-mobile.png)
