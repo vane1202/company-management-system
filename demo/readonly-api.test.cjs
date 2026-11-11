@@ -177,6 +177,32 @@ test('BOSS business home counts a prior-day order charge and shipping on their o
  const sum=key=>d.rooms.reduce((n,r)=>n+Math.round(Number(r.totals[key])*100),0);assert.equal(sum('performanceCny'),177050);assert.equal(sum('expenseCny'),141500);
  assert.equal(e.network(),0);
 });
+test('直播间毛利复用已有料本、只扣已录入人员费用；未录入待核算且不改经营总览毛利（估）',async()=>{
+ const e=environment('boss'),d=(await e.json('/api/dashboard/live-business')).body;
+ assert.equal(d.profitMethod,'turnover_minus_material_and_entered_staff_costs');
+ assert.equal(d.totals.performanceCny,'1770.50');assert.equal(d.totals.expenseCny,'1415.00');
+ const a=d.rooms.find(r=>r.roomCode==='DEMO-LIVE-01'),b=d.rooms.find(r=>r.roomCode==='DEMO-LIVE-02');
+ assert.equal(a.totals.performanceCny,'1770.50');
+ assert.equal(a.profit.materialCostCny,'1300.00');
+ assert.equal(a.profit.staff.hostCommission.value,'120.00');
+ assert.equal(a.profit.staff.assistantCommission.value,'40.00');
+ assert.equal(a.profit.staff.actorSessionFee.value,'80.00');
+ assert.equal(a.profit.staff.totalCny,'240.00');
+ assert.equal(a.profit.liveRoomProfitCny,'230.50');
+ assert.equal(a.profit.status,'ok');
+ assert.equal(b.totals.performanceCny,'0.00');
+ assert.equal(b.profit.materialCostCny,'0.00');
+ assert.equal(b.profit.staff.actorSessionFee.value,'60.00');
+ assert.equal(b.profit.staff.hostCommission.status,'pending_finance');
+ assert.equal(b.profit.staff.assistantCommission.status,'pending_finance');
+ assert.equal(b.profit.staff.totalCny,null);
+ assert.equal(b.profit.liveRoomProfitCny,null);
+ assert.equal(b.profit.status,'pending_finance');
+ const overview=(await e.json('/api/demo/boss-overview')).body;
+ assert.equal(overview.metrics.estimatedContribution.value,'2213.26');
+ assert.equal(overview.finalContribution.status,'pending_finance');
+ assert.equal(e.network(),0);
+});
 test('live-room filters leave company advertising scoped to the same dates; other roles cannot read the home endpoint',async()=>{
  const e=environment('boss'),r=(await e.json('/api/dashboard/live-business?room=DEMO-LIVE-02&host='+encodeURIComponent('演示主播乙'))).body;
  assert.equal(r.totals.performanceCny,'0.00');assert.equal(r.totals.expenseCny,'15.00');assert.equal(r.ads.spendUsd,'29.20');assert.equal(r.rooms.length,1);
