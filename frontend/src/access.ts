@@ -31,7 +31,7 @@ export function navItems(role: Role): { id: Page; label: string }[] {
   if (role === "boss") return [
     { id: "home", label: "管理总览" },
     { id: "orders", label: "直播间经营" },
-    { id: "finance", label: "收款与结算" },
+    { id: "finance", label: import.meta.env.MODE==='demo'?"收款与到账":"收款与结算" },
     { id: "ops", label: "推广汇总" },
     { id: "dashboard", label: "经营估算" },
     { id: "salaries", label: "工资汇总" },

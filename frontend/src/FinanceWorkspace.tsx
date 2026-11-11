@@ -1,7 +1,7 @@
 import { CompanyPayments } from "./CompanyPayments";
 import {PaidPerformance} from './PaidPerformance';
 import { AdAccountsWorkspace } from "./AdAccountsWorkspace";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { api, type Currency, type FinanceData } from "./api";
 import { currencies, cents, money, submissionKey } from "./commerceUi";
 import { CurrencySelect, Field } from "./OrderWorkspace";
@@ -10,10 +10,15 @@ import { InfoTip } from "./InfoTip";
 import { toast } from "./Toast";
 
 const REFRESH_AFTER_SAVE_FAILED="已保存，但列表刷新失败，请点刷新";
+const DemoBossCashBoard=import.meta.env.MODE==='demo'?lazy(()=>import('./demo/BossCashBoard')):null;
 
 export function FinanceWorkspace({today,readOnly=false}:{today:string;readOnly?:boolean}) {
+  return readOnly&&DemoBossCashBoard?<Suspense fallback={<p role="status">正在读取收款与到账…</p>}><DemoBossCashBoard today={today} financialDetail={(query,range)=><FinanceLedgerWorkspace today={today} readOnly initialQuery={query} initialRange={range} initialPendingOnly={false}/>} /></Suspense>:<FinanceLedgerWorkspace today={today} readOnly={readOnly}/>;
+}
+
+function FinanceLedgerWorkspace({today,readOnly=false,initialQuery='',initialRange,initialPendingOnly=true}:{today:string;readOnly?:boolean;initialQuery?:string;initialRange?:{from:string;to:string};initialPendingOnly?:boolean}) {
   const [data,setData]=useState<FinanceData|null>(null),[error,setError]=useState(""),[busy,setBusy]=useState(false);
-  const [filters,setFilters]=useState({from:"",to:"",query:"",currency:"",channel:"",pendingOnly:true});
+  const [filters,setFilters]=useState({from:initialRange?.from??"",to:initialRange?.to??"",query:initialQuery,currency:"",channel:"",pendingOnly:initialPendingOnly});
   const [selected,setSelected]=useState<Record<string,{foreignAmount:string;netCny:string}>>({});
   const [form,setForm]=useState({reference:"",channel:"",currency:"TWD" as Currency,settledOn:today,feeAmount:"0.00",feeCurrency:"TWD" as Currency,feePercent:"",fxRate:"",netCny:"",note:""});
   const [voidId,setVoidId]=useState(""),[reason,setReason]=useState("");
