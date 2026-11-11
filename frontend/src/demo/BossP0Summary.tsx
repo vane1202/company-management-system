@@ -23,7 +23,7 @@ type Data = {
   references?:{registeredMaterialCost:Amount&{hintOnly?:boolean};monthToDateRoi:{value:string|null;unit:string;status:string;period:{from:string;to:string}}|null};
 };
 type Props = {preset:string;range?:{from:string;to:string};tick:number;onOpenBusiness:(view:LiveView)=>void};
-const names:Record<string,string>={turnover:'开单营业额',receipts:'客户已收款',visibleCost:'可见成本',estimatedContribution:'预估净贡献',roi:'收款／广告消耗'};
+const names:Record<string,string>={turnover:'开单营业额',receipts:'客户已收款',visibleCost:'可见成本',estimatedContribution:'毛利（估）',roi:'收款／广告消耗'};
 const format=(value:string|null|undefined)=>value==null?'—':Number(value).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});
 const rateFormat=(value:string)=>Number(value).toLocaleString('zh-CN',{maximumFractionDigits:6});
 const signed=(value:string)=>`${Number(value)>0?'+':''}${format(value)}`;
@@ -114,17 +114,17 @@ export default function BossP0Summary({preset,range,tick,onOpenBusiness}:Props){
       </div>
       <p className="p0-fx-note">{fxDisclaimer}</p>
       <div className="p0-kpis">{['turnover','receipts','visibleCost','roi'].map(card)}
-        <article className={`p0-kpi p0-contribution ${m?.value!=null&&Number(m.value)<0?'p0-negative':''}`} aria-label="预估与最终净贡献">
-          <div className="p0-contribution-top"><div><header><h2>预估净贡献</h2><InfoTip label="预估净贡献口径" text={`${m?.definition??'客户已收款参考折算－可见成本'} 来源：${m?.source??'演示指标服务'}。${fxText}；${fxDisclaimer}。`}/></header><button className="p0-number" type="button" disabled={!data} aria-label="查看预估净贡献构成" onClick={()=>setDetail('estimatedContribution')}><strong>{loading?'…':format(m?.value)}</strong><small>CNY</small></button></div><span className="p0-signal">{m?.value==null?(m?messages[m.status]??'待补数据':'读取中'):Number(m.value)<0?'预估为负':Number(m.value)>0?'预估为正':'预估持平'}</span></div>
+        <article className={`p0-kpi p0-contribution ${m?.value!=null&&Number(m.value)<0?'p0-negative':''}`} aria-label="毛利（估）与实际毛利">
+          <div className="p0-contribution-top"><div><header><h2>毛利（估）</h2><InfoTip label="毛利（估）口径" text={`${m?.definition??'客户已收款参考折算－可见成本。未扣料成本、提成、代收手续费。毛利（估）不是公司净利润。'} 来源：${m?.source??'演示指标服务'}。${fxText}；${fxDisclaimer}。`}/></header><button className="p0-number" type="button" disabled={!data} aria-label="查看毛利（估）构成" onClick={()=>setDetail('estimatedContribution')}><strong>{loading?'…':format(m?.value)}</strong><small>CNY</small></button></div><span className="p0-signal">{m?.value==null?(m?messages[m.status]??'待补数据':'读取中'):Number(m.value)<0?'毛利（估）为负':Number(m.value)>0?'毛利（估）为正':'毛利（估）持平'}</span></div>
           <p className="p0-exclusions">未扣料成本、提成、代收手续费</p>
           {materialHint?.value!=null&&Number(materialHint.value)>0&&<p className="p0-material-hint">账内已登记料成本 {yen(materialHint.value)}，未计入</p>}
           {m&&<Compare metric={m} metricKey="estimatedContribution"/>}
-          <div className="p0-final"><span>最终净贡献 <InfoTip label="最终净贡献口径" text="预估净贡献－财务专项录入的料成本、提成、代收手续费。每个统计日的三项均须由财务明确录入，0为有效录入；缺项或缺日显示待财务核算，不从费用账猜测、不以预估值代替。财务真实录入格式仍待复核，本页只有虚构只读结果。账内已登记料成本仅作参考提示，不替代本项。"/></span><strong>{loading?'读取中':final?.status==='pending_finance'?'待财务核算':final?.value!=null?`${format(final.value)} CNY`:messages[final?.status??'']??'数据待补'}</strong></div>
+          <div className="p0-final"><span>实际毛利 <InfoTip label="实际毛利口径" text="实际毛利＝毛利（估）－财务专项录入的料成本、提成、代收手续费。每个统计日的三项均须由财务明确录入，0为有效录入；缺项或缺日显示待财务核算，不从费用账猜测、不以毛利（估）代替。财务真实录入格式仍待复核，本页只有虚构只读结果。账内已登记料成本仅作参考提示，不替代本项。"/></span><strong>{loading?'读取中':final?.status==='pending_finance'?'待财务核算':final?.value!=null?`${format(final.value)} CNY`:messages[final?.status??'']??'数据待补'}</strong></div>
         </article>
       </div>
       {data?.fx.missing.length? <p className="p0-warning" role="status">参考汇率缺失：{data.fx.missing.join('；')}</p>:null}
       <details className="p0-reference"><summary>参考汇率与数据更新 <span>ⓘ</span></summary><div>{data?.fx.ratesUsed.map(r=><p key={r.currency+r.effectiveFrom}>1 {r.currency} = {rateFormat(r.cnyPerUnit)} CNY <small>生效 {r.effectiveFrom}</small></p>)}<p className="p0-reference-note">{fxDisclaimer}。同期对比截至 {data?.period.cutoff??'—'}，按当前已知记录重算。示例汇率为虚构参考配置。</p>{data?.sources.map(s=><p className="p0-source" key={s.name}><span>{s.name}</span><time>{s.updatedAt?new Date(s.updatedAt).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false}):'待接入'}</time></p>)}</div></details>
-      <div className="p0-followup"><div><span>财务核定已付款业绩 <InfoTip label="财务核定业绩口径" text="财务按开单日、直播间和主播专项核定的业绩，不等于客户已收款，系统不计算主播提成，不参与预估净贡献与 ROI 计算。"/></span><strong>{data?.paidPerformance.length?format((data.paidPerformance.reduce((n,r)=>n+Math.round(Number(r.amount)*100),0)/100).toFixed(2)):'—'} <small>CNY</small></strong></div><button className="text-action" type="button" onClick={openBusiness}>直播间经营明细 →</button></div>
+      <div className="p0-followup"><div><span>财务核定已付款业绩 <InfoTip label="财务核定业绩口径" text="财务按开单日、直播间和主播专项核定的业绩，不等于客户已收款，系统不计算主播提成，不参与毛利（估）、实际毛利与 ROI 计算。"/></span><strong>{data?.paidPerformance.length?format((data.paidPerformance.reduce((n,r)=>n+Math.round(Number(r.amount)*100),0)/100).toFixed(2)):'—'} <small>CNY</small></strong></div><button className="text-action" type="button" onClick={openBusiness}>直播间经营明细 →</button></div>
     </>}
     <dialog ref={dialog} className="p0-dialog" aria-labelledby="p0-detail-heading" onClose={()=>setDetail(null)}>
       <header><h2 id="p0-detail-heading">{names[detail??'']} · 构成</h2><button type="button" className="secondary" onClick={()=>{dialog.current?.close();setDetail(null);}}>返回总览</button></header>

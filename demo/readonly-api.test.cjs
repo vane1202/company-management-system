@@ -25,6 +25,8 @@ test('P0独立演示首屏与原明细逐笔一致；原币保留；正式后台
   assert.ok(d.references.monthToDateRoi && d.references.monthToDateRoi.unit==='倍');
   assert.match(d.metrics.roi.definition,/日 ROI 仅供参考/);
   assert.match(d.metrics.visibleCost.definition,/主播薪酬是否计入原直播间费用：待确认/);
+  assert.match(d.metrics.estimatedContribution.definition,/毛利（估）不是公司净利润/);
+  assert.match(d.metrics.estimatedContribution.definition,/未扣料成本、提成、代收手续费/);
   assert.equal(d.ledger.filter(r=>r.bucket==='excludedCost').reduce((n,r)=>n+Math.round(Number(r.amount)*100),0),130000);
  assert.equal(d.finalContribution.status,'pending_finance');assert.equal(d.target,null);
  for(const role of ['admin','finance','cs_supervisor'])assert.equal((await environment(role).json('/api/demo/boss-overview')).status,403);

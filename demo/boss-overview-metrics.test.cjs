@@ -26,7 +26,7 @@ test('费用不清楚不猜；配货采购、提成、代收手续费均排除�
  assert.equal(d.metrics.visibleCost.value,'0.00');assert.equal(d.metrics.estimatedContribution.value,'100.00');assert.equal(d.metrics.roi.status,'no_spend');
  const x=run(fixture([row('cost','5.00','CNY',{category:'other'})]));assert.equal(x.metrics.visibleCost.value,null);assert.equal(x.metrics.visibleCost.status,'unclassified_cost');
 });
-test('财务未填与明确0分开；区间缺一日不可算最终净贡献',()=>{
+test('财务未填与明确0分开；区间缺一日不可算实际毛利',()=>{
  const data=fixture([row('payment','10.00')],{finance:[{date:clock.today,materialCost:'0.00',commission:'0.00',collectionFee:'0.00'}]});
  assert.equal(run(data).finalContribution.value,'10.00');
  const d=run(data,{from:'2026-11-10',to:clock.today});assert.equal(d.finalContribution.value,null);assert.deepEqual(d.finalContribution.missingDays,['2026-11-10']);
@@ -37,7 +37,7 @@ test('按费用发生日选择有效汇率，原币保留，半分四舍五入',
  assert.equal(convert(row('payment','10.00','USD',{date:'2026-11-10'}),rates).cny,'71.00');assert.equal(convert(row('payment','10.00','USD'),rates).cny,'72.00');
  assert.equal(convert(row('payment','0.01','USD'),[{currency:'USD',cnyPerUnit:'0.500000',effectiveFrom:'2026-11-01'}]).cny,'0.01');assert.equal(convert(row('payment','10.00','USD',{date:'2026-10-31'}),rates).cny,null);
 });
-test('同期按相同已过去时刻；未来发生记录不进入当前，负净贡献不造误导百分比',()=>{
+test('同期按相同已过去时刻；未来发生记录不进入当前，毛利（估）为负时不造误导百分比',()=>{
  const data=fixture([row('payment','100.00'),row('cost','200.00','CNY',{category:'design'}),row('payment','900.00','CNY',{date:'2026-11-10',localTime:'18:00:00'}),row('payment','50.00','CNY',{date:'2026-11-10',localTime:'10:00:00'})]);
  const d=run(data);assert.equal(d.metrics.receipts.comparisons[0].baseValue,'50.00');assert.equal(d.metrics.receipts.comparisons[0].percent,'100.00');assert.equal(d.metrics.estimatedContribution.value,'-100.00');
  assert.equal(d.metrics.estimatedContribution.comparisons[1].status,'nonpositive_base');
@@ -89,7 +89,7 @@ test('成本分解、收款拆分、财务核定差额与本月累计ROI不改�
  assert.equal(month.references.monthToDateRoi,null);
  assert.equal(month.metrics.roi.value,d.references.monthToDateRoi.value);
 });
-test('零基期标记 nonpositive_base 且不给增长率；净贡献跨盈亏只给金额差',()=>{
+test('零基期标记 nonpositive_base 且不给增长率；毛利（估）跨盈亏只给金额差',()=>{
  const data=fixture([row('payment','100.00'),row('cost','30.00','CNY',{category:'shipping'})]);
  const d=run(data);
  const week=d.metrics.receipts.comparisons.find(c=>c.label==='上周同期');
