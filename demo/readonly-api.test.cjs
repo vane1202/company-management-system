@@ -12,6 +12,25 @@ function environment(role){
  return {fetch:window.fetch,json:async(path,method='GET',body)=>{const response=await window.fetch(path,{method,body:JSON.stringify(body)});return {status:response.status,body:await response.json()};},network:()=>networkRequests};
 }
 
+test('直播间人员成本不按主播、人设或客服维度推测分摊，日期和直播间筛选仍可核算',async()=>{
+ const e=environment('boss'),all=(await e.json('/api/dashboard/live-business')).body;
+ const option=all.options.find(o=>o.room==='DEMO-LIVE-01');
+ for(const key of ['host','persona','operator']){
+  assert.ok(option[key]);
+  const filtered=(await e.json('/api/dashboard/live-business?'+key+'='+encodeURIComponent(option[key]))).body;
+  const room=filtered.rooms.find(r=>r.key==='DEMO-LIVE-01');
+  assert.ok(room);
+  assert.equal(room.profit.status,'unsupported_scope');
+  assert.equal(room.profit.staff.totalCny,null);
+  assert.equal(room.profit.liveRoomProfitCny,null);
+  assert.equal(room.profit.staff.actorSessionFee.value,null);
+ }
+ const roomOnly=(await e.json('/api/dashboard/live-business?room=DEMO-LIVE-01')).body;
+ assert.equal(roomOnly.rooms[0].profit.staff.totalCny,'240.00');
+ assert.equal(roomOnly.rooms[0].profit.liveRoomProfitCny,'230.50');
+ assert.equal(e.network(),0);
+});
+
 test('P0独立演示首屏与原明细逐笔一致；原币保留；正式后台零请求',async()=>{
  const e=environment('boss'),d=(await e.json('/api/demo/boss-overview')).body;
  const old=(await e.json('/api/dashboard/live-business')).body;

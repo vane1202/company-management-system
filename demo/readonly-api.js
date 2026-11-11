@@ -239,6 +239,12 @@
       return {materialCostCny:money(orderCard+fallback),materialCostSources:{orderCardCny:money(orderCard),expenseFallbackCny:money(fallback),excludedCancelledCny:money(excluded),label:'优先采用开单卡「料子本钱」；仅当该单没有此字段时，才回退已登记的供货款/配货款。跑单订单的料子本钱不计入成本。当日无货主演员场次按 0，不显示待录入。'}};
     }
     function staffFor(key){
+      // Staff entries belong to a whole room/day. Never deduct that entire cost
+      // from a subset of orders filtered by persona, operator, or host.
+      if(selected.host||selected.persona||selected.operator){
+        const line=()=>({value:null,status:'unsupported_scope',records:[]});
+        return {hostCommission:line(),assistantCommission:line(),actorSessionFee:line(),totalCny:null,status:'unsupported_scope'};
+      }
       const rows=liveRoomStaffCosts.filter(r=>matchDate(r.business_date)&&roomKeyOf(r.live_room_code)===key);
       const line=(kind,optionalZero)=>{
         const hit=rows.filter(r=>r.kind===kind);

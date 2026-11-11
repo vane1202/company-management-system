@@ -14,7 +14,7 @@ export function defaultBuyingFee(price:string,kind:string){
 export function itemPreview(price:string,kind:string,feeCny?:string){
   const n=cents(price);if(n===null)return null;
   const auto=kind==="material"?(n+5n)/10n:0n;
-  const fee=feeCny==null||feeCny===""?auto:cents(feeCny);
+  const fee=kind!=="material"?0n:feeCny==null?auto:cents(feeCny);
   if(fee===null)return null;
   return {fee:money(fee),total:n+fee,autoFee:money(auto)};
 }

@@ -11,13 +11,13 @@ import {dashboardPresetRange} from './dates';
 const kinds={sale:'开单卡',charge:'追加收费',expense:'业务费用',receipt:'客户付款',company:'公司到账',supplier:'公司付款'};
 const scopeNote='营业额只计开单卡的料价和代购费，按开单卡日期归属；客户延后付款不影响原日营业额，收款不重复计入。跑单回冲原开单日，原始记录保留。设计雕刻等追加收费按发生日单列，不计入营业额；历史退款标记源单继续单列排除，不等于退款资金流水。费用按费用发生日，实际付款按财务付款日，分别列示。广告消耗为全公司所选日期范围，不随直播间筛选缩小。';
 const profitTips={
-  turnover:'开单卡成交价＋10%代购费，按开单日归属；未付款也计入，延后收款不重复计入。追加收费另列，不计入。跑单回冲原开单日，原始记录保留。来源：开单卡。',
+  turnover:'开单卡成交价＋已登记代购费（默认 10%），按开单日归属；未付款也计入，延后收款不重复计入。追加收费另列，不计入。跑单回冲原开单日，原始记录保留。来源：开单卡。',
   material:'翡翠料子本钱。优先采用开单卡「料子本钱」字段（按开单日）。仅当该单没有此字段时，才回退该单已登记的供货款/配货款（费用发生日）。不含工费、运费、证书、包装等。跑单订单的料子本钱不计入成本（与营业额排除一致）；历史退款标记源单同样排除。明确登记 0 视为已录入，不作估算。',
-  staff:'人员费用＝财务已录入的主播提成＋主播助理提成＋按次货主演员费用。金额由财务登记，系统不按比例计算。底薪走工资单，不计入本项。主播或助理提成在本区间尚未录入时显示待财务录入（明确录入 0 为已录入）。当日无货主演员场次时该项默认为 0，不显示待录入。来源：财务录入（演示为虚构）。',
+  staff:'人员费用＝财务已录入的主播提成＋主播助理提成＋按次货主演员费用。金额由财务登记，系统不按比例计算。底薪走工资单，不计入本项。人员费用仅按日期、直播间汇总，按主播、人设或客服筛选时不分摊。主播或助理提成在本区间尚未录入时显示待财务录入（明确录入 0 为已录入）。当日无货主演员场次时该项默认为 0，不显示待录入。来源：财务录入（演示为虚构）。',
   profit:'直播间毛利＝营业额－料子本钱－主播提成－助理提成－货主演员费用。跑单订单的营业额与料子本钱均不计入。任一提成未录入则显示待核算，不作估算。无货主演员场次按 0。本项只用于直播间经营页。经营总览的「毛利（估）」不扣这些项；「实际毛利」仍待财务专项核算。'
 };
 const showLiveProfit=import.meta.env.MODE==='demo';
-function moneyOrPending(value:string|null|undefined,pending:string){return value==null?pending:value;}
+function moneyOrPending(value:string|null|undefined,pending:string,status?:string){return status==='unsupported_scope'?'当前维度不分摊':value==null?pending:value;}
 function materialSourceLabel(p?:{materialCostSources?:{orderCardCny:string;expenseFallbackCny:string}}){
   const s=p?.materialCostSources;if(!s)return '';
   const bits=[s.orderCardCny&&s.orderCardCny!=='0.00'?`开单卡 ${s.orderCardCny}`:'',s.expenseFallbackCny&&s.expenseFallbackCny!=='0.00'?`回退供货款 ${s.expenseFallbackCny}`:''].filter(Boolean);
@@ -82,15 +82,15 @@ export function LiveBusinessOverview({preset='day',range,tick=0,today='',context
     <span className="live-room-name"><strong>{r.roomCode}</strong><small>{r.hosts.join('、')||'主播待补'} · 有效开单 {r.totals.newOrderCount} 笔</small><small>{r.personas.join(' / ')||'引流人设待补'}</small><button type="button" className="text-action live-room-open" onClick={()=>open('income',r.key)}>查看收入 / 费用 →</button></span>
     <span><small>营业额 <InfoTip label={`${r.roomCode}营业额口径`} text={profitTips.turnover}/></small><b>{r.totals.performanceCny}</b></span>
     <span><small>料子本钱 <InfoTip label={`${r.roomCode}料子本钱口径`} text={profitTips.material}/></small><b>{r.profit?.materialCostCny??'—'}</b>{materialSourceLabel(r.profit)&&<small className="live-cost-source">{materialSourceLabel(r.profit)}</small>}</span>
-    <span className="live-staff-cell"><small>人员费用 <InfoTip label={`${r.roomCode}人员费用口径`} text={profitTips.staff}/></small><b className={r.profit?.staff.status==='pending_finance'?'live-pending':''}>{moneyOrPending(r.profit?.staff.totalCny,'待财务录入')}</b>
+    <span className="live-staff-cell"><small>人员费用 <InfoTip label={`${r.roomCode}人员费用口径`} text={profitTips.staff}/></small><b className={r.profit?.staff.status==='pending_finance'?'live-pending':''}>{moneyOrPending(r.profit?.staff.totalCny,'待财务录入',r.profit?.staff.status)}</b>
      <details className="live-staff-details"><summary>展开人员构成</summary>
-      <p>主播提成<b className={r.profit?.staff.hostCommission.status==='pending_finance'?'live-pending':''}>{moneyOrPending(r.profit?.staff.hostCommission.value,'待财务录入')}</b></p>
-      <p>助理提成<b className={r.profit?.staff.assistantCommission.status==='pending_finance'?'live-pending':''}>{moneyOrPending(r.profit?.staff.assistantCommission.value,'待财务录入')}</b></p>
-      <p>货主演员费用<b>{r.profit?.staff.actorSessionFee.value??'0.00'}</b></p>
+      <p>主播提成<b className={r.profit?.staff.hostCommission.status==='pending_finance'?'live-pending':''}>{moneyOrPending(r.profit?.staff.hostCommission.value,'待财务录入',r.profit?.staff.status)}</b></p>
+      <p>助理提成<b className={r.profit?.staff.assistantCommission.status==='pending_finance'?'live-pending':''}>{moneyOrPending(r.profit?.staff.assistantCommission.value,'待财务录入',r.profit?.staff.status)}</b></p>
+      <p>货主演员费用<b>{moneyOrPending(r.profit?.staff.actorSessionFee.value,'—',r.profit?.staff.status)}</b></p>
       {r.profit?.staff.actorSessionFee.records.map(s=><small key={s.id}>{s.date} · {s.session_label||'场次'} · {s.amount_cny}</small>)}
      </details>
     </span>
-    <span><small>直播间毛利 <InfoTip label={`${r.roomCode}直播间毛利口径`} text={profitTips.profit}/></small><b className={r.profit?.status==='pending_finance'?'live-pending':''}>{moneyOrPending(r.profit?.liveRoomProfitCny,'待核算')}</b></span>
+    <span><small>直播间毛利 <InfoTip label={`${r.roomCode}直播间毛利口径`} text={profitTips.profit}/></small><b className={r.profit?.status==='pending_finance'?'live-pending':''}>{moneyOrPending(r.profit?.liveRoomProfitCny,'待核算',r.profit?.status)}</b></span>
    </article>:<button type="button" className="live-room-row" key={r.key} onClick={()=>open('income',r.key)}><span className="live-room-name"><strong>{r.roomCode}</strong><small>{r.hosts.join('、')||'主播待补'}</small><small>{r.personas.join(' / ')||'引流人设待补'}</small><small className="live-room-open">查看收入 / 费用 →</small></span><span><small>营业额</small><b>{r.totals.performanceCny}</b></span><span><small>费用</small><b>{r.totals.expenseCny}</b></span><span><small>有效开单</small><b>{r.totals.newOrderCount} 笔</b></span></button>)}
    <details className="live-cash-details"><summary>客户收款与公司到账</summary><div className="live-cash-grid">{(['CNY','TWD','USD'] as const).map(cur=><div key={cur}><small>客户实际付款 · {cur}</small><strong>{t?.customerReceipts[cur]??'—'}</strong></div>)}<div><small>公司人民币净到账 · CNY</small><strong>{t?.companyReceivedCny??'—'}</strong></div></div></details>
   </section>}

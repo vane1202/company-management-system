@@ -18,5 +18,11 @@ describe("财务与订单界面口径",()=>{
   expect(preview.fee).toBe("15.00");expect(preview.autoFee).toBe("20.00");expect(money(preview.total)).toBe("215.00");
  });
  it("网络重试复用提交标识，修改内容或完成后新建提交使用新标识",()=>{const next=submissionKey(),first=next({amount:"10.00"});expect(next({amount:"10.00"})).toBe(first);expect(next({amount:"11.00"})).not.toBe(first);expect(submissionKey()({amount:"10.00"})).not.toBe(first);});
+ it("手动清空的代购费必须补全，手填0有效，切换成品始终归零",()=>{
+  expect(itemPreview("200.00","material","")).toBe(null);
+  expect(itemPreview("200.00","material","0")?.fee).toBe("0.00");
+  expect(itemPreview("200.00","finished","15.00")?.fee).toBe("0.00");
+  expect(buyingFeeAfterPriceChange("finished","200.00",{feeCny:"15.00",manual:true})).toEqual({feeCny:"0.00",manual:false});
+ });
  it("财务可核算工资，BOSS可只读查看结算与工资",()=>{expect(roleLabel.finance).toBe("财务");expect(navItems("finance").map(x=>x.id)).toEqual(["home","salaries"]);expect(navItems("boss").some(x=>x.id==="finance")).toBe(true);expect(navItems("admin").some(x=>x.id==="finance")).toBe(false);expect(navItems("cs_supervisor").some(x=>x.id==="finance")).toBe(false);expect(canAccessDashboard("finance")).toBe(false);expect(canAccessSalaries("finance")).toBe(true);});
 });

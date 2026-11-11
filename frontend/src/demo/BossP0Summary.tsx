@@ -94,7 +94,7 @@ export default function BossP0Summary({preset,range,tick,onOpenBusiness}:Props){
         <li>本期开单收款 <b>{format(data.receiptSplit.currentBookings.value)}</b></li>
         <li>历史订单收款 <b>{format(data.receiptSplit.historicalOrders.value)}</b></li>
         {data.receiptSplit.unscheduled.value && data.receiptSplit.unscheduled.value!=='0.00' && <li>开单日待补 <b>{format(data.receiptSplit.unscheduled.value)}</b></li>}
-        {data.collectionGap?.difference!=null&&<li className="p0-gap">待财务核定 <b>{yen(data.collectionGap.difference)}</b> <small>相对财务核定 {format(data.collectionGap.paidPerformance)}</small></li>}
+        {data.collectionGap?.difference!=null&&<li className="p0-gap">收款／核定差额 <b>{yen(data.collectionGap.difference)}</b> <small>两者按不同日期统计，不代表待核定金额</small></li>}
       </ul>}
       {key==='roi'&&data?.references?.monthToDateRoi&&<p className="p0-mtd">本月累计 <strong>{format(data.references.monthToDateRoi.value)} 倍</strong><small>日 ROI 仅供参考</small></p>}
       {m?.status!=='ready'&&m&&<span className="p0-state">{messages[m.status]??'数据待补'}</span>}
@@ -130,7 +130,7 @@ export default function BossP0Summary({preset,range,tick,onOpenBusiness}:Props){
       <header><h2 id="p0-detail-heading">{names[detail??'']} · 构成</h2><button type="button" className="secondary" onClick={()=>{dialog.current?.close();setDetail(null);}}>返回总览</button></header>
       <p>{data?.period.from} 至 {data?.period.to} · 全公司</p>
       <p className="p0-detail-definition">{data?.metrics[detail??'']?.definition}</p>
-      {detail==='receipts'&&data?.receiptSplit&&<div className="p0-deductions"><p>本期开单收款（开单日在本区间）<b>{format(data.receiptSplit.currentBookings.value)}</b></p><p>历史订单收款（开单日在本区间之前）<b>{format(data.receiptSplit.historicalOrders.value)}</b></p>{data.collectionGap?.difference!=null&&<p>待财务核定（客户已收款 − 财务核定）<b>{yen(data.collectionGap.difference)}</b></p>}</div>}
+      {detail==='receipts'&&data?.receiptSplit&&<div className="p0-deductions"><p>本期开单收款（开单日在本区间）<b>{format(data.receiptSplit.currentBookings.value)}</b></p><p>历史订单收款（开单日在本区间之前）<b>{format(data.receiptSplit.historicalOrders.value)}</b></p>{data.collectionGap?.difference!=null&&<p>收款／核定差额（收款按付款日，核定按开单日；不代表待核定金额）<b>{yen(data.collectionGap.difference)}</b></p>}</div>}
       {lines.map(r=><article className="p0-ledger-row" key={r.kind+r.id}><div><b>{r.label}</b><small>{r.date}{r.bookingDate && r.kind==='payment'?` · 开单 ${r.bookingDate}`:''}{r.reason?' · '+r.reason:''}</small><small>{r.rate?`1 ${r.currency} = ${rateFormat(r.rate)} CNY · 生效 ${r.rateDate}`:'参考汇率待补'}</small></div><div><strong>{format(r.amount)} {r.currency}</strong><small>{r.bucket.startsWith('excluded')?'排除，不计入':r.bucket==='unclassifiedCost'?'待分类':r.cny!==null?`${format(r.cny)} CNY`:'无法折算'}</small></div></article>)}
       {!lines.length&&<p>该区间没有已登记明细。</p>}
       {detail==='visibleCost'&&<p className="p0-reference-note">排除项原值保留；财务三项扣除另行核算，未从这些费用行自动补值。主播薪酬是否计入原直播间费用仍待确认。</p>}
