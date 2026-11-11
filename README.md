@@ -2,10 +2,11 @@
 
 中文管理系统，使用 TypeScript、Express、PostgreSQL、React 和 Vite，适配电脑和手机。
 
-## 当前功能（2026-11-10）
+## 当前功能（2026-11-11）
 
 - 后台管理员管理账号、小组、授权、模块及系统设置，不接触业务数据；BOSS只读查看全局数据；主管查看、维护授权小组的数据与接待账号。
 - BOSS首页优先展示直播间业绩、业务费用与广告消耗，其次展示加粉、拍剪数据；支持日期筛选、明细跳转及返回。
+- 开单营业额按料价＋代购费统计，财务核定已付款业绩与售后收款分别统计；跑单回冲原日，售后业务可关联收款与成本计算毛利。客服日报填报进度仅在主管首页展示。参见[业务口径](docs/LIVE_TURNOVER_REQUIREMENTS.md)。
 - 直播间长列表与逐笔收支进入“直播间经营”下级页面，成交和追加收费统一归入收入明细；参见[分层导航说明](docs/BOSS_BUSINESS_NAVIGATION.md)。
 - 固定接待账号使用WhatsApp或Messenger，由管理员或主管预录。客服凭一次性登记码选择授权账号，设备保留登录；历史微信账号保留兼容。
 - 客户线索明细支持承接量、首回复、明确需求及跟进统计，按接待账号、小组、引流来源等筛选。日报沟通情况与当日新客转化分别统计；月累计为汇报快照。
@@ -16,14 +17,28 @@
 - 保存后直接进入汇总，不再经助理审核；保留后端权限、版本校验与审计。
 - 整合远程UX P0的轻提示、局部错误反馈、加载占位与工资输入校验。
 
+## 独立演示与部署范围
+
+2026-11-11用户确认：最新经营总览与运营分析改版仅部署到独立演示站；本次同步GitHub，不更新Windows本地运行后台。
+
+- 独立演示经营总览显示开单营业额、客户已收款、可见成本、预估/最终净贡献及收款/广告消耗；缺少财务专项核算时最终净贡献待核算，参考汇率不代替实际结汇。
+- 独立演示运营分析支持日期、主页、平台、广告户筛选和分类排序；咨询成本按总消耗/总咨询量计算，余额按账户末次快照去重，原始日报折叠保留。
+- 这两项界面仅在Vite的`demo`模式启用。标准`npm run build`仍构建原界面；正式后端、数据库迁移及本地安装副本未因本次改版更新。
+- 公开演示继续使用虚构数据。用户提供的三个人设主页另存为[资料对照](docs/PERSONA_PAGE_DIRECTORY.md)，不进入演示包；广告账户及共用关系待补。
+
+构建独立演示：`npm run build -w frontend -- --mode demo --outDir dist-demo`，然后执行`node scripts/package-role-demo.cjs --boss-p0`。只发布生成的`artifacts/role-demo-site`静态文件，不发布源码目录、真实数据或环境配置。GitHub同步不会自动部署本地后台。
+
 ## 维护文档
 
 | 内容 | 文档 |
 | --- | --- |
-| 本次同步与验证 | [SOURCE_SYNC_20261110.md](docs/SOURCE_SYNC_20261110.md) |
+| 本次同步与验证 | [SOURCE_SYNC_20261111.md](docs/SOURCE_SYNC_20261111.md)；[上次记录](docs/SOURCE_SYNC_20261110.md) |
 | 接待账号 | [SERVICE_ACCOUNTS.md](docs/SERVICE_ACCOUNTS.md) |
 | 线索考核 | [FAN_LEAD_CONVERSION.md](docs/FAN_LEAD_CONVERSION.md) |
 | BOSS首页 | [BOSS_BUSINESS_HOME.md](docs/BOSS_BUSINESS_HOME.md) |
+| 独立演示经营总览 | [BOSS_OVERVIEW_P0_CONTRACT.md](docs/BOSS_OVERVIEW_P0_CONTRACT.md) |
+| 独立演示运营分析 | [OPS_ANALYSIS_DEMO.md](docs/OPS_ANALYSIS_DEMO.md) |
+| 人设与主页对照 | [PERSONA_PAGE_DIRECTORY.md](docs/PERSONA_PAGE_DIRECTORY.md) |
 | 收费、成本与付款 | [PRODUCTION_CASHFLOW.md](docs/PRODUCTION_CASHFLOW.md) |
 | 已确认基础资料 | [CONFIRMED_BUSINESS_DIRECTORY.md](docs/CONFIRMED_BUSINESS_DIRECTORY.md) |
 | 非财务资料收集 | [REAL_DATA_COLLECTION.md](docs/REAL_DATA_COLLECTION.md)、[打印及填写模板](docs/templates/) |
@@ -43,7 +58,7 @@
 4. 前端默认http://127.0.0.1:15173，后端默认http://127.0.0.1:13080。
 5. 生产构建执行npm run build；按部署环境设置SERVE_STATIC=true后，使用npm run start -w backend启动。
 
-升级数据库前先备份再迁移；当前迁移为001–010。推送GitHub不会自动更新本机安装副本或公开演示。
+升级数据库前先备份再迁移；当前迁移为001–012。本次演示改版没有新增迁移。推送GitHub不会自动更新本机安装副本或公开演示。
 
 ## 验证与边界
 
