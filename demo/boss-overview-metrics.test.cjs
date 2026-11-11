@@ -6,6 +6,24 @@ const row=(kind,amount,currency='CNY',extra={})=>({id:'fictional-'+(++sequence),
 function fixture(rows=[],extra={}){return {rows,coverage:{from:'2025-01-01',to:clock.today},rates:[{currency:'TWD',cnyPerUnit:'0.200000',effectiveFrom:'2025-01-01'},{currency:'USD',cnyPerUnit:'7.200000',effectiveFrom:'2025-01-01'}],finance:[],paidPerformance:[],sources:[],targets:[],...extra};}
 const run=(data,query={})=>build(data,query,clock);
 
+test('收款与广告金额分别保留原币及参考折算，本月汇总与历史自定义区间独立',()=>{
+ const data=fixture([row('payment','100.00'),row('ad','10.00','USD'),row('payment','50.00','CNY',{date:'2026-11-10'}),row('ad','2.00','USD',{date:'2026-11-10'})]);
+ const today=run(data);
+ assert.equal(today.metrics.receipts.value,'100.00');
+ assert.equal(today.costBreakdown.advertising.value,'72.00');
+ const month=today.references.monthToDateAmounts;
+ assert.equal(month.receipts.value,'150.00');assert.equal(month.advertising.value,'86.40');
+ assert.equal(month.advertising.nativeTotals.USD,'12.00');assert.equal(month.period.from,'2026-11-01');
+ const prior=run(data,{from:'2026-11-10',to:'2026-11-10'});
+ assert.equal(prior.metrics.receipts.value,'50.00');assert.equal(prior.costBreakdown.advertising.value,'14.40');
+ assert.deepEqual(prior.references.monthToDateAmounts,month);
+ assert.equal(run(data,{preset:'month'}).references.monthToDateAmounts,null);
+ const missing=run({...data,rates:[]}).references.monthToDateAmounts;
+ assert.equal(missing.advertising.value,null);assert.equal(missing.advertising.status,'missing_rate');
+ assert.equal(run(fixture([])).references.monthToDateAmounts.advertising.value,'0.00');
+ assert.equal(run({...data,coverage:{from:clock.today,to:clock.today}}).references.monthToDateAmounts.receipts.value,null);
+});
+
 test('分开开单、定金尾款、追加收费及财务业绩：收款不再增加开单额',()=>{
  const data=fixture([row('booking','1100.00'),row('booking','330.00','CNY',{excluded:'跑单'}),row('payment','200.00'),row('payment','900.00'),row('charge','100.00')],{paidPerformance:[{date:clock.today,amount:'800.00'}]});
  const d=run(data);assert.equal(d.metrics.turnover.value,'1100.00');assert.equal(d.metrics.receipts.value,'1100.00');assert.equal(d.paidPerformance[0].amount,'800.00');assert.equal(d.ledger.find(r=>r.excluded).bucket,'excludedBooking');

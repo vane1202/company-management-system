@@ -153,15 +153,17 @@
       difference: receiptsValue != null && paidTotal != null ? money(cents(receiptsValue) - cents(paidTotal)) : null,
       status: receiptsValue != null && paidTotal != null ? 'ready' : paidTotal == null ? 'no_paid_performance' : current.totals.receipts.status
     };
-    let monthToDateRoi = null;
+    let monthToDateRoi = null, monthToDateAmounts = null;
     if (period.preset !== 'month' || period.custom) {
       const monthPeriod = periodOf({ preset: 'month' }, clock.today);
       const monthResult = calculate(dataset, monthPeriod, clock.localTime, monthPeriod.to === clock.today);
       monthToDateRoi = { ...monthResult.totals.roi, unit: '倍', period: { from: monthPeriod.from, to: monthPeriod.to } };
+      monthToDateAmounts = { receipts: monthResult.totals.receipts, advertising: monthResult.totals.adSpend, period: { from: monthPeriod.from, to: monthPeriod.to } };
     }
     const references = {
       registeredMaterialCost: { ...costBreakdown.excludedMaterial, hintOnly: true },
-      monthToDateRoi
+      monthToDateRoi,
+      monthToDateAmounts
     };
     if (!current.covered) {
       for (const block of [costBreakdown.visibleBusiness, costBreakdown.excludedMaterial, receiptSplit.currentBookings, receiptSplit.historicalOrders, receiptSplit.unscheduled, references.registeredMaterialCost]) {

@@ -20,10 +20,11 @@ type Data = {
   costBreakdown?:{visibleBusiness:Amount;advertising:Amount;excludedMaterial:Amount};
   receiptSplit?:{currentBookings:Amount;historicalOrders:Amount;unscheduled:Amount};
   collectionGap?:{receipts:string|null;paidPerformance:string|null;difference:string|null;status:string};
-  references?:{registeredMaterialCost:Amount&{hintOnly?:boolean};monthToDateRoi:{value:string|null;unit:string;status:string;period:{from:string;to:string}}|null};
+  references?:{registeredMaterialCost:Amount&{hintOnly?:boolean};monthToDateAmounts?:{receipts:Amount;advertising:Amount;period:{from:string;to:string}}|null};
 };
 type Props = {preset:string;range?:{from:string;to:string};tick:number;onOpenBusiness:(view:LiveView)=>void};
-const names:Record<string,string>={turnover:'开单营业额',receipts:'客户已收款',visibleCost:'可见成本',estimatedContribution:'毛利（估）',roi:'收款／广告消耗'};
+const names:Record<string,string>={turnover:'开单营业额',receipts:'客户已收款',visibleCost:'可见成本',estimatedContribution:'毛利（估）',roi:'收款与广告花费'};
+const spendDefinition='并列查看所选日期的客户收款与实际广告消耗，统一按参考汇率折算为人民币；不显示倍数，不把充值当作广告花费。收款按付款日，广告花费按消耗日，两者不一定来自同一批客户，不能据此认定广告利润或投放效果。本月累计为本月1日至今日，与自定义历史区间分开。';
 const format=(value:string|null|undefined)=>value==null?'—':Number(value).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});
 const rateFormat=(value:string)=>Number(value).toLocaleString('zh-CN',{maximumFractionDigits:6});
 const signed=(value:string)=>`${Number(value)>0?'+':''}${format(value)}`;
@@ -81,9 +82,21 @@ export default function BossP0Summary({preset,range,tick,onOpenBusiness}:Props){
   const fxDisclaimer='参考折算，不代表实际结汇到账';
   function card(key:string){
     const m=data?.metrics[key];
+    if(key==='roi'){
+      const receipt=data?.metrics.receipts,ad=data?.costBreakdown?.advertising,month=data?.references?.monthToDateAmounts;
+      return <article className="p0-kpi p0-spend" key={key} aria-label={names[key]}>
+        <header><h2>{names[key]}</h2><InfoTip label="收款与广告花费口径" text={`${spendDefinition} ${fxText}；${fxDisclaimer}。`}/></header>
+        <button type="button" className="p0-spend-pair" disabled={!data} aria-label="查看收款与广告花费构成" onClick={()=>setDetail(key)}>
+          <span><small>客户收款</small><strong>{loading?'…':yen(receipt?.value)}</strong></span>
+          <span><small>广告花费</small><strong>{loading?'…':yen(ad?.value)}</strong></span>
+        </button>
+        {[receipt,ad].some(a=>a&&a.status!=='ready')&&<span className="p0-state">金额{messages[[receipt,ad].find(a=>a&&a.status!=='ready')!.status]??'待补齐'}</span>}
+        {month&&<div className="p0-spend-month" aria-label="本月累计收款与广告花费"><small>本月累计 · 人民币</small><span>收款 <b>{yen(month.receipts.value)}</b></span><span>花费 <b>{yen(month.advertising.value)}</b></span>{[month.receipts,month.advertising].some(a=>a.status!=='ready')&&<small className="p0-state">本月数据待补齐</small>}</div>}
+      </article>;
+    }
     return <article className={`p0-kpi p0-${key}`} key={key} aria-label={names[key]}>
-      <header><h2>{names[key]}</h2><InfoTip label={`${names[key]}口径`} text={`${m?.definition??'正在读取定义'} 来源：${m?.source??'演示指标服务'}。${key==='roi'?'单位为倍。':'单位 CNY。'}${fxText}；${fxDisclaimer}。`}/></header>
-      <button className="p0-number" type="button" disabled={!data} aria-label={`查看${names[key]}构成`} onClick={()=>setDetail(key)}><strong>{loading?'…':format(m?.value)}</strong><small>{key==='roi'?'倍':'CNY'}</small></button>
+      <header><h2>{names[key]}</h2><InfoTip label={`${names[key]}口径`} text={`${m?.definition??'正在读取定义'} 来源：${m?.source??'演示指标服务'}。单位 CNY。${fxText}；${fxDisclaimer}。`}/></header>
+      <button className="p0-number" type="button" disabled={!data} aria-label={`查看${names[key]}构成`} onClick={()=>setDetail(key)}><strong>{loading?'…':format(m?.value)}</strong><small>CNY</small></button>
       {m&&nativeLine(m.nativeTotals)}
       {key==='visibleCost'&&data?.costBreakdown&&<ul className="p0-breakdown">
         <li>可见业务费用 <b>{format(data.costBreakdown.visibleBusiness.value)}</b> <small>设计/运费等</small></li>
@@ -96,7 +109,6 @@ export default function BossP0Summary({preset,range,tick,onOpenBusiness}:Props){
         {data.receiptSplit.unscheduled.value && data.receiptSplit.unscheduled.value!=='0.00' && <li>开单日待补 <b>{format(data.receiptSplit.unscheduled.value)}</b></li>}
         {data.collectionGap?.difference!=null&&<li className="p0-gap">收款／核定差额 <b>{yen(data.collectionGap.difference)}</b> <small>两者按不同日期统计，不代表待核定金额</small></li>}
       </ul>}
-      {key==='roi'&&data?.references?.monthToDateRoi&&<p className="p0-mtd">本月累计 <strong>{format(data.references.monthToDateRoi.value)} 倍</strong><small>日 ROI 仅供参考</small></p>}
       {m?.status!=='ready'&&m&&<span className="p0-state">{messages[m.status]??'数据待补'}</span>}
       {m&&<Compare metric={m} metricKey={key}/>}
       {key==='turnover'&&data?.target&&<span className="p0-target">月目标 {format(data.target.amountCny)} CNY</span>}
@@ -129,7 +141,8 @@ export default function BossP0Summary({preset,range,tick,onOpenBusiness}:Props){
     <dialog ref={dialog} className="p0-dialog" aria-labelledby="p0-detail-heading" onClose={()=>setDetail(null)}>
       <header><h2 id="p0-detail-heading">{names[detail??'']} · 构成</h2><button type="button" className="secondary" onClick={()=>{dialog.current?.close();setDetail(null);}}>返回总览</button></header>
       <p>{data?.period.from} 至 {data?.period.to} · 全公司</p>
-      <p className="p0-detail-definition">{data?.metrics[detail??'']?.definition}</p>
+      <p className="p0-detail-definition">{detail==='roi'?spendDefinition:data?.metrics[detail??'']?.definition}</p>
+      {detail==='roi'&&<div className="p0-deductions"><p>客户已收款（参考折算）<b>{yen(data?.metrics.receipts.value)}</b></p><p>广告实际消耗（参考折算）<b>{yen(data?.costBreakdown?.advertising.value)}</b></p></div>}
       {detail==='receipts'&&data?.receiptSplit&&<div className="p0-deductions"><p>本期开单收款（开单日在本区间）<b>{format(data.receiptSplit.currentBookings.value)}</b></p><p>历史订单收款（开单日在本区间之前）<b>{format(data.receiptSplit.historicalOrders.value)}</b></p>{data.collectionGap?.difference!=null&&<p>收款／核定差额（收款按付款日，核定按开单日；不代表待核定金额）<b>{yen(data.collectionGap.difference)}</b></p>}</div>}
       {lines.map(r=><article className="p0-ledger-row" key={r.kind+r.id}><div><b>{r.label}</b><small>{r.date}{r.bookingDate && r.kind==='payment'?` · 开单 ${r.bookingDate}`:''}{r.reason?' · '+r.reason:''}</small><small>{r.rate?`1 ${r.currency} = ${rateFormat(r.rate)} CNY · 生效 ${r.rateDate}`:'参考汇率待补'}</small></div><div><strong>{format(r.amount)} {r.currency}</strong><small>{r.bucket.startsWith('excluded')?'排除，不计入':r.bucket==='unclassifiedCost'?'待分类':r.cny!==null?`${format(r.cny)} CNY`:'无法折算'}</small></div></article>)}
       {!lines.length&&<p>该区间没有已登记明细。</p>}
