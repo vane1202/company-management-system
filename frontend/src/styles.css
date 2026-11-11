@@ -784,7 +784,9 @@ progress::-moz-progress-bar { background: #4c7954; border-radius: 1rem; }
 .live-cost-source{display:block;margin-top:2px;font-size:11px;color:var(--muted);line-height:1.35;overflow-wrap:anywhere}
 .order-jade-cost{border:1px dashed #c5d4cb;background:#f6faf6}
 .order-jade-cost strong{display:block}
-label.row small.hint,label.row>small{display:block;margin-top:4px;color:var(--muted);font-weight:400;line-height:1.45}
+label.row small.hint,label.row>small{display:block;margin-top:4px;color:var(--muted);font-weight:400;line-height:1.45;overflow-wrap:anywhere}
+.commerce-item .text-action{white-space:normal;display:inline;padding:0;min-height:0;font-size:12px;vertical-align:baseline}
+.commerce-item .hint .text-action{margin-left:.35em}
 
 .live-room-profit-row .live-room-open{min-height:36px;padding:0;margin-top:4px;width:auto;display:inline-flex}
 @media(max-width:799px){

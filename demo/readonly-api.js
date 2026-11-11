@@ -36,12 +36,12 @@
   ].map((row) => ({ ...row, note:"虚构演示记录", recordVersion:1, updatedAt:row.businessDate+"T02:00:00Z", isLegacyUnclassified:false }));
   fans.forEach(f=>{const index=accounts.findIndex(a=>a.id===f.userId);if(index===1){f.wsToday=f.addedCount;f.msToday=0;f.wsMonth=f.businessDate===today?83:f.wsMonth;f.msMonth=0;}else{f.msToday=f.addedCount;f.wsToday=0;f.msMonth=f.businessDate===today?216:f.msMonth;f.wsMonth=0;}});
   const orders = [
-    { id:"demo-order-1", userId:accounts[0].id, businessDate:today, orderRef:"DEMO-A-001", customerLabel:"演示客户甲", amount:"1290.50", status:"shipped", customProductCost:"900.00", laborCost:"50.00", shippingCost:"20.00", materialCost:"900.00" },
+    { id:"demo-order-1", userId:accounts[0].id, businessDate:today, orderRef:"DEMO-A-001", customerLabel:"演示客户甲", amount:"1290.50", status:"shipped", customProductCost:"900.00", laborCost:"50.00", shippingCost:"20.00", materialCost:"900.00", materialLotNo:"D367-32" },
     { id:"demo-order-2", userId:accounts[0].id, businessDate:today, orderRef:"DEMO-A-002", customerLabel:"演示客户乙", amount:"680.00", status:"placed", customProductCost:"400.00", laborCost:"20.00", shippingCost:"10.00" },
     { id:"demo-order-3", userId:accounts[1].id, businessDate:shift(today,-1), orderRef:"DEMO-B-001", customerLabel:"演示客户丙", amount:"950.00", status:"in_production", customProductCost:"600.00", laborCost:"30.00", shippingCost:"15.00" },
     { id:"demo-order-4", userId:accounts[1].id, businessDate:today, orderRef:"DEMO-B-002", customerLabel:"演示客户丁", amount:"180.00", status:"refunded", customProductCost:"80.00", laborCost:"0.00", shippingCost:"0.00" },
     // 两笔昨日虚构开单：一笔已登记跑单（回冲原开单日），一笔未付款、可由本组主管登记跑单。
-    { id:"demo-order-5", userId:accounts[0].id, businessDate:shift(today,-1), orderRef:"DEMO-A-003", customerLabel:"演示客户戊", amount:"330.00", status:"placed", customProductCost:"0.00", laborCost:"0.00", shippingCost:"0.00", cancelled:true, materialCost:"200.00" },
+    { id:"demo-order-5", userId:accounts[0].id, businessDate:shift(today,-1), orderRef:"DEMO-A-003", customerLabel:"演示客户戊", amount:"330.00", status:"placed", customProductCost:"0.00", laborCost:"0.00", shippingCost:"0.00", cancelled:true, materialCost:"200.00", materialLotNo:"D218-07" },
     { id:"demo-order-6", userId:accounts[0].id, businessDate:shift(today,-1), orderRef:"DEMO-A-004", customerLabel:"演示客户己", amount:"550.00", status:"placed", customProductCost:"0.00", laborCost:"0.00", shippingCost:"0.00" }
   ].map((row) => ({ ...row, wechatId:accounts.find((a)=>a.id===row.userId).wechatId, displayName:accounts.find((a)=>a.id===row.userId).wechatId, accountKind:"cs_service", isCustom:true, recordVersion:1, updatedAt:row.businessDate+"T03:00:00Z" }));
   const demoFxRates=[{currency:'TWD',cnyPerUnit:'0.200000',effectiveFrom:shift(today,-800),source:'虚构参考配置'},{currency:'USD',cnyPerUnit:'7.200000',effectiveFrom:shift(today,-800),source:'虚构参考配置'}];
@@ -123,7 +123,7 @@
   }
   payments.forEach(p=>{const o=orders.find(o=>o.id===p.order_id);Object.assign(p,{persona_code:o.personaCode,live_room_code:o.liveRoomCode,host_name:o.hostName,customer_code:o.customerCode,operator_name:o.operatorName});});
   function orderRecord(order){
-    const index=orders.indexOf(order),raw={id:order.id,order_ref:order.orderRef,customer_label:order.customerLabel,business_date:order.businessDate,amount:order.amount,status:order.status,cancelled:!!order.cancelled,wechat_id:order.wechatId,display_name:order.displayName,note:'虚构演示记录',custom_product_cost:order.customProductCost,labor_cost:order.laborCost,shipping_cost:order.shippingCost,material_cost_cny:order.materialCost??null};
+    const index=orders.indexOf(order),raw={id:order.id,order_ref:order.orderRef,customer_label:order.customerLabel,business_date:order.businessDate,amount:order.amount,status:order.status,cancelled:!!order.cancelled,wechat_id:order.wechatId,display_name:order.displayName,note:'虚构演示记录',custom_product_cost:order.customProductCost,labor_cost:order.laborCost,shipping_cost:order.shippingCost,material_cost_cny:order.materialCost??null,material_lot_no:order.materialLotNo??null};
     if(!order.workflowEnabled)return {order:raw,legacy:true};
     if(index>=4){
       // 虚构未付款开单：无追加、无收款、无成本；料价＋10%代购费即营业额。

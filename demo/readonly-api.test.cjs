@@ -202,11 +202,17 @@ test('直播间毛利优先开单卡料本、缺省回退供货款；跑单料�
  assert.equal(b.profit.status,'pending_finance');
  const card=(await e.json('/api/order-records/demo-order-1')).body;
  assert.equal(card.order.material_cost_cny,'900.00');
+ assert.equal(card.order.material_lot_no,'D367-32');
  const fallback=(await e.json('/api/order-records/demo-order-2')).body;
  assert.equal(fallback.order.material_cost_cny,null);
+ assert.equal(fallback.order.material_lot_no,null);
+ const listed=(await e.json('/api/orders?from=2020-01-01')).body.orders.find(o=>o.id==='demo-order-1');
+ assert.equal(listed.materialCost,'900.00');
+ assert.equal(listed.materialLotNo,'D367-32');
  const cancelled=(await e.json('/api/order-records/demo-order-5')).body;
  assert.equal(cancelled.order.cancelled,true);
  assert.equal(cancelled.order.material_cost_cny,'200.00');
+ assert.equal(cancelled.order.material_lot_no,'D218-07');
  const date=(await e.json('/api/auth/me')).body.today,prior=new Date(Date.parse(date+'T00:00:00Z')-86400000).toISOString().slice(0,10);
  const y=(await e.json('/api/dashboard/live-business?from='+prior+'&to='+prior)).body;
  const y1=y.rooms.find(r=>r.roomCode==='DEMO-LIVE-01');

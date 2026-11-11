@@ -265,6 +265,8 @@ export type Order = {
   customProductCost: string;
   laborCost: string;
   shippingCost: string;
+  materialCost?: string | null;
+  materialLotNo?: string | null;
 };
 
 export type Currency = "CNY" | "TWD" | "USD";
@@ -288,7 +290,7 @@ export type AdTopup = {id:string;account_ref:string;paid_on:string;credited_usd:
 export type AdAccountsData = {accounts:AdAccount[];topups:AdTopup[];summary:{paidCny:string;creditedUsd:string;spentUsd:string;balanceUsd:string}};
 export type OrderRecord = {
   legacy:boolean;
-  order:{id:string;order_ref:string;customer_label:string;business_date:string;amount:string;status:string;cancelled?:boolean;wechat_id?:string;display_name:string;note?:string;custom_product_cost:string;labor_cost:string;shipping_cost:string;material_cost_cny?:string|null};
+  order:{id:string;order_ref:string;customer_label:string;business_date:string;amount:string;status:string;cancelled?:boolean;wechat_id?:string;display_name:string;note?:string;custom_product_cost:string;labor_cost:string;shipping_cost:string;material_cost_cny?:string|null;material_lot_no?:string|null};
   cancellations?:{id:string;booked_on:string;base_amount_cny:string;reason:string;created_at:string;created_by_name:string|null;voided_at:string|null;void_reason:string|null;voided_by_name:string|null}[];
   details?:{personaName:string;personaCode?:string;liveRoomCode?:string;hostName?:string;customerCode?:string;operatorName:string;source:string;customerCurrency:Currency;customerDue:string;baseCustomerDue?:string;shippedOn:string|null;version:number};
   items?:{id:string;label:string;material_ref:string;kind:string;price_cny:string;buying_fee_cny:string}[];
