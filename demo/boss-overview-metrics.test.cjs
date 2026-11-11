@@ -26,7 +26,7 @@ test('费用不清楚不猜；配货采购、提成、代收手续费均排除�
  assert.equal(d.metrics.visibleCost.value,'0.00');assert.equal(d.metrics.estimatedContribution.value,'100.00');assert.equal(d.metrics.roi.status,'no_spend');
  const x=run(fixture([row('cost','5.00','CNY',{category:'other'})]));assert.equal(x.metrics.visibleCost.value,null);assert.equal(x.metrics.visibleCost.status,'unclassified_cost');
 });
-test('财务未填与明确0分开；区间缺一日不可算最终净贡献',()=>{
+test('财务未填与明确0分开；区间缺一日不可算实际毛利',()=>{
  const data=fixture([row('payment','10.00')],{finance:[{date:clock.today,materialCost:'0.00',commission:'0.00',collectionFee:'0.00'}]});
  assert.equal(run(data).finalContribution.value,'10.00');
  const d=run(data,{from:'2026-11-10',to:clock.today});assert.equal(d.finalContribution.value,null);assert.deepEqual(d.finalContribution.missingDays,['2026-11-10']);
@@ -37,7 +37,7 @@ test('按费用发生日选择有效汇率，原币保留，半分四舍五入',
  assert.equal(convert(row('payment','10.00','USD',{date:'2026-11-10'}),rates).cny,'71.00');assert.equal(convert(row('payment','10.00','USD'),rates).cny,'72.00');
  assert.equal(convert(row('payment','0.01','USD'),[{currency:'USD',cnyPerUnit:'0.500000',effectiveFrom:'2026-11-01'}]).cny,'0.01');assert.equal(convert(row('payment','10.00','USD',{date:'2026-10-31'}),rates).cny,null);
 });
-test('同期按相同已过去时刻；未来发生记录不进入当前，负净贡献不造误导百分比',()=>{
+test('同期按相同已过去时刻；未来发生记录不进入当前，毛利（估）为负时不造误导百分比',()=>{
  const data=fixture([row('payment','100.00'),row('cost','200.00','CNY',{category:'design'}),row('payment','900.00','CNY',{date:'2026-11-10',localTime:'18:00:00'}),row('payment','50.00','CNY',{date:'2026-11-10',localTime:'10:00:00'})]);
  const d=run(data);assert.equal(d.metrics.receipts.comparisons[0].baseValue,'50.00');assert.equal(d.metrics.receipts.comparisons[0].percent,'100.00');assert.equal(d.metrics.estimatedContribution.value,'-100.00');
  assert.equal(d.metrics.estimatedContribution.comparisons[1].status,'nonpositive_base');
@@ -52,4 +52,60 @@ test('月初、短月、周一、自定义范围及非法日期边界',()=>{
 test('数据覆盖不完整、当日缺发生时刻，合计和对比均不伪造0',()=>{
  const a=run(fixture([],{coverage:{from:clock.today,to:clock.today}}));assert.equal(a.metrics.turnover.comparisons[0].status,'unavailable');
  const b=run(fixture([row('payment','10.00','CNY',{localTime:null})]));assert.equal(b.metrics.receipts.value,null);assert.equal(b.metrics.receipts.status,'incomplete');
+});
+
+test('成本分解、收款拆分、财务核定差额与本月累计ROI不改原总额',()=>{
+ const data=fixture([
+  row('booking','1290.50','CNY',{orderId:'o1'}),
+  row('booking','480.00','CNY',{orderId:'o2'}),
+  row('booking','850.00','CNY',{date:'2026-11-10',orderId:'o3'}),
+  row('payment','1290.50','CNY',{orderId:'o1',bookingDate:'2026-11-11'}),
+  row('payment','1200.00','TWD',{orderId:'o2',bookingDate:'2026-11-11'}),
+  row('payment','140.00','USD',{orderId:'o3',bookingDate:'2026-11-10'}),
+  row('cost','1300.00','CNY',{category:'goods'}),
+  row('cost','115.00','CNY',{category:'shipping'}),
+  row('ad','29.20','USD')
+ ],{paidPerformance:[{date:clock.today,amount:'1290.50'}]});
+ const d=run(data);
+ assert.equal(d.metrics.receipts.value,'2538.50');
+ assert.equal(d.metrics.visibleCost.value,'325.24');
+ assert.equal(d.metrics.estimatedContribution.value,'2213.26');
+ assert.equal(d.metrics.roi.value,'12.07');
+ assert.equal(d.metrics.roi.unit,'倍');
+ assert.equal(d.costBreakdown.visibleBusiness.value,'115.00');
+ assert.equal(d.costBreakdown.advertising.value,'210.24');
+ assert.equal(d.costBreakdown.advertising.nativeTotals.USD,'29.20');
+ assert.equal(d.costBreakdown.excludedMaterial.value,'1300.00');
+ assert.equal(d.receiptSplit.currentBookings.value,'1530.50');
+ assert.equal(d.receiptSplit.historicalOrders.value,'1008.00');
+ assert.equal(d.collectionGap.difference,'1248.00');
+ assert.equal(d.collectionGap.paidPerformance,'1290.50');
+ assert.equal(d.references.registeredMaterialCost.value,'1300.00');
+ assert.equal(d.references.registeredMaterialCost.hintOnly,true);
+ assert.ok(d.references.monthToDateRoi);
+ assert.equal(d.references.monthToDateRoi.unit,'倍');
+ assert.equal(d.references.monthToDateRoi.period.to,clock.today);
+ const month=run(data,{preset:'month'});
+ assert.equal(month.references.monthToDateRoi,null);
+ assert.equal(month.metrics.roi.value,d.references.monthToDateRoi.value);
+});
+test('零基期标记 nonpositive_base 且不给增长率；毛利（估）跨盈亏只给金额差',()=>{
+ const data=fixture([row('payment','100.00'),row('cost','30.00','CNY',{category:'shipping'})]);
+ const d=run(data);
+ const week=d.metrics.receipts.comparisons.find(c=>c.label==='上周同期');
+ assert.equal(week.baseValue,'0.00');
+ assert.equal(week.status,'nonpositive_base');
+ assert.equal(week.percent,null);
+ const contrib=fixture([
+  row('payment','100.00'),
+  row('cost','200.00','CNY',{category:'design'}),
+  row('payment','50.00','CNY',{date:'2026-11-10',localTime:'10:00:00'}),
+  row('cost','80.00','CNY',{category:'shipping',date:'2026-11-10',localTime:'10:00:00'})
+ ]);
+ const c=run(contrib);
+ const yesterday=c.metrics.estimatedContribution.comparisons[0];
+ assert.equal(c.metrics.estimatedContribution.value,'-100.00');
+ assert.ok(Number(yesterday.baseValue)<0);
+ assert.equal(yesterday.percent,null);
+ assert.equal(yesterday.absolute,'-70.00');
 });

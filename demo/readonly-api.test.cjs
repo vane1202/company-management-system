@@ -12,11 +12,40 @@ function environment(role){
  return {fetch:window.fetch,json:async(path,method='GET',body)=>{const response=await window.fetch(path,{method,body:JSON.stringify(body)});return {status:response.status,body:await response.json()};},network:()=>networkRequests};
 }
 
+test('直播间人员成本不按主播、人设或客服维度推测分摊，日期和直播间筛选仍可核算',async()=>{
+ const e=environment('boss'),all=(await e.json('/api/dashboard/live-business')).body;
+ const option=all.options.find(o=>o.room==='DEMO-LIVE-01');
+ for(const key of ['host','persona','operator']){
+  assert.ok(option[key]);
+  const filtered=(await e.json('/api/dashboard/live-business?'+key+'='+encodeURIComponent(option[key]))).body;
+  const room=filtered.rooms.find(r=>r.key==='DEMO-LIVE-01');
+  assert.ok(room);
+  assert.equal(room.profit.status,'unsupported_scope');
+  assert.equal(room.profit.staff.totalCny,null);
+  assert.equal(room.profit.liveRoomProfitCny,null);
+  assert.equal(room.profit.staff.actorSessionFee.value,null);
+ }
+ const roomOnly=(await e.json('/api/dashboard/live-business?room=DEMO-LIVE-01')).body;
+ assert.equal(roomOnly.rooms[0].profit.staff.totalCny,'240.00');
+ assert.equal(roomOnly.rooms[0].profit.liveRoomProfitCny,'230.50');
+ assert.equal(e.network(),0);
+});
+
 test('P0独立演示首屏与原明细逐笔一致；原币保留；正式后台零请求',async()=>{
  const e=environment('boss'),d=(await e.json('/api/demo/boss-overview')).body;
  const old=(await e.json('/api/dashboard/live-business')).body;
  assert.equal(d.version,'boss-overview-p0/v1');assert.equal(d.metrics.turnover.value,old.totals.performanceCny);
   assert.equal(d.metrics.receipts.value,'2538.50');assert.equal(d.metrics.visibleCost.value,'325.24');assert.equal(d.metrics.estimatedContribution.value,'2213.26');assert.equal(d.metrics.roi.value,'12.07');
+  assert.equal(d.metrics.roi.unit,'倍');
+  assert.equal(d.costBreakdown.visibleBusiness.value,'115.00');assert.equal(d.costBreakdown.advertising.value,'210.24');assert.equal(d.costBreakdown.excludedMaterial.value,'1300.00');
+  assert.equal(d.receiptSplit.currentBookings.value,'1530.50');assert.equal(d.receiptSplit.historicalOrders.value,'1008.00');
+  assert.equal(d.collectionGap.difference,'1248.00');assert.equal(d.collectionGap.paidPerformance,'1290.50');
+  assert.equal(d.references.registeredMaterialCost.value,'1300.00');
+  assert.ok(d.references.monthToDateRoi && d.references.monthToDateRoi.unit==='倍');
+  assert.match(d.metrics.roi.definition,/日 ROI 仅供参考/);
+  assert.match(d.metrics.visibleCost.definition,/主播薪酬是否计入原直播间费用：待确认/);
+  assert.match(d.metrics.estimatedContribution.definition,/毛利（估）不是公司净利润/);
+  assert.match(d.metrics.estimatedContribution.definition,/未扣料成本、提成、代收手续费/);
   assert.equal(d.ledger.filter(r=>r.bucket==='excludedCost').reduce((n,r)=>n+Math.round(Number(r.amount)*100),0),130000);
  assert.equal(d.finalContribution.status,'pending_finance');assert.equal(d.target,null);
  for(const role of ['admin','finance','cs_supervisor'])assert.equal((await environment(role).json('/api/demo/boss-overview')).status,403);
@@ -165,6 +194,52 @@ test('BOSS business home counts a prior-day order charge and shipping on their o
  const prior=d.rooms.find(r=>r.roomCode==='DEMO-LIVE-02');assert.equal(prior.totals.performanceCny,'0.00');assert.equal(prior.totals.expenseCny,'15.00');assert.equal(prior.totals.newOrderCount,0);
  assert.equal(d.rooms.find(r=>r.roomCode==='DEMO-LIVE-01').personas.length,1);
  const sum=key=>d.rooms.reduce((n,r)=>n+Math.round(Number(r.totals[key])*100),0);assert.equal(sum('performanceCny'),177050);assert.equal(sum('expenseCny'),141500);
+ assert.equal(e.network(),0);
+});
+test('直播间毛利优先开单卡料本、缺省回退供货款；跑单料本不计入且不改经营总览毛利（估）',async()=>{
+ const e=environment('boss'),d=(await e.json('/api/dashboard/live-business')).body;
+ assert.equal(d.profitMethod,'turnover_minus_material_and_entered_staff_costs');
+ assert.equal(d.totals.performanceCny,'1770.50');assert.equal(d.totals.expenseCny,'1415.00');
+ const a=d.rooms.find(r=>r.roomCode==='DEMO-LIVE-01'),b=d.rooms.find(r=>r.roomCode==='DEMO-LIVE-02');
+ assert.equal(a.totals.performanceCny,'1770.50');
+ assert.equal(a.profit.materialCostCny,'1300.00');
+ assert.equal(a.profit.materialCostSources.orderCardCny,'900.00');
+ assert.equal(a.profit.materialCostSources.expenseFallbackCny,'400.00');
+ assert.equal(a.profit.staff.hostCommission.value,'120.00');
+ assert.equal(a.profit.staff.assistantCommission.value,'40.00');
+ assert.equal(a.profit.staff.actorSessionFee.value,'80.00');
+ assert.equal(a.profit.staff.totalCny,'240.00');
+ assert.equal(a.profit.liveRoomProfitCny,'230.50');
+ assert.equal(a.profit.status,'ok');
+ assert.equal(b.totals.performanceCny,'0.00');
+ assert.equal(b.profit.materialCostCny,'0.00');
+ assert.equal(b.profit.staff.actorSessionFee.value,'60.00');
+ assert.equal(b.profit.staff.hostCommission.status,'pending_finance');
+ assert.equal(b.profit.staff.assistantCommission.status,'pending_finance');
+ assert.equal(b.profit.staff.totalCny,null);
+ assert.equal(b.profit.liveRoomProfitCny,null);
+ assert.equal(b.profit.status,'pending_finance');
+ const card=(await e.json('/api/order-records/demo-order-1')).body;
+ assert.equal(card.order.material_cost_cny,'900.00');
+ assert.equal(card.order.material_lot_no,'D367-32');
+ const fallback=(await e.json('/api/order-records/demo-order-2')).body;
+ assert.equal(fallback.order.material_cost_cny,null);
+ assert.equal(fallback.order.material_lot_no,null);
+ const listed=(await e.json('/api/orders?from=2020-01-01')).body.orders.find(o=>o.id==='demo-order-1');
+ assert.equal(listed.materialCost,'900.00');
+ assert.equal(listed.materialLotNo,'D367-32');
+ const cancelled=(await e.json('/api/order-records/demo-order-5')).body;
+ assert.equal(cancelled.order.cancelled,true);
+ assert.equal(cancelled.order.material_cost_cny,'200.00');
+ assert.equal(cancelled.order.material_lot_no,'D218-07');
+ const date=(await e.json('/api/auth/me')).body.today,prior=new Date(Date.parse(date+'T00:00:00Z')-86400000).toISOString().slice(0,10);
+ const y=(await e.json('/api/dashboard/live-business?from='+prior+'&to='+prior)).body;
+ const y1=y.rooms.find(r=>r.roomCode==='DEMO-LIVE-01');
+ assert.equal(y1.profit.materialCostCny,'0.00');
+ assert.equal(y1.profit.materialCostSources.excludedCancelledCny,'200.00');
+ const overview=(await e.json('/api/demo/boss-overview')).body;
+ assert.equal(overview.metrics.estimatedContribution.value,'2213.26');
+ assert.equal(overview.finalContribution.status,'pending_finance');
  assert.equal(e.network(),0);
 });
 test('live-room filters leave company advertising scoped to the same dates; other roles cannot read the home endpoint',async()=>{

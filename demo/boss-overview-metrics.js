@@ -53,9 +53,9 @@
   const definitions = {
     turnover: ['开单卡料价＋代购费，按原开单日；排除跑单和历史退款标记源单，不含追加收费。', '开单卡及跑单记录'],
     receipts: ['有效客户付款按付款日汇总并参考折算；与公司实际到账、财务核定已付款业绩分开。', '客户付款流水'],
-    visibleCost: ['明确分类的设计、加工、配件、证书、包装、运费＋实际广告消耗；排除商品/料成本（含配货采购）、提成、代收手续费。充值不算广告消耗。', '费用明细及广告消耗日报'],
-    estimatedContribution: ['客户已收款参考折算－可见成本。未扣料成本、提成、代收手续费；混合收款日与费用发生日，不代表订单利润或公司净利润。', '客户付款、分类费用及广告消耗'],
-    roi: ['分子：客户已收款参考折算；分母：广告消耗参考折算。并非利润率，不代表同批获客或广告因果归因。广告消耗为0时不计算。', '客户付款及广告消耗日报']
+    visibleCost: ['明确分类的设计、加工、配件、证书、包装、运费＋实际广告消耗；排除商品/料成本（含配货采购）、提成、代收手续费。充值不算广告消耗。主播薪酬是否计入原直播间费用：待确认。', '费用明细及广告消耗日报'],
+    estimatedContribution: ['毛利（估）＝客户已收款参考折算－可见成本。未扣料成本、提成、代收手续费。毛利（估）不是公司净利润；混合收款日与费用发生日，也不代表单笔订单利润。账内已登记料成本仅作参考提示，不替代财务专项核算，也不并入本项。', '客户付款、分类费用及广告消耗'],
+    roi: ['分子：客户已收款参考折算；分母：广告消耗参考折算。并非利润率，不代表同批获客或广告因果归因。收款与广告花费不同期（今天成交可能来自上月投流），日 ROI 仅供参考，本月累计更有参考价值。广告消耗为0时不计算。', '客户付款及广告消耗日报']
   };
   function calculate(dataset, period, cutoffTime, partialEnd) {
     const inside = r => !r.voided && r.date >= period.from && r.date <= period.to && (!partialEnd || r.date !== period.to || (r.localTime && r.localTime <= cutoffTime));
@@ -98,6 +98,14 @@
     }
     return { totals, rows, finalContribution, covered };
   }
+  function bookingDateOf(row, rows) {
+    if (row.bookingDate) return row.bookingDate;
+    const booking = rows.find(r => r.kind === 'booking' && row.orderId && r.orderId === row.orderId);
+    return booking ? booking.date : null;
+  }
+  function sliceOf(current, predicate) {
+    return current.rows.filter(predicate);
+  }
   function build(dataset, query, clock) {
     const period = periodOf(query, clock.today), partialEnd = period.to === clock.today;
     const current = calculate(dataset, period, clock.localTime, partialEnd);
@@ -111,9 +119,62 @@
         return { ...p, baseValue: prior.value, baseStatus: prior.status, absolute, percent: ready && cents(prior.value) > 0n ? money(rounded((cents(total.value) - cents(prior.value)) * 10000n, cents(prior.value))) : null, status: !ready ? 'unavailable' : cents(prior.value) <= 0n ? 'nonpositive_base' : 'ready' };
       }) };
     }
+    const sum = records => {
+      const nativeTotals = {};
+      for (const r of records) nativeTotals[r.currency] = money(cents(nativeTotals[r.currency] || '0.00') + cents(r.amount));
+      const missing = records.some(r => r.cny === null);
+      return { value: missing ? null : money(records.reduce((n, r) => n + cents(r.cny), 0n)), nativeTotals, status: missing ? 'missing_rate' : 'ready' };
+    };
+    const paymentRows = sliceOf(current, r => r.bucket === 'payment');
+    const currentBookings = [], historicalOrders = [], unscheduled = [];
+    for (const r of paymentRows) {
+      const booked = bookingDateOf(r, current.rows);
+      if (!booked) unscheduled.push(r);
+      else if (booked >= period.from && booked <= period.to) currentBookings.push(r);
+      else historicalOrders.push(r);
+    }
+    const receiptSplit = {
+      currentBookings: sum(currentBookings),
+      historicalOrders: sum(historicalOrders),
+      unscheduled: sum(unscheduled)
+    };
+    const materialCategories = new Set(['goods', 'material', 'sourcing']);
+    const costBreakdown = {
+      visibleBusiness: sum(sliceOf(current, r => r.bucket === 'cost')),
+      advertising: current.totals.adSpend,
+      excludedMaterial: sum(sliceOf(current, r => r.bucket === 'excludedCost' && materialCategories.has(r.category)))
+    };
+    const paidRows = dataset.paidPerformance.filter(r => r.date >= period.from && r.date <= period.to);
+    const paidTotal = paidRows.length ? money(paidRows.reduce((n, r) => n + cents(r.amount), 0n)) : null;
+    const receiptsValue = current.totals.receipts.value;
+    const collectionGap = {
+      receipts: receiptsValue,
+      paidPerformance: paidTotal,
+      difference: receiptsValue != null && paidTotal != null ? money(cents(receiptsValue) - cents(paidTotal)) : null,
+      status: receiptsValue != null && paidTotal != null ? 'ready' : paidTotal == null ? 'no_paid_performance' : current.totals.receipts.status
+    };
+    let monthToDateRoi = null;
+    if (period.preset !== 'month' || period.custom) {
+      const monthPeriod = periodOf({ preset: 'month' }, clock.today);
+      const monthResult = calculate(dataset, monthPeriod, clock.localTime, monthPeriod.to === clock.today);
+      monthToDateRoi = { ...monthResult.totals.roi, unit: '倍', period: { from: monthPeriod.from, to: monthPeriod.to } };
+    }
+    const references = {
+      registeredMaterialCost: { ...costBreakdown.excludedMaterial, hintOnly: true },
+      monthToDateRoi
+    };
+    if (!current.covered) {
+      for (const block of [costBreakdown.visibleBusiness, costBreakdown.excludedMaterial, receiptSplit.currentBookings, receiptSplit.historicalOrders, receiptSplit.unscheduled, references.registeredMaterialCost]) {
+        block.value = null;
+        block.status = 'incomplete';
+      }
+      collectionGap.difference = null;
+      collectionGap.status = 'incomplete';
+    }
+
     const fx = { referenceOnly: true, ratesUsed: [...new Map(current.rows.filter(r => r.rate).map(r => [r.currency + r.rate + r.rateDate, { currency: r.currency, cnyPerUnit: r.rate, effectiveFrom: r.rateDate }])).values()], missing: [...new Set(current.rows.filter(r => r.rate === null).map(r => r.currency + ' / ' + r.date))] };
     const monthTarget = !period.custom && period.preset === 'month' ? dataset.targets?.find(t => t.month === period.from.slice(0, 7)) : null;
-    return { version: 'boss-overview-p0/v1', demo: true, scope: 'company', period: { ...period, timezone: 'Asia/Shanghai', asOf: clock.asOf, cutoff: partialEnd ? clock.localTime : '23:59:59' }, metrics, finalContribution: current.finalContribution, ledger: current.rows, fx, sources: dataset.sources, paidPerformance: dataset.paidPerformance.filter(r => r.date >= period.from && r.date <= period.to), target: monthTarget || null };
+    return { version: 'boss-overview-p0/v1', demo: true, scope: 'company', period: { ...period, timezone: 'Asia/Shanghai', asOf: clock.asOf, cutoff: partialEnd ? clock.localTime : '23:59:59' }, metrics, finalContribution: current.finalContribution, ledger: current.rows, fx, sources: dataset.sources, paidPerformance: paidRows, target: monthTarget || null, costBreakdown, receiptSplit, collectionGap, references };
   }
   return { build, convert, cents, money, periodOf, comparisonPeriods };
 });

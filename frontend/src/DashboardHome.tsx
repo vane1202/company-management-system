@@ -80,7 +80,14 @@ export function DashboardHome({ today, onNavigate, onOpenBusiness }: { today: st
     {snapshot&&snapshot.dataCounts.fans===0&&snapshot.dataCounts.editor===0&&<p className="overview-empty-banner">该区间暂无加粉或拍剪填报。</p>}
     <div className="boss-core-grid boss-secondary-grid">
       <section className="boss-panel boss-fans"><div className="panel-heading"><div><span className="dashboard-eyebrow">全公司 / 客户增长</span><h2>加粉数据<InfoTip label="加粉数据口径" text={`加粉按全公司统计，区间新增和区间有效按日相加；月累计取截止日所在月份各主页最后一次上报快照，不把每天的月累计相加。按客服接待账号归属统计。趋势线为截至 ${series?.to ?? today} 的近 7 天，虚线为今天（未结束），断开处为当天无填报。`} /></h2></div>{link("summary", "查看明细")}</div><LeadHomePreview from={snapshot?.period.from??today} to={snapshot?.period.to??today} today={today} tick={tick}/><div className="boss-fan-headline"><div className="boss-feature-value boss-repeat"><span>日报新增</span><strong>{metric(m?.fanAddedTotal)}<small>人</small></strong></div><div className="boss-valid"><span>区间有效</span><b>{metric(m?.validToday)}<small>人</small></b></div></div>{spark(320, 40) && <div className="boss-fan-trend"><span>近 7 天</span>{spark(320, 40)}</div>}<div className={`boss-channel-list ${monthView ? "is-month" : ""}`}>{channel("Messenger", "channel-ms", m?.msToday, m?.msMonth)}{channel("WhatsApp", "channel-ws", m?.wsToday, m?.wsMonth)}</div>{m?.statsIncomplete && <p className="data-flag">含未分类旧加粉 {m.legacyUnclassifiedAdded ?? 0} 人 · 渠道不完整</p>}</section>
-      <section className="boss-panel boss-video"><div className="panel-heading"><div><span className="dashboard-eyebrow">全公司 / 内容供给</span><h2>视频拍剪数据<InfoTip label="视频素材口径" text="拍剪按全公司统计，拍摄、剪辑与发给运营按区间累计；“发给运营”不等于已发布。库存按拍剪师和人设分别取区间内最后一次快照再合计，不按天累加。" /></h2></div>{link("editor", "查看明细")}</div><div className="boss-feature-value boss-repeat"><span>区间末次库存</span><strong>{snapshot?.dataCounts.editor === 0 ? "—" : metric(m?.endingInventory)}<small>条</small></strong></div><div className="boss-mini-metrics">{[["拍摄", m?.shootCount], ["剪辑", m?.editCount], ["发给运营", m?.sentToOpsCount]].map(([label, value]) => <div key={label}><span>{label}</span><b>{metric(value)}</b></div>)}</div></section>
     </div>
+    <details className="boss-panel boss-video boss-video-fold">
+      <summary className="boss-video-summary">
+        <div><span className="dashboard-eyebrow">全公司 / 内容供给</span><h2>视频拍剪数据<InfoTip label="视频素材口径" text="拍剪按全公司统计，拍摄、剪辑与发给运营按区间累计；“发给运营”不等于已发布。库存按拍剪师和人设分别取区间内最后一次快照再合计，不按天累加。" /></h2></div>
+        <span onClick={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>{link("editor", "查看明细")}</span>
+      </summary>
+      <div className="boss-feature-value boss-repeat"><span>区间末次库存</span><strong>{snapshot?.dataCounts.editor === 0 ? "—" : metric(m?.endingInventory)}<small>条</small></strong></div>
+      <div className="boss-mini-metrics">{[["拍摄", m?.shootCount], ["剪辑", m?.editCount], ["发给运营", m?.sentToOpsCount]].map(([label, value]) => <div key={label}><span>{label}</span><b>{metric(value)}</b></div>)}</div>
+    </details>
   </div>;
 }

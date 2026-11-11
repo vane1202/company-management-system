@@ -36,12 +36,12 @@
   ].map((row) => ({ ...row, note:"虚构演示记录", recordVersion:1, updatedAt:row.businessDate+"T02:00:00Z", isLegacyUnclassified:false }));
   fans.forEach(f=>{const index=accounts.findIndex(a=>a.id===f.userId);if(index===1){f.wsToday=f.addedCount;f.msToday=0;f.wsMonth=f.businessDate===today?83:f.wsMonth;f.msMonth=0;}else{f.msToday=f.addedCount;f.wsToday=0;f.msMonth=f.businessDate===today?216:f.msMonth;f.wsMonth=0;}});
   const orders = [
-    { id:"demo-order-1", userId:accounts[0].id, businessDate:today, orderRef:"DEMO-A-001", customerLabel:"演示客户甲", amount:"1290.50", status:"shipped", customProductCost:"900.00", laborCost:"50.00", shippingCost:"20.00" },
+    { id:"demo-order-1", userId:accounts[0].id, businessDate:today, orderRef:"DEMO-A-001", customerLabel:"演示客户甲", amount:"1290.50", status:"shipped", customProductCost:"900.00", laborCost:"50.00", shippingCost:"20.00", materialCost:"900.00", materialLotNo:"D367-32" },
     { id:"demo-order-2", userId:accounts[0].id, businessDate:today, orderRef:"DEMO-A-002", customerLabel:"演示客户乙", amount:"680.00", status:"placed", customProductCost:"400.00", laborCost:"20.00", shippingCost:"10.00" },
     { id:"demo-order-3", userId:accounts[1].id, businessDate:shift(today,-1), orderRef:"DEMO-B-001", customerLabel:"演示客户丙", amount:"950.00", status:"in_production", customProductCost:"600.00", laborCost:"30.00", shippingCost:"15.00" },
     { id:"demo-order-4", userId:accounts[1].id, businessDate:today, orderRef:"DEMO-B-002", customerLabel:"演示客户丁", amount:"180.00", status:"refunded", customProductCost:"80.00", laborCost:"0.00", shippingCost:"0.00" },
     // 两笔昨日虚构开单：一笔已登记跑单（回冲原开单日），一笔未付款、可由本组主管登记跑单。
-    { id:"demo-order-5", userId:accounts[0].id, businessDate:shift(today,-1), orderRef:"DEMO-A-003", customerLabel:"演示客户戊", amount:"330.00", status:"placed", customProductCost:"0.00", laborCost:"0.00", shippingCost:"0.00", cancelled:true },
+    { id:"demo-order-5", userId:accounts[0].id, businessDate:shift(today,-1), orderRef:"DEMO-A-003", customerLabel:"演示客户戊", amount:"330.00", status:"placed", customProductCost:"0.00", laborCost:"0.00", shippingCost:"0.00", cancelled:true, materialCost:"200.00", materialLotNo:"D218-07" },
     { id:"demo-order-6", userId:accounts[0].id, businessDate:shift(today,-1), orderRef:"DEMO-A-004", customerLabel:"演示客户己", amount:"550.00", status:"placed", customProductCost:"0.00", laborCost:"0.00", shippingCost:"0.00" }
   ].map((row) => ({ ...row, wechatId:accounts.find((a)=>a.id===row.userId).wechatId, displayName:accounts.find((a)=>a.id===row.userId).wechatId, accountKind:"cs_service", isCustom:true, recordVersion:1, updatedAt:row.businessDate+"T03:00:00Z" }));
   const demoFxRates=[{currency:'TWD',cnyPerUnit:'0.200000',effectiveFrom:shift(today,-800),source:'虚构参考配置'},{currency:'USD',cnyPerUnit:'7.200000',effectiveFrom:shift(today,-800),source:'虚构参考配置'}];
@@ -123,7 +123,7 @@
   }
   payments.forEach(p=>{const o=orders.find(o=>o.id===p.order_id);Object.assign(p,{persona_code:o.personaCode,live_room_code:o.liveRoomCode,host_name:o.hostName,customer_code:o.customerCode,operator_name:o.operatorName});});
   function orderRecord(order){
-    const index=orders.indexOf(order),raw={id:order.id,order_ref:order.orderRef,customer_label:order.customerLabel,business_date:order.businessDate,amount:order.amount,status:order.status,cancelled:!!order.cancelled,wechat_id:order.wechatId,display_name:order.displayName,note:'虚构演示记录',custom_product_cost:order.customProductCost,labor_cost:order.laborCost,shipping_cost:order.shippingCost};
+    const index=orders.indexOf(order),raw={id:order.id,order_ref:order.orderRef,customer_label:order.customerLabel,business_date:order.businessDate,amount:order.amount,status:order.status,cancelled:!!order.cancelled,wechat_id:order.wechatId,display_name:order.displayName,note:'虚构演示记录',custom_product_cost:order.customProductCost,labor_cost:order.laborCost,shipping_cost:order.shippingCost,material_cost_cny:order.materialCost??null,material_lot_no:order.materialLotNo??null};
     if(!order.workflowEnabled)return {order:raw,legacy:true};
     if(index>=4){
       // 虚构未付款开单：无追加、无收款、无成本；料价＋10%代购费即营业额。
@@ -173,6 +173,13 @@
     return json({from,to,today,days});
   }
   const paidPerformanceRecords=[{id:'demo-paid-1',business_date:today,live_room_code:'DEMO-LIVE-01',host_name:'演示主播甲',amount_cny:'1290.50',note:'虚构财务专项核定，系统不计算主播提成',created_by_name:'演示财务',voided_at:null,void_reason:null}];
+  // 虚构财务按直播间、按日录入的金额（不是按成交额比例估算）。LIVE-01 提成已录入，LIVE-02 提成未录入，用于对照「待财务录入 / 待核算」。
+  const liveRoomStaffCosts=[
+    {id:'demo-staff-h1',live_room_code:'DEMO-LIVE-01',business_date:today,kind:'host_commission',amount_cny:'120.00',session_label:'',note:'虚构财务录入的主播提成（已录入金额，非按比例估算）'},
+    {id:'demo-staff-a1',live_room_code:'DEMO-LIVE-01',business_date:today,kind:'assistant_commission',amount_cny:'40.00',session_label:'',note:'虚构财务录入的主播助理提成'},
+    {id:'demo-staff-act1',live_room_code:'DEMO-LIVE-01',business_date:today,kind:'actor_session',amount_cny:'80.00',session_label:'演示场次 · 上午',note:'虚构货主演员按次费用'},
+    {id:'demo-staff-act2',live_room_code:'DEMO-LIVE-02',business_date:today,kind:'actor_session',amount_cny:'60.00',session_label:'演示场次 · 晚场',note:'虚构货主演员按次费用'}
+  ];
   // 与 BOSS 营业额同口径：开单卡料价＋代购费；历史简版单用原金额。
   function bookingAmount(o){const d=orderRecord(o);return d.legacy?o.amount:money(d.items.reduce((n,i)=>n+cents(i.price_cny)+cents(i.buying_fee_cny),0n));}
   function liveBusiness(query) {
@@ -206,12 +213,62 @@
       for(const p of supplierPayments.filter(p=>!p.voided_at)){const e=d.expenses.find(e=>e.id===p.expense_id&&!e.voided_at);if(e)push(o,p.id,'supplier',p.paid_on,p.amount_cny,'CNY',p.payee,e.category);}
     }
     for(const t of [totals,...[...rooms.values()].map(r=>r.totals)])t.performanceCny=t.newSalesCny;
+    const MATERIAL=new Set(['goods','sourcing','material']);
+    const roomKeyOf=code=>code||'__unassigned__';
+    const roomTitle=code=>code||'未归属直播间';
+    for(const row of liveRoomStaffCosts.filter(r=>matchDate(r.business_date)&&(!selected.room||(selected.room==='__unassigned__'?!r.live_room_code:r.live_room_code===selected.room)))){
+      const key=roomKeyOf(row.live_room_code);
+      if(!rooms.has(key))rooms.set(key,{key,roomCode:roomTitle(row.live_room_code),hosts:[],personas:[],totals:empty()});
+    }
+    function materialCost(key){
+      let orderCard=0n,fallback=0n,excluded=0n;
+      for(const o of scoped){
+        if(roomKeyOf(o.liveRoomCode)!==key)continue;
+        const hasCard=o.materialCost!=null&&o.materialCost!=='';
+        if(o.cancelled||o.status==='refunded'){
+          if(hasCard&&matchDate(o.businessDate))excluded+=cents(o.materialCost);
+          continue;
+        }
+        if(hasCard){if(matchDate(o.businessDate))orderCard+=cents(o.materialCost);continue;}
+        const rec=orderRecord(o);
+        for(const e of rec.expenses||[]){
+          if(e.voided_at||!MATERIAL.has(e.category)||!matchDate(e.business_date))continue;
+          fallback+=cents(e.amount_cny);
+        }
+      }
+      return {materialCostCny:money(orderCard+fallback),materialCostSources:{orderCardCny:money(orderCard),expenseFallbackCny:money(fallback),excludedCancelledCny:money(excluded),label:'优先采用开单卡「料子本钱」；仅当该单没有此字段时，才回退已登记的供货款/配货款。跑单订单的料子本钱不计入成本。当日无货主演员场次按 0，不显示待录入。'}};
+    }
+    function staffFor(key){
+      // Staff entries belong to a whole room/day. Never deduct that entire cost
+      // from a subset of orders filtered by persona, operator, or host.
+      if(selected.host||selected.persona||selected.operator){
+        const line=()=>({value:null,status:'unsupported_scope',records:[]});
+        return {hostCommission:line(),assistantCommission:line(),actorSessionFee:line(),totalCny:null,status:'unsupported_scope'};
+      }
+      const rows=liveRoomStaffCosts.filter(r=>matchDate(r.business_date)&&roomKeyOf(r.live_room_code)===key);
+      const line=(kind,optionalZero)=>{
+        const hit=rows.filter(r=>r.kind===kind);
+        if(!hit.length)return optionalZero?{value:'0.00',status:'ok',records:[]}:{value:null,status:'pending_finance',records:[]};
+        return {value:money(hit.reduce((n,r)=>n+cents(r.amount_cny),0n)),status:'ok',records:hit.map(r=>({id:r.id,date:r.business_date,amount_cny:r.amount_cny,session_label:r.session_label,note:r.note}))};
+      };
+      const hostCommission=line('host_commission',false),assistantCommission=line('assistant_commission',false),actorSessionFee=line('actor_session',true);
+      const pending=hostCommission.status==='pending_finance'||assistantCommission.status==='pending_finance';
+      const totalCny=pending?null:money(cents(hostCommission.value)+cents(assistantCommission.value)+cents(actorSessionFee.value));
+      return {hostCommission,assistantCommission,actorSessionFee,totalCny,status:pending?'pending_finance':'ok'};
+    }
+    function attachProfit(key,performanceCny){
+      const material=materialCost(key);
+      const staff=staffFor(key);
+      const liveRoomProfitCny=staff.status==='ok'?money(cents(performanceCny)-cents(material.materialCostCny)-cents(staff.totalCny)):null;
+      return {...material,staff,liveRoomProfitCny,status:staff.status,source:'演示指标：料子本钱优先开单卡字段，缺省回退供货款/配货款；跑单料本不计入；提成与货主演员费用为虚构财务录入金额'};
+    }
+    for(const room of rooms.values())room.profit=attachProfit(room.key,room.totals.performanceCny);
     const ads=ops.filter(r=>matchDate(r.businessDate)&&r.spendUsd!=null).map(r=>({id:r.id,date:r.businessDate,persona:r.personaName,account:r.adAccountRef||'历史未关联',amount:r.spendUsd}));
     const paidRecords=paidPerformanceRecords.filter(r=>!r.voided_at&&matchDate(r.business_date)&&(!selected.room||r.live_room_code===selected.room)&&(!selected.host||r.host_name===selected.host));
     const paidPerformance={amountCny:paidRecords.length?sumMoney(paidRecords,'amount_cny'):null,recordCount:paidRecords.length,scope:'room_host',records:paidRecords.map(r=>({...r,date:r.business_date}))};
     const afterSales={receipts:{CNY:'0.00',TWD:'0.00',USD:'0.00'},recordCount:0,unclassifiedReceiptCount:events.filter(e=>e.kind==='receipt').length,records:[]};
     const legacy=scoped.filter(o=>!o.workflowEnabled&&cents(o.customProductCost)+cents(o.laborCost)+cents(o.shippingCost)>0n);
-    return json({period,selected,totals,paidPerformance,afterSales,rooms:[...rooms.values()].sort((a,b)=>Number(cents(b.totals.performanceCny)-cents(a.totals.performanceCny))),events,options:orders.map(o=>({room:o.liveRoomCode,host:o.hostName,persona:o.personaCode,persona_name:o.personaName,operator:o.operatorName})),ads:{scope:'company',spendUsd:sumMoney(ads,'amount'),records:ads,unknownCount:0},legacyCost:{count:legacy.length,amountCny:money(legacy.reduce((n,o)=>n+cents(o.customProductCost)+cents(o.laborCost)+cents(o.shippingCost),0n))},refundMethod:'cancelled_and_legacy_refunded_orders_reverse_original_booking_day',turnoverMethod:'booking_price_plus_buying_fee_excludes_additional_charges'});
+    return json({period,selected,totals,paidPerformance,afterSales,rooms:[...rooms.values()].sort((a,b)=>Number(cents(b.totals.performanceCny)-cents(a.totals.performanceCny))),events,options:orders.map(o=>({room:o.liveRoomCode,host:o.hostName,persona:o.personaCode,persona_name:o.personaName,operator:o.operatorName})),ads:{scope:'company',spendUsd:sumMoney(ads,'amount'),records:ads,unknownCount:0},legacyCost:{count:legacy.length,amountCny:money(legacy.reduce((n,o)=>n+cents(o.customProductCost)+cents(o.laborCost)+cents(o.shippingCost),0n))},refundMethod:'cancelled_and_legacy_refunded_orders_reverse_original_booking_day',turnoverMethod:'booking_price_plus_buying_fee_excludes_additional_charges',profitMethod:'turnover_minus_material_and_entered_staff_costs'});
   }
   function dashboard(query) {
     const preset=query.get("preset")||"day";
@@ -246,7 +303,7 @@
         const record=orderRecord(o);
         add({id:o.id,kind:'booking',date:o.businessDate,amount:bookingAmount(o),currency:'CNY',label:o.orderRef,orderId:o.id,excluded:o.cancelled?'跑单回冲原开单日':o.status==='refunded'?'历史退款标记源单':''});
         for(const e of record.expenses||[])if(!e.voided_at)add({id:e.id,kind:'cost',date:e.business_date,amount:e.amount_cny,currency:'CNY',label:e.label,category:e.category,orderId:o.id});
-        for(const p of record.payments||[])if(!p.voided_at)add({id:p.id,kind:'payment',date:p.payment_date,amount:p.amount,currency:p.currency,label:o.orderRef+' · '+({deposit:'定金',balance:'尾款',full:'全款'}[p.purpose]||'客户付款'),orderId:o.id});
+        for(const p of record.payments||[])if(!p.voided_at)add({id:p.id,kind:'payment',date:p.payment_date,amount:p.amount,currency:p.currency,label:o.orderRef+' · '+({deposit:'定金',balance:'尾款',full:'全款'}[p.purpose]||'客户付款'),orderId:o.id,bookingDate:o.businessDate});
       }
       for(const o of ops)if(o.spendUsd!=null)add({id:o.id,kind:'ad',date:o.businessDate,amount:o.spendUsd,currency:'USD',label:o.adAccountRef+' · 广告消耗'});
       const lastUpdate=rows.length?stamp.toISOString():null;

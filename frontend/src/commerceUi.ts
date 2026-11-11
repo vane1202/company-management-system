@@ -6,7 +6,27 @@ export function cents(value:string):bigint|null {
   const [whole,fraction=""]=value.split(".");return BigInt(whole)*100n+BigInt(fraction.padEnd(2,"0"));
 }
 export function money(value:bigint){return `${value/100n}.${String(value%100n).padStart(2,"0")}`;}
-export function itemPreview(price:string,kind:string){const n=cents(price);return n===null?null:{fee:money(kind==="material"?(n+5n)/10n:0n),total:n+(kind==="material"?(n+5n)/10n:0n)};}
+/** 原石服务费（即 10% 代购费）按谈成价四舍五入到分；成品为 0。无效价格返回 null。 */
+export function defaultBuyingFee(price:string,kind:string){
+  const n=cents(price);if(n===null)return null;
+  return money(kind==="material"?(n+5n)/10n:0n);
+}
+export function itemPreview(price:string,kind:string,feeCny?:string){
+  const n=cents(price);if(n===null)return null;
+  const auto=kind==="material"?(n+5n)/10n:0n;
+  const fee=kind!=="material"?0n:feeCny==null?auto:cents(feeCny);
+  if(fee===null)return null;
+  return {fee:money(fee),total:n+fee,autoFee:money(auto)};
+}
+/** 手动改过的服务费在改谈成价时保留；未改过则按 10% 重算。成品固定为 0。 */
+export function buyingFeeAfterPriceChange(kind:string,price:string,current:{feeCny:string;manual:boolean}){
+  if(kind!=="material")return {feeCny:"0.00",manual:false};
+  if(current.manual)return {feeCny:current.feeCny,manual:true};
+  return {feeCny:defaultBuyingFee(price,kind)??current.feeCny,manual:false};
+}
+export function buyingFeeRestored(price:string,kind:string){
+  return {feeCny:defaultBuyingFee(price,kind)??"0.00",manual:false};
+}
 // The retained key makes transport retries safe; editing the payload starts a new submission.
 export function newRequestKey(){
   if(typeof crypto.randomUUID==="function")return crypto.randomUUID();
