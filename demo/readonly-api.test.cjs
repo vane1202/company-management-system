@@ -7,6 +7,7 @@ function environment(role){
  const storage=new Map();let networkRequests=0;
  const window={location:{origin:'https://fictional.example',search:'?role='+role,assign(){}},sessionStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value)},fetch:async()=>{networkRequests++;throw Error('Unexpected backend network request');}};
  window.CmsBossOverview=require('./boss-overview-metrics.js');
+ window.CmsOpsAnalysis=require('./ops-analysis-metrics.js');
  vm.runInNewContext(script,{window,document:{addEventListener(){}},URL,URLSearchParams,Response,Date});
  return {fetch:window.fetch,json:async(path,method='GET',body)=>{const response=await window.fetch(path,{method,body:JSON.stringify(body)});return {status:response.status,body:await response.json()};},network:()=>networkRequests};
 }
@@ -22,6 +23,19 @@ test('P0独立演示首屏与原明细逐笔一致；原币保留；正式后台
  assert.equal((await e.json('/api/demo/boss-overview','POST',{amount:'1.00'})).status,403);
  for(const q of ['from=2026-02-30&to=2026-03-01','from=2026-01-01','preset=bad','from=2099-01-01&to=2099-01-01'])assert.equal((await e.json('/api/demo/boss-overview?'+q)).status,400);
  assert.equal(e.network(),0);
+});
+
+test('投放分析与P0共用日报：29.20/6/4.87/180，余额按账户去重',async()=>{
+ const e=environment('boss'),d=(await e.json('/api/demo/ops-analysis')).body;
+ assert.equal(d.version,'ops-analysis/v1');assert.equal(d.summary.spendUsd,'29.20');assert.equal(d.summary.consultCount,6);assert.equal(d.summary.consultationCostUsd,'4.87');assert.equal(d.summary.clickCount,180);assert.equal(d.summary.spendCny,'210.24');assert.equal(d.balances.totalUsd,'120.80');assert.equal(d.balances.accounts.length,2);assert.equal(d.groups.length,4);
+ const p=(await e.json('/api/demo/boss-overview')).body;
+ assert.equal(p.ledger.filter(r=>r.kind==='ad').reduce((n,r)=>n+Math.round(Number(r.amount)*100),0),2920);assert.equal(p.metrics.estimatedContribution.value,'2213.26');
+ const f=(await e.json('/api/demo/ops-analysis?platform=Facebook')).body;assert.equal(f.summary.spendUsd,'22.20');assert.equal(f.summary.consultationCostUsd,'4.44');assert.equal(f.balances.totalUsd,'100.80');
+ const z=(await e.json('/api/demo/ops-analysis?persona='+encodeURIComponent('演示主页 D'))).body;assert.equal(z.summary.spendUsd,'0.00');assert.equal(z.summary.costStatus,'no_spend');
+ const dayMissing=d.trend.days.find(r=>r.recordCount===0);assert.ok(dayMissing);assert.equal(dayMissing.spendUsd,null);
+ const dash=(await e.json('/api/dashboard/summary')).body;assert.equal(dash.metrics.opsUsd.endingBalanceUsd,'120.80');
+ for(const role of ['admin','finance','cs_supervisor'])assert.equal((await environment(role).json('/api/demo/ops-analysis')).status,403);
+ assert.equal((await e.json('/api/demo/ops-analysis','POST',{})).status,403);assert.equal((await e.json('/api/demo/ops-analysis?dimension=constructor')).status,400);assert.equal(e.network(),0);
 });
 test('财务专项核定与营业额独立；历史未分类收款不冒充售后收入',async()=>{
  const e=environment('boss'),today=(await e.json('/api/auth/me')).body.today;
@@ -157,7 +171,7 @@ test('live-room filters leave company advertising scoped to the same dates; othe
  const e=environment('boss'),r=(await e.json('/api/dashboard/live-business?room=DEMO-LIVE-02&host='+encodeURIComponent('演示主播乙'))).body;
  assert.equal(r.totals.performanceCny,'0.00');assert.equal(r.totals.expenseCny,'15.00');assert.equal(r.ads.spendUsd,'29.20');assert.equal(r.rooms.length,1);
  const date=(await e.json('/api/auth/me')).body.today,prior=new Date(Date.parse(date+'T00:00:00Z')-86400000).toISOString().slice(0,10);
- const p=(await e.json('/api/dashboard/live-business?from='+prior+'&to='+prior+'&room=DEMO-LIVE-02')).body;assert.equal(p.totals.performanceCny,'850.00');assert.equal(p.totals.expenseCny,'630.00');assert.equal(p.ads.spendUsd,'0.00');
+ const p=(await e.json('/api/dashboard/live-business?from='+prior+'&to='+prior+'&room=DEMO-LIVE-02')).body;assert.equal(p.totals.performanceCny,'850.00');assert.equal(p.totals.expenseCny,'630.00');assert.equal(p.ads.spendUsd,'30.00');
  for(const role of ['admin','finance','cs_supervisor'])assert.equal((await environment(role).json('/api/dashboard/live-business')).status,403);
  assert.equal((await e.json('/api/dashboard/live-business?from=bad')).status,400);
 });

@@ -44,7 +44,14 @@
     { id:"demo-order-5", userId:accounts[0].id, businessDate:shift(today,-1), orderRef:"DEMO-A-003", customerLabel:"演示客户戊", amount:"330.00", status:"placed", customProductCost:"0.00", laborCost:"0.00", shippingCost:"0.00", cancelled:true },
     { id:"demo-order-6", userId:accounts[0].id, businessDate:shift(today,-1), orderRef:"DEMO-A-004", customerLabel:"演示客户己", amount:"550.00", status:"placed", customProductCost:"0.00", laborCost:"0.00", shippingCost:"0.00" }
   ].map((row) => ({ ...row, wechatId:accounts.find((a)=>a.id===row.userId).wechatId, displayName:accounts.find((a)=>a.id===row.userId).wechatId, accountKind:"cs_service", isCustom:true, recordVersion:1, updatedAt:row.businessDate+"T03:00:00Z" }));
-  const ops = [{ id:"demo-ops-1",userId:"demo-ops",businessDate:today,personaName:"演示主页 A",adAccountRef:"DEMO-ADS-01",platform:"演示平台",spendUsd:"29.20",consultCount:6,consultCostUsd:"4.87",clickCount:180,ctrPercent:"1.25",balanceUsd:"120.80",promoCost:"0.00",promoVideoCount:2,note:"全部数值为虚构示例", recordVersion:1,updatedAt:today+"T03:20:00Z" }];
+  const demoFxRates=[{currency:'TWD',cnyPerUnit:'0.200000',effectiveFrom:shift(today,-800),source:'虚构参考配置'},{currency:'USD',cnyPerUnit:'7.200000',effectiveFrom:shift(today,-800),source:'虚构参考配置'}];
+  const makeOps=(date,index,spendUsd,consultCount,clickCount,balanceUsd,extra={})=>({id:'demo-ops-'+date+'-'+index,userId:'demo-ops',businessDate:date,personaName:'演示主页 '+['A','B','C','D'][index],adAccountRef:index<2?'DEMO-ADS-01':'DEMO-ADS-02',platform:index<2?'Facebook':'TikTok',spendUsd,consultCount,clickCount,balanceUsd,consultCostUsd:consultCount?money((cents(spendUsd)+BigInt(consultCount)/2n)/BigInt(consultCount)):null,ctrPercent:clickCount?'1.25':null,promoCost:'0.00',promoVideoCount:0,note:'全部数值为虚构示例；咨询量保留运营上报语义',recordVersion:1,updatedAt:date+'T03:20:00Z',...extra});
+  const ops=[makeOps(today,0,'12.20',3,75,'100.80',{consultCostUsd:'4.10',promoVideoCount:1}),makeOps(today,1,'10.00',2,55,'100.80',{promoVideoCount:1}),makeOps(today,2,'7.00',1,50,'20.00'),makeOps(today,3,'0.00',0,0,'20.00')];
+  // Same source feeds the overview and analysis. Day -4 is intentionally unreported.
+  for(const n of [1,2,3,5,6]){
+    const date=shift(today,-n);
+    for(let i=0;i<4;i++)ops.push(makeOps(date,i,[(10+n)+'.00',(8+n)+'.00',(5+n)+'.00','4.00'][i],[3,2,1,n===1?0:1][i],[70+n,45+n,35+n,15][i],i<2?'110.00':'30.00'));
+  }
   const editors = [4,3,2,4,3,2].map((inventorySnapshot,i)=>({id:'demo-editor-'+(i+1),userId:'demo-editor',editorName:['魏磊','尚杰','十七'][Math.floor(i/2)],businessDate:today,personaName:['演示人设 A','演示人设 B'][i%2],shootCount:[2,1,1,1,1,0][i],editCount:[1,1,1,1,0,0][i],sentToOpsCount:i<3?1:0,finishedCount:0,publishedCount:0,inventorySnapshot,inventoryAdjusted:false,recordVersion:1,updatedAt:today+'T03:30:00Z'}));
   const visibleAccounts = () => role === "cs_supervisor" ? accounts.filter((a)=>a.teamId===teams[0].id) : accounts;
   const leadFixtures = fans.filter(f=>f.businessDate>=shift(today,-1)).flatMap(f=>Array.from({length:f.addedCount},(_,i)=>{
@@ -136,7 +143,7 @@
     const expenses=orders.filter(o=>o.workflowEnabled).flatMap(o=>orderRecord(o).expenses.map(e=>({...e,order_id:o.id,order_ref:o.orderRef,customer_label:o.customerLabel,persona_name:o.personaName,persona_code:o.personaCode,live_room_code:o.liveRoomCode,host_name:o.hostName,customer_code:o.customerCode,operator_name:o.operatorName,wechat_id:o.wechatId,material_ref:'DEMO-JADE-'+(orders.indexOf(o)+1),item_label:'演示商品',paid_cny:e.id==='demo-expense-0'?'600.00':'0.00',pending_cny:money(cents(e.amount_cny)-(e.id==='demo-expense-0'?60000n:0n)),paymentState:e.id==='demo-expense-0'?'partial':'unpaid'})));
     return {expenses,payments:supplierPayments,summary:{costCny:sumMoney(expenses,'amount_cny'),paidCny:'600.00',pendingCny:sumMoney(expenses,'pending_cny'),unknownCount:0}};
   }
-  const adLedger={accounts:[{code:'DEMO-ADS-01',name:'演示共享广告户',opened_on:today,opening_usd:'100.00',topped_usd:'50.00',spent_usd:'29.20',balance_usd:'120.80'}],topups:[{id:'demo-topup-1',account_ref:'DEMO-ADS-01',paid_on:today,credited_usd:'50.00',paid_cny:'360.00',payment_account:'演示公司付款户',reference:'DEMO-AD-PAY-001',note:'虚构充值，实付和美元入账独立记录',voided_at:null}],summary:{paidCny:'360.00',creditedUsd:'50.00',spentUsd:'29.20',balanceUsd:'120.80'}};
+  const adLedger={accounts:[{code:'DEMO-ADS-01',name:'演示 Facebook 共享广告户',opened_on:today,opening_usd:'73.00',topped_usd:'50.00',spent_usd:'22.20',balance_usd:'100.80'},{code:'DEMO-ADS-02',name:'演示 TikTok 共享广告户',opened_on:today,opening_usd:'27.00',topped_usd:'0.00',spent_usd:'7.00',balance_usd:'20.00'}],topups:[{id:'demo-topup-1',account_ref:'DEMO-ADS-01',paid_on:today,credited_usd:'50.00',paid_cny:'360.00',payment_account:'演示公司付款户',reference:'DEMO-AD-PAY-001',note:'虚构充值，实付和美元入账独立记录',voided_at:null}],summary:{paidCny:'360.00',creditedUsd:'50.00',spentUsd:'29.20',balanceUsd:'120.80'}};
   const fanTotals = (rows) => {
     const latest=Object.values(rows.reduce((result,row)=>{const key=row.userId+row.pageName;if(!result[key]||row.businessDate>result[key].businessDate)result[key]=row;return result;},{}));
     return {...Object.fromEntries(["msToday","wsToday","validToday","commReplied","commReadNoReply","commUnread","commInvalid"].map((key)=>[key,sum(rows,key)])),msMonth:sum(latest,"msMonth"),wsMonth:sum(latest,"wsMonth")};
@@ -216,9 +223,11 @@
       const match=(row)=>inRange(row);
       const os=orders.filter(match),fs=fans.filter(match),op=ops.filter(match),ed=editors.filter(match);
       const snapshots=Object.values(ed.reduce((result,row)=>{const key=row.userId+(row.editorName||"")+row.personaName;if(!result[key]||row.businessDate>result[key].businessDate)result[key]=row;return result;},{}));
-      return {revenue:sumMoney(os,"amount"),refunds:sumMoney(os.filter((o)=>o.status==="refunded"),"amount"),promoCost:sumMoney(op,"promoCost"),customProductCost:sumMoney(os,"customProductCost"),laborCost:sumMoney(os,"laborCost"),shippingCost:sumMoney(os,"shippingCost"),orderCount:os.filter((o)=>o.status!=="refunded").length,promoVideoCount:sum(op,"promoVideoCount"),shootCount:sum(ed,"shootCount"),finishedCount:sum(ed,"finishedCount"),publishedCount:sum(ed,"publishedCount"),endingInventory:sum(snapshots,"inventorySnapshot"),fanAddedTotal:sum(fs,"addedCount"),...fanTotals(fs),editCount:sum(ed,"editCount"),sentToOpsCount:sum(ed,"sentToOpsCount"),statsIncomplete:false,legacyUnclassifiedAdded:0,opsUsd:{spendUsd:sumMoney(op,"spendUsd"),consultCount:sum(op,"consultCount"),clickCount:sum(op,"clickCount"),endingBalanceUsd:sumMoney(op,"balanceUsd")}};
+      const accountSet=new Set(op.map(r=>r.adAccountRef));
+      const endingOps=Object.values(ops.filter(r=>r.businessDate<=to&&accountSet.has(r.adAccountRef)).reduce((result,row)=>{const key=row.adAccountRef;if(!result[key]||row.businessDate>result[key].businessDate)result[key]=row;return result;},{}));
+      return {revenue:sumMoney(os,"amount"),refunds:sumMoney(os.filter((o)=>o.status==="refunded"),"amount"),promoCost:sumMoney(op,"promoCost"),customProductCost:sumMoney(os,"customProductCost"),laborCost:sumMoney(os,"laborCost"),shippingCost:sumMoney(os,"shippingCost"),orderCount:os.filter((o)=>o.status!=="refunded").length,promoVideoCount:sum(op,"promoVideoCount"),shootCount:sum(ed,"shootCount"),finishedCount:sum(ed,"finishedCount"),publishedCount:sum(ed,"publishedCount"),endingInventory:sum(snapshots,"inventorySnapshot"),fanAddedTotal:sum(fs,"addedCount"),...fanTotals(fs),editCount:sum(ed,"editCount"),sentToOpsCount:sum(ed,"sentToOpsCount"),statsIncomplete:false,legacyUnclassifiedAdded:0,opsUsd:{spendUsd:sumMoney(op,"spendUsd"),consultCount:sum(op,"consultCount"),clickCount:sum(op,"clickCount"),endingBalanceUsd:sumMoney(endingOps,"balanceUsd")}};
     }
-    const metrics=bundle();
+      const metrics=bundle();
     const days=Math.max(0,Math.floor((Date.parse(to)-Date.parse(from))/86400000)+1);
     const salaryAllocated=allocate(salaryStandards,from,to);void days;
     const estimate=money(cents(metrics.revenue)-cents(metrics.refunds)-cents(metrics.promoCost)-cents(metrics.customProductCost)-cents(metrics.laborCost)-cents(metrics.shippingCost)-cents(salaryAllocated));
@@ -242,7 +251,7 @@
       for(const o of ops)if(o.spendUsd!=null)add({id:o.id,kind:'ad',date:o.businessDate,amount:o.spendUsd,currency:'USD',label:o.adAccountRef+' · 广告消耗'});
       const lastUpdate=rows.length?stamp.toISOString():null;
       const dataset={rows,coverage:{from:shift(today,-800),to:today},
-        rates:[{currency:'TWD',cnyPerUnit:'0.200000',effectiveFrom:shift(today,-800),source:'虚构参考配置'},{currency:'USD',cnyPerUnit:'7.200000',effectiveFrom:shift(today,-800),source:'虚构参考配置'}],
+        rates:demoFxRates,
         // A fictional prior-day finance result demonstrates explicit values. Today
         // is deliberately absent, so the headline must say 待财务核算.
         finance:[{date:shift(today,-1),materialCost:'600.00',commission:'70.00',collectionFee:'8.00',source:'虚构财务专项核算'}],
@@ -270,6 +279,11 @@
     if(!["GET","HEAD"].includes(method))return json({error:"这是公开只读演示，不保存任何修改。请在正式后台操作。"},403);
     if(path==="/api/modules")return json({version:1,modules:{fans:true,ops:true,editor:true,orders:true},labels:{fans:"客服加粉",ops:"运营投放",editor:"拍剪",orders:"订单"}});
     if(path==='/api/demo/boss-overview')return role==='boss'?bossOverview(q):json({error:'仅BOSS可查看演示经营总览'},403);
+    if(path==='/api/demo/ops-analysis'){
+      if(role!=='boss')return json({error:'仅BOSS可查看演示投放分析'},403);
+      if(!window.CmsOpsAnalysis)return json({error:'独立演示投放指标未加载'},503);
+      try{return json(window.CmsOpsAnalysis.build({rows:ops,rates:demoFxRates},Object.fromEntries(q),{today}));}catch{return json({error:'投放分析日期或维度无效'},400);}
+    }
     if(role==="admin"&&!/^\/api\/(admin|cs-accounts)(\/|$)/.test(path))return json({error:"演示管理员仅管理系统，不查看业务数据"},403);
     if(/^\/api\/salaries(\/|$)/.test(path))return ["finance","boss"].includes(role)?salaryApi(path,q):json({error:"仅财务与BOSS可查看工资"},403);
     if(/^\/api\/finance\/payables\/[^/]+\/attachments$/.test(path))return ['boss','finance'].includes(role)&&payables().expenses.some(e=>path.includes('/'+e.id+'/'))?json({attachments:[]}):json({error:'无公司成本权限'},403);

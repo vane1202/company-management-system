@@ -17,7 +17,7 @@ import { DashboardIcon } from "./DashboardIcon";
 import { CsDeviceRegistration } from "./CsDeviceRegistration";
 import { CsAccountsPage } from "./CsAccountsPage";
 import { fillEntries, fillEntryFromPath, canUseFillEntry } from "./fillEntries";
-import { type FormEvent, type ReactNode, useEffect, useState } from "react";
+import { type FormEvent, type ReactNode, lazy, Suspense, useEffect, useState } from "react";
 import { canQueryByDate, isIsoDate } from "./dates";
 import { labelOrderStatus } from "./labels";
 import { navItems, roleLabel, type Page } from "./access";
@@ -41,6 +41,8 @@ import {
   type Team,
   type User
 } from "./api";
+
+const DemoOpsAnalysis = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/OpsAnalysis')) : null;
 
 export function App() {
   const [modules, setModules] = useState<Record<string, boolean> | null>(null);
@@ -172,7 +174,7 @@ export function App() {
       {pagePanel("fans", <FanForm today={today} onError={pageError("fans")} platform={user.servicePlatform}/>)}
       {pagePanel("summary", <FanSummaryPage today={today} onError={pageError("summary")} supervisor={user.role === "cs_supervisor"} onNavigate={goTo} />)}
       {pagePanel("orders", user.role==='boss'?<><div hidden={!!navigation.views.orders?.orderId||!!navigation.views.orders?.orderList}><LiveBusinessOverview today={today} context={businessContext} onOpenBusiness={live=>navigation.navigate({page:'orders',live})} onOpenOrder={id=>navigation.navigate({page:'orders',live:businessContext,orderId:id})} onOpenOrders={()=>navigation.navigate({page:'orders',live:businessContext,orderList:true})}/></div>{(navigation.views.orders?.orderId||navigation.views.orders?.orderList)&&<OrderWorkspace today={today} user={user} selectedId={navigation.views.orders.orderId??''} onSelectOrder={id=>navigation.navigate({...navigation.views.orders!,orderId:id})}/>}</>:<OrderWorkspace today={today} user={user} selectedId={navigation.views.orders?.orderId ?? ""} onSelectOrder={id => navigation.navigate({ page: "orders", orderId: id })} />)}
-      {pagePanel("ops", <OpsPage today={today} onError={pageError("ops")} readOnly={user.role === "boss"} />)}
+      {pagePanel("ops", DemoOpsAnalysis&&user.role==='boss'?<Suspense fallback={<p role="status">正在读取投放分析…</p>}><DemoOpsAnalysis today={today}/></Suspense>:<OpsPage today={today} onError={pageError("ops")} readOnly={user.role === "boss"} />)}
       {pagePanel("editor", <EditorPage today={today} onError={pageError("editor")} readOnly={user.role === "boss"} />)}
       {pagePanel("dashboard", <DashboardPage onError={pageError("dashboard")} />)}
       {pagePanel("modules", <><ModuleSettings onError={pageError("modules")} onChange={setModules} /><SystemSettings defaultDays={backfillDays} /></>)}
