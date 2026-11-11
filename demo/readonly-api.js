@@ -218,6 +218,7 @@
     const roomTitle=code=>code||'未归属直播间';
     for(const row of liveRoomStaffCosts.filter(r=>matchDate(r.business_date)&&(!selected.room||(selected.room==='__unassigned__'?!r.live_room_code:r.live_room_code===selected.room)))){
       const key=roomKeyOf(row.live_room_code);
+      if((selected.host||selected.persona||selected.operator)&&!scoped.some(o=>roomKeyOf(o.liveRoomCode)===key))continue;
       if(!rooms.has(key))rooms.set(key,{key,roomCode:roomTitle(row.live_room_code),hosts:[],personas:[],totals:empty()});
     }
     function materialCost(key){
@@ -262,13 +263,18 @@
       const liveRoomProfitCny=staff.status==='ok'?money(cents(performanceCny)-cents(material.materialCostCny)-cents(staff.totalCny)):null;
       return {...material,staff,liveRoomProfitCny,status:staff.status,source:'演示指标：料子本钱优先开单卡字段，缺省回退供货款/配货款；跑单料本不计入；提成与货主演员费用为虚构财务录入金额'};
     }
+    const operations=window.CmsLiveRoomOperations.build(scoped.map(o=>({...orderRecord(o),identity:o})),period);
+    // Historical open orders still need attention even when no event occurred today.
+    for(const o of operations.orders.filter(o=>o.bookedInPeriod||o.status==='unpaid'||o.status==='partial')){
+      if(!rooms.has(o.roomKey))rooms.set(o.roomKey,{key:o.roomKey,roomCode:o.roomCode,hosts:o.hostName?[o.hostName]:[],personas:o.personaName?[o.personaName]:[],totals:empty()});
+    }
     for(const room of rooms.values())room.profit=attachProfit(room.key,room.totals.performanceCny);
     const ads=ops.filter(r=>matchDate(r.businessDate)&&r.spendUsd!=null).map(r=>({id:r.id,date:r.businessDate,persona:r.personaName,account:r.adAccountRef||'历史未关联',amount:r.spendUsd}));
     const paidRecords=paidPerformanceRecords.filter(r=>!r.voided_at&&matchDate(r.business_date)&&(!selected.room||r.live_room_code===selected.room)&&(!selected.host||r.host_name===selected.host));
     const paidPerformance={amountCny:paidRecords.length?sumMoney(paidRecords,'amount_cny'):null,recordCount:paidRecords.length,scope:'room_host',records:paidRecords.map(r=>({...r,date:r.business_date}))};
     const afterSales={receipts:{CNY:'0.00',TWD:'0.00',USD:'0.00'},recordCount:0,unclassifiedReceiptCount:events.filter(e=>e.kind==='receipt').length,records:[]};
     const legacy=scoped.filter(o=>!o.workflowEnabled&&cents(o.customProductCost)+cents(o.laborCost)+cents(o.shippingCost)>0n);
-    return json({period,selected,totals,paidPerformance,afterSales,rooms:[...rooms.values()].sort((a,b)=>Number(cents(b.totals.performanceCny)-cents(a.totals.performanceCny))),events,options:orders.map(o=>({room:o.liveRoomCode,host:o.hostName,persona:o.personaCode,persona_name:o.personaName,operator:o.operatorName})),ads:{scope:'company',spendUsd:sumMoney(ads,'amount'),records:ads,unknownCount:0},legacyCost:{count:legacy.length,amountCny:money(legacy.reduce((n,o)=>n+cents(o.customProductCost)+cents(o.laborCost)+cents(o.shippingCost),0n))},refundMethod:'cancelled_and_legacy_refunded_orders_reverse_original_booking_day',turnoverMethod:'booking_price_plus_buying_fee_excludes_additional_charges',profitMethod:'turnover_minus_material_and_entered_staff_costs'});
+    return json({period,selected,totals,paidPerformance,afterSales,operations,rooms:[...rooms.values()].sort((a,b)=>Number(cents(b.totals.performanceCny)-cents(a.totals.performanceCny))),events,options:orders.map(o=>({room:o.liveRoomCode,host:o.hostName,persona:o.personaCode,persona_name:o.personaName,operator:o.operatorName})),ads:{scope:'company',spendUsd:sumMoney(ads,'amount'),records:ads,unknownCount:0},legacyCost:{count:legacy.length,amountCny:money(legacy.reduce((n,o)=>n+cents(o.customProductCost)+cents(o.laborCost)+cents(o.shippingCost),0n))},refundMethod:'cancelled_and_legacy_refunded_orders_reverse_original_booking_day',turnoverMethod:'booking_price_plus_buying_fee_excludes_additional_charges',profitMethod:'turnover_minus_material_and_entered_staff_costs'});
   }
   function dashboard(query) {
     const preset=query.get("preset")||"day";

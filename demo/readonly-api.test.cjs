@@ -8,9 +8,37 @@ function environment(role){
  const window={location:{origin:'https://fictional.example',search:'?role='+role,assign(){}},sessionStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value)},fetch:async()=>{networkRequests++;throw Error('Unexpected backend network request');}};
  window.CmsBossOverview=require('./boss-overview-metrics.js');
  window.CmsOpsAnalysis=require('./ops-analysis-metrics.js');
+ window.CmsLiveRoomOperations=require('./live-room-operations.js');
  vm.runInNewContext(script,{window,document:{addEventListener(){}},URL,URLSearchParams,Response,Date});
  return {fetch:window.fetch,json:async(path,method='GET',body)=>{const response=await window.fetch(path,{method,body:JSON.stringify(body)});return {status:response.status,body:await response.json()};},network:()=>networkRequests};
 }
+
+test('经营看板分开当期开单进度和历史待收款，保持原币且不受结汇影响',async()=>{
+ const e=environment('boss'),data=(await e.json('/api/dashboard/live-business')).body;
+ assert.equal(data.operations.summary.total,2);
+ assert.equal(data.operations.summary.partial,1);assert.equal(data.operations.summary.settled,1);
+ assert.equal(data.operations.summary.followupCount,2);
+ const pending=data.operations.orders.find(o=>o.id==='demo-order-2');
+ assert.equal(pending.balance,'2000.00');assert.equal(pending.currency,'TWD');
+ const historical=data.operations.orders.find(o=>o.id==='demo-order-6');
+ assert.equal(historical.bookedInPeriod,false);assert.equal(historical.status,'unpaid');
+ assert.equal(data.operations.orders.find(o=>o.id==='demo-order-3').status,'settled');
+ assert.ok(!data.operations.orders.some(o=>['demo-order-4','demo-order-5'].includes(o.id)));
+ const only=(await e.json('/api/dashboard/live-business?room=DEMO-LIVE-02')).body;
+ assert.equal(only.operations.summary.total,0);assert.equal(only.operations.summary.followupCount,0);
+ assert.equal(only.ads.scope,'company');assert.equal(only.ads.spendUsd,data.ads.spendUsd);
+ assert.equal(e.network(),0);
+});
+
+test('按主播筛选不因财务人员费用补入无关直播间，无匹配时返回空看板',async()=>{
+ const e=environment('boss');
+ const one=(await e.json('/api/dashboard/live-business?host='+encodeURIComponent('演示主播甲'))).body;
+ assert.deepEqual(one.rooms.map(r=>r.key),['DEMO-LIVE-01']);
+ assert.ok(one.operations.orders.every(o=>o.hostName==='演示主播甲'));
+ const none=(await e.json('/api/dashboard/live-business?host=NO_MATCH')).body;
+ assert.equal(none.rooms.length,0);assert.equal(none.operations.summary.total,0);
+ assert.equal(none.operations.orders.length,0);assert.equal(none.ads.spendUsd,'29.20');
+});
 
 test('直播间人员成本不按主播、人设或客服维度推测分摊，日期和直播间筛选仍可核算',async()=>{
  const e=environment('boss'),all=(await e.json('/api/dashboard/live-business')).body;
