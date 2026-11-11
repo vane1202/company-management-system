@@ -246,7 +246,7 @@
         const record=orderRecord(o);
         add({id:o.id,kind:'booking',date:o.businessDate,amount:bookingAmount(o),currency:'CNY',label:o.orderRef,orderId:o.id,excluded:o.cancelled?'跑单回冲原开单日':o.status==='refunded'?'历史退款标记源单':''});
         for(const e of record.expenses||[])if(!e.voided_at)add({id:e.id,kind:'cost',date:e.business_date,amount:e.amount_cny,currency:'CNY',label:e.label,category:e.category,orderId:o.id});
-        for(const p of record.payments||[])if(!p.voided_at)add({id:p.id,kind:'payment',date:p.payment_date,amount:p.amount,currency:p.currency,label:o.orderRef+' · '+({deposit:'定金',balance:'尾款',full:'全款'}[p.purpose]||'客户付款'),orderId:o.id});
+        for(const p of record.payments||[])if(!p.voided_at)add({id:p.id,kind:'payment',date:p.payment_date,amount:p.amount,currency:p.currency,label:o.orderRef+' · '+({deposit:'定金',balance:'尾款',full:'全款'}[p.purpose]||'客户付款'),orderId:o.id,bookingDate:o.businessDate});
       }
       for(const o of ops)if(o.spendUsd!=null)add({id:o.id,kind:'ad',date:o.businessDate,amount:o.spendUsd,currency:'USD',label:o.adAccountRef+' · 广告消耗'});
       const lastUpdate=rows.length?stamp.toISOString():null;

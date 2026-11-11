@@ -810,3 +810,14 @@ progress::-moz-progress-bar { background: #4c7954; border-radius: 1rem; }
 .boss-range:has(.boss-range-error) { flex-wrap: wrap; }
 .boss-range .boss-range-error { flex-basis: 100%; grid-column: 1 / -1; margin: 0; text-align: right; }
 @media (max-width: 540px) { .boss-range .boss-range-error { text-align: left; } }
+.boss-video-fold{min-width:0}
+.boss-video-summary{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;cursor:pointer;list-style:none;min-height:44px}
+.boss-video-summary::-webkit-details-marker{display:none}
+.boss-video-summary h2{margin:6px 0 0;font-size:22px}
+.boss-video-fold[open] .boss-video-summary{margin-bottom:16px}
+.boss-video-summary .text-action{flex-shrink:0}
+.boss-secondary-grid:has(+ .boss-video-fold){grid-template-columns:minmax(0,1fr)}
+@media(max-width:799px){
+  .boss-video-summary h2{font-size:16px}
+  .boss-video-fold{padding:14px 15px}
+}

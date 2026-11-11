@@ -17,6 +17,14 @@ test('P0独立演示首屏与原明细逐笔一致；原币保留；正式后台
  const old=(await e.json('/api/dashboard/live-business')).body;
  assert.equal(d.version,'boss-overview-p0/v1');assert.equal(d.metrics.turnover.value,old.totals.performanceCny);
   assert.equal(d.metrics.receipts.value,'2538.50');assert.equal(d.metrics.visibleCost.value,'325.24');assert.equal(d.metrics.estimatedContribution.value,'2213.26');assert.equal(d.metrics.roi.value,'12.07');
+  assert.equal(d.metrics.roi.unit,'倍');
+  assert.equal(d.costBreakdown.visibleBusiness.value,'115.00');assert.equal(d.costBreakdown.advertising.value,'210.24');assert.equal(d.costBreakdown.excludedMaterial.value,'1300.00');
+  assert.equal(d.receiptSplit.currentBookings.value,'1530.50');assert.equal(d.receiptSplit.historicalOrders.value,'1008.00');
+  assert.equal(d.collectionGap.difference,'1248.00');assert.equal(d.collectionGap.paidPerformance,'1290.50');
+  assert.equal(d.references.registeredMaterialCost.value,'1300.00');
+  assert.ok(d.references.monthToDateRoi && d.references.monthToDateRoi.unit==='倍');
+  assert.match(d.metrics.roi.definition,/日 ROI 仅供参考/);
+  assert.match(d.metrics.visibleCost.definition,/主播薪酬是否计入原直播间费用：待确认/);
   assert.equal(d.ledger.filter(r=>r.bucket==='excludedCost').reduce((n,r)=>n+Math.round(Number(r.amount)*100),0),130000);
  assert.equal(d.finalContribution.status,'pending_finance');assert.equal(d.target,null);
  for(const role of ['admin','finance','cs_supervisor'])assert.equal((await environment(role).json('/api/demo/boss-overview')).status,403);
