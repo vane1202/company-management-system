@@ -65,7 +65,7 @@ export function PayrollMonth({ today, readOnly, employees }: { today: string; re
     </section>
     {error && <p className="error" role="alert">{error} <button className="secondary" disabled={loading} onClick={() => void load()}>刷新</button></p>}
     <section className="card payroll-totals" aria-label="工资单合计">
-      <div className="payroll-net"><small>{month} 实发合计 · 人民币</small><strong className={t?.netNegative ? "negative" : ""}>{t ? `¥ ${t.net}` : loading ? <Skeleton width="7em" height="1.3em" /> : "—"}</strong></div>
+      <div className="payroll-net"><small>{month} 工资单净额（含草稿）· 人民币</small><strong className={t?.netNegative ? "negative" : ""}>{t ? `¥ ${t.net}` : loading ? <Skeleton width="7em" height="1.3em" /> : "—"}</strong></div>
       {split?.matchesTotal && <div className="payroll-status-split" aria-label="按工资单状态拆分">
         <div><span>已锁定 {split.locked.count} 人</span><b>¥ {split.locked.net}</b></div>
         <div><span>草稿 {split.draft.count} 人</span><b className={split.draft.net.startsWith("-") ? "negative" : ""}>¥ {split.draft.net}</b></div>

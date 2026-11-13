@@ -81,13 +81,13 @@ export const api = {
   financeAction: (action: string, payload: Record<string,unknown>) => requestInner<{id:string}>(`/api/finance/${action}`,{method:"POST",body:JSON.stringify(payload)}),
   csAccounts: (date?: string) => requestInner<{ accounts: CsAccount[] }>(`/api/cs-accounts${date ? `?date=${encodeURIComponent(date)}` : ""}`),
   csTeams: () => requestInner<{ teams: Team[] }>("/api/cs-accounts/teams"),
-  createCsAccount:(payload:{platform:'whatsapp'|'messenger';accountIdentifier:string;teamId:string;phoneLabel:string})=>requestInner<{id:string}>('/api/cs-accounts',{method:'POST',body:JSON.stringify(payload)}),
-  updateCsAccount: (id: string, payload: { accountIdentifier: string; phoneLabel: string }) => requestInner<{ needsRegistration: boolean }>(`/api/cs-accounts/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  createCsAccount:(payload:{platform:'whatsapp'|'messenger';accountIdentifier:string;teamId:string;phoneLabel:string;holderName:string})=>requestInner<{id:string}>('/api/cs-accounts',{method:'POST',body:JSON.stringify(payload)}),
+  updateCsAccount: (id: string, payload: { accountIdentifier: string; phoneLabel: string; holderName: string }) => requestInner<{ needsRegistration: boolean }>(`/api/cs-accounts/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(payload) }),
   updateUser: (id: string, payload: Record<string, unknown>) => requestInner(`/api/admin/users/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(payload) }),
   setSupervisorTeams: (id: string, teamIds: string[]) => requestInner(`/api/admin/users/${encodeURIComponent(id)}/scopes`, { method: "PUT", body: JSON.stringify({ teamIds }) }),
   issueCsRegistrationCode: (payload: { teamId?: string; accountId?: string }) => requestInner<{ code: string; expiresAt: string; message: string }>("/api/cs-accounts/registration-codes", { method: "POST", body: JSON.stringify(payload) }),
   setCsAccountStatus: (id: string, isActive: boolean) => requestInner(`/api/cs-accounts/${encodeURIComponent(id)}/status`, { method: "PUT", body: JSON.stringify({ isActive }) }),
-  csRegistrationOptions:(registrationCode:string)=>requestInner<{accounts:{id:string;platform:'whatsapp'|'messenger'|'legacy_wechat';accountIdentifier:string;label:string;phoneLabel:string|null}[]}>('/api/auth/cs-device/options',{method:'POST',body:JSON.stringify({registrationCode})}),
+  csRegistrationOptions:(registrationCode:string)=>requestInner<{accounts:{id:string;platform:'whatsapp'|'messenger'|'legacy_wechat';accountIdentifier:string;label:string;phoneLabel:string|null;holderName:string|null}[]}>('/api/auth/cs-device/options',{method:'POST',body:JSON.stringify({registrationCode})}),
   registerCsDevice: (payload: { accountId: string; phoneLabel: string; registrationCode: string }) => requestInner<{ user: User; csrfToken: string; today: string; backfillDays: number }>("/api/auth/cs-device", { method: "POST", body: JSON.stringify(payload) }),
   modules: () => requestInner<{ version: number; modules: Record<string, boolean>; labels: Record<string, string> }>("/api/modules"),
   saveModules: (version: number, modules: Record<string, boolean>) => requestInner<{ version: number; modules: Record<string, boolean>; labels: Record<string, string> }>("/api/modules", { method: "PUT", body: JSON.stringify({ version, modules }) }),
@@ -337,7 +337,7 @@ export type AdminUser = {
   currentTeam?: { id: string; name: string } | null;
   managedTeamIds?: string[];
 };
-export type CsAccount = { id: string; wechatId: string; platform?:'whatsapp'|'messenger'|'legacy_wechat';accountIdentifier?:string;phoneLabel: string | null; isActive: boolean; teamId: string | null; teamName: string | null; createdAt: string };
+export type CsAccount = { id: string; wechatId: string; platform?:'whatsapp'|'messenger'|'legacy_wechat';accountIdentifier?:string;phoneLabel: string | null; holderName?: string | null; isActive: boolean; teamId: string | null; teamName: string | null; createdAt: string };
 export type Salary = {
   id: string;
   userId: string;

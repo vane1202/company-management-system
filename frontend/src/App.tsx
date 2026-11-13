@@ -5,6 +5,7 @@ import { WorkspaceBackbar, useWorkspaceNavigation } from "./WorkspaceNavigation"
 import {LiveBusinessOverview} from './LiveBusinessOverview';
 import {defaultLiveView,liveViewLabel,type LiveView} from './liveBusinessNavigation';
 import { OrderWorkspace } from "./OrderWorkspace";
+import { FinanceDesk } from "./FinanceDesk";
 import { FinanceWorkspace } from "./FinanceWorkspace";
 import { DailyForm } from "./DailyForms";
 import { LeadWorkspace } from "./LeadWorkspace";
@@ -13,6 +14,7 @@ import { ModuleSettings } from "./ModuleSettings";
 import { SystemSettings } from "./SystemSettings";
 import { DashboardHome } from "./DashboardHome";
 import { AdminHome, SupervisorHome } from "./RoleHomes";
+import {AdminWorkbench,SupervisorWorkbench} from "./demo/RoleWorkbenches";
 import { DashboardIcon } from "./DashboardIcon";
 import { CsDeviceRegistration } from "./CsDeviceRegistration";
 import { CsAccountsPage } from "./CsAccountsPage";
@@ -20,7 +22,7 @@ import { fillEntries, fillEntryFromPath, canUseFillEntry } from "./fillEntries";
 import { type FormEvent, type ReactNode, lazy, Suspense, useEffect, useState } from "react";
 import { canQueryByDate, isIsoDate } from "./dates";
 import { labelOrderStatus } from "./labels";
-import { navItems, roleLabel, type Page } from "./access";
+import { bossLinkedPages, navItems, pageLabel, roleLabel, type Page } from "./access";
 import { createRequestGate } from "./requestGate";
 import { toErrorMessage } from "./errors";
 import { readSessionMeta, type SessionMeta } from "./sessionMeta";
@@ -42,7 +44,13 @@ import {
   type User
 } from "./api";
 
+if (import.meta.env.MODE === 'demo') void import('./demo/dashboard-phase1.css');
 const DemoOpsAnalysis = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/OpsAnalysis')) : null;
+const DemoEstimateBoard = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/BossEstimateBoard')) : null;
+const DemoCustomerFill = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/CustomerFillWorkspace')) : null;
+const DemoSupervisorPerformance = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/SupervisorPerformance')) : null;
+const DemoEditorFill = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/EditorFillWorkspace')) : null;
+const DemoEditorOverview = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/EditorOverview')) : null;
 
 export function App() {
   const [modules, setModules] = useState<Record<string, boolean> | null>(null);
@@ -106,6 +114,8 @@ export function App() {
     return <ChangePassword user={user} onDone={() => setUser({ ...user, mustChangePassword: false })} />;
   }
 
+  if (DemoCustomerFill && user.role === "cs") return <Suspense fallback={<p role="status">正在打开客服填报…</p>}><DemoCustomerFill today={today} /></Suspense>;
+  if (DemoEditorFill && user.role === "editor") return <Suspense fallback={<p role="status">正在打开拍剪填报…</p>}><DemoEditorFill today={today} /></Suspense>;
   if (entry && !canUseFillEntry(user.role, entry)) {
     return <section className="page"><div className="card"><h2>{fillEntries[entry].title}</h2>
       <p>此入口用于客服本人填报。当前登录身份为{roleLabel[user.role]}，请使用相应的客服账号。</p>
@@ -116,9 +126,14 @@ export function App() {
   if (entry && !modules) return <div className="page"><p>正在确认填报入口…</p>{error && <p className="error">{error}</p>}<button type="button" onClick={() => api.modules().then((data) => { setModules(data.modules); setError(""); }).catch((err) => setError(toErrorMessage(err)))}>重新加载</button></div>;
   if (entry && modules?.[entry] === false) return <section className="page"><div className="card"><h2>{fillEntries[entry].title}已停用</h2><p>请联系管理员重新启用，历史数据仍保留。</p><a className="btn secondary" href="/">返回首页</a></div></section>;
 
-  const managementRole = ["boss", "admin", "cs_supervisor", "finance"].includes(user.role);
+  const managementRole = ["boss", "admin", "cs_supervisor", "finance"].includes(user.role) || (import.meta.env.MODE === "demo" && user.role === "ops");
+  const demoBoss = import.meta.env.MODE === "demo" && user.role === "boss";
+  const linkedPages = demoBoss ? bossLinkedPages() : [];
   const items = navItems(user.role).filter((item) => managementRole || !["fans", "orders", "ops", "editor"].includes(item.id) || modules?.[item.id] === true);
-  const activePage = items.some((item) => item.id === page) ? page : "home";
+  const sidebarItems = user.role === "finance" ? [] : items;
+  const rootPage: Page = demoBoss ? "dashboard" : "home";
+  const activePage = items.some((item) => item.id === page) || linkedPages.includes(page) ? page : rootPage;
+  const navCurrent = linkedPages.includes(activePage) ? rootPage : activePage;
   const bossBusiness=user.role==='boss'&&activePage==='orders';
   const businessContext=navigation.views.orders?.live??defaultLiveView();
   const currentBusiness=navigation.route.live??defaultLiveView();
@@ -130,9 +145,9 @@ export function App() {
   }
   const pageError = (id: Page) => (value: string) => setPageErrors(current => ({ ...current, [id]: value }));
   function pagePanel(id: Page, children: ReactNode) {
-    if (!items.some(item => item.id === id)) return null;
+    if (!items.some(item => item.id === id) && !linkedPages.includes(id)) return null;
     if (!(id in navigation.views) && activePage !== id) return null;
-    return <section key={`${user!.id}:${user!.role}:${id}`} className="workspace-page" hidden={activePage !== id} aria-label={items.find(item => item.id === id)?.label}>
+    return <section key={`${user!.id}:${user!.role}:${id}`} className="workspace-page" hidden={activePage !== id} aria-label={pageLabel(user!.role, id)}>
       {pageErrors[id] && <p role="alert" className="error">{pageErrors[id]}</p>}{children}
     </section>;
   }
@@ -146,17 +161,17 @@ export function App() {
     <div className={`page app-shell ${managementRole ? "management-shell" : ""} ${user.role === "boss" ? "boss-shell" : ""}`}>
       <a className="skip-link" href="#main-content">跳到主要内容</a>
       <aside className={`app-sidebar ${mobileNavOpen ? "mobile-nav-open" : ""}`}>
-        <div className="sidebar-brand-row"><button type="button" onClick={() => navigation.up({ page: "home" })} className="sidebar-brand" aria-label="返回工作台首页"><span className="sidebar-brand-mark"><DashboardIcon name="home" /></span><span><b>内部管理系统</b><small>公司日常工作台</small></span></button>{managementRole && <button type="button" className="mobile-menu-toggle secondary" aria-expanded={mobileNavOpen} aria-controls="workspace-navigation" onClick={() => setMobileNavOpen(open => !open)}>{mobileNavOpen ? "收起菜单" : "全部菜单"}</button>}</div>
-        <span className="nav-section-label">工作空间</span>
-        <nav id="workspace-navigation" className="nav" aria-label="主要导航">
-          {items.map((item) => <button key={item.id} aria-current={activePage === item.id ? "page" : undefined} className={activePage === item.id ? "active" : ""} onClick={() => goTo(item.id)}><DashboardIcon name={item.id} /><span>{item.label}</span></button>)}
+        <div className="sidebar-brand-row"><button type="button" onClick={() => navigation.up({ page: rootPage })} className="sidebar-brand" aria-label="返回工作台首页"><span className="sidebar-brand-mark"><DashboardIcon name="home" /></span><span><b>内部管理系统</b><small>公司日常工作台</small></span></button>{managementRole && <button type="button" className="mobile-menu-toggle secondary" aria-expanded={mobileNavOpen} aria-controls="workspace-navigation" onClick={() => setMobileNavOpen(open => !open)}>{mobileNavOpen ? "收起菜单" : "全部菜单"}</button>}</div>
+        {sidebarItems.length > 0 && <span className="nav-section-label">工作空间</span>}
+        {sidebarItems.length > 0 && <nav id="workspace-navigation" className="nav" aria-label="主要导航">
+          {sidebarItems.map((item) => <button key={item.id} aria-current={navCurrent === item.id ? "page" : undefined} className={navCurrent === item.id ? "active" : ""} onClick={() => goTo(item.id)}><DashboardIcon name={item.id} /><span>{item.label}</span></button>)}
           {managementRole && <button type="button" className="mobile-menu-logout" onClick={logout}>退出登录</button>}
-        </nav>
+        </nav>}
         <div className="sidebar-footer"><span className="sidebar-avatar">{user.displayName.slice(0, 1)}</span><span><strong>{user.displayName}</strong><small>{roleLabel[user.role]} · 数据按权限展示</small></span></div>
       </aside>
       <div className="app-main">
       <header className="topbar app-toolbar">
-        <div className="toolbar-breadcrumb">工作台 <span>/</span> <strong>{items.find((item) => item.id === activePage)?.label}</strong></div>
+        <div className="toolbar-breadcrumb">工作台 <span>/</span> <strong>{pageLabel(user.role, activePage)}</strong></div>
         <div className="toolbar-account"><span>{user.displayName}</span>
         <button
           className="secondary"
@@ -167,16 +182,16 @@ export function App() {
         </div>
       </header>
       <main id="main-content" tabIndex={-1}>
-      {activePage !== "home" && <WorkspaceBackbar page={activePage} detail={activePage === "orders" && !!navigation.route.orderId} homeLabel={items[0].label} pageLabel={bossBusiness?(navigation.route.orderList?'订单档案':liveViewLabel(currentBusiness)):items.find(item => item.id === activePage)!.label} backLabel={businessBackLabel} onUp={() => navigation.up()} onHome={() => navigation.up({ page: "home" })} />}
+      {activePage !== rootPage && <WorkspaceBackbar page={activePage} detail={activePage === "orders" && !!navigation.route.orderId} homeLabel={items[0].label} pageLabel={bossBusiness?(navigation.route.orderList?'订单档案':liveViewLabel(currentBusiness)):pageLabel(user.role, activePage)} backLabel={businessBackLabel} onUp={() => { const route = navigation.route; const insideOrders = route.page === "orders" && !!(route.orderId || route.orderList || route.live && route.live.view !== "rooms"); navigation.up(demoBoss && !insideOrders ? { page: "dashboard" } : undefined); }} onHome={() => navigation.up({ page: rootPage })} />}
       {error && <p className="error">{error}</p>}
       {isServiceAccount(user.accountKind) && <p className="notice">当前填报接待账号：<strong>{user.serviceAccountLabel??user.wechatId}</strong>{user.phoneLabel ? `（${user.phoneLabel}）` : ""}。加粉与订单长期归属于此接待账号；退出后需管理员重新发码。</p>}
       {pagePanel("home", <Home user={user} today={today} backfillDays={backfillDays} disclaimer={disclaimer} onNavigate={goTo} onOpenBusiness={live=>navigation.navigate({page:'orders',live})} />)}
       {pagePanel("fans", <FanForm today={today} onError={pageError("fans")} platform={user.servicePlatform}/>)}
       {pagePanel("summary", <FanSummaryPage today={today} onError={pageError("summary")} supervisor={user.role === "cs_supervisor"} onNavigate={goTo} />)}
-      {pagePanel("orders", user.role==='boss'?<><div hidden={!!navigation.views.orders?.orderId||!!navigation.views.orders?.orderList}><LiveBusinessOverview today={today} context={businessContext} onOpenBusiness={live=>navigation.navigate({page:'orders',live})} onOpenOrder={id=>navigation.navigate({page:'orders',live:businessContext,orderId:id})} onOpenOrders={()=>navigation.navigate({page:'orders',live:businessContext,orderList:true})}/></div>{(navigation.views.orders?.orderId||navigation.views.orders?.orderList)&&<OrderWorkspace today={today} user={user} selectedId={navigation.views.orders.orderId??''} onSelectOrder={id=>navigation.navigate({...navigation.views.orders!,orderId:id})}/>}</>:<OrderWorkspace today={today} user={user} selectedId={navigation.views.orders?.orderId ?? ""} onSelectOrder={id => navigation.navigate({ page: "orders", orderId: id })} />)}
+      {pagePanel("orders", DemoSupervisorPerformance && user.role === 'cs_supervisor' ? <Suspense fallback={<p role="status">正在读取本组业绩…</p>}><DemoSupervisorPerformance today={today} user={user} selectedId={navigation.views.orders?.orderId ?? ''} onSelectOrder={id => navigation.navigate({page:'orders',orderId:id})} /></Suspense> : user.role==='boss'?<><div hidden={!!navigation.views.orders?.orderId||!!navigation.views.orders?.orderList}><LiveBusinessOverview today={today} context={businessContext} onOpenBusiness={live=>navigation.navigate({page:'orders',live})} onOpenOrder={id=>navigation.navigate({page:'orders',live:businessContext,orderId:id})} onOpenOrders={()=>navigation.navigate({page:'orders',live:businessContext,orderList:true})}/></div>{(navigation.views.orders?.orderId||navigation.views.orders?.orderList)&&<OrderWorkspace today={today} user={user} selectedId={navigation.views.orders.orderId??''} onSelectOrder={id=>navigation.navigate({...navigation.views.orders!,orderId:id})}/>}</>:<OrderWorkspace today={today} user={user} selectedId={navigation.views.orders?.orderId ?? ""} onSelectOrder={id => navigation.navigate({ page: "orders", orderId: id })} />)}
       {pagePanel("ops", DemoOpsAnalysis&&user.role==='boss'?<Suspense fallback={<p role="status">正在读取投放分析…</p>}><DemoOpsAnalysis today={today}/></Suspense>:<OpsPage today={today} onError={pageError("ops")} readOnly={user.role === "boss"} />)}
-      {pagePanel("editor", <EditorPage today={today} onError={pageError("editor")} readOnly={user.role === "boss"} />)}
-      {pagePanel("dashboard", <DashboardPage onError={pageError("dashboard")} />)}
+      {pagePanel("editor", DemoEditorOverview && user.role==='boss'?<Suspense fallback={<p role="status">正在读取拍剪汇总…</p>}><DemoEditorOverview today={today}/></Suspense>:<EditorPage today={today} onError={pageError("editor")} readOnly={user.role === "boss"} />)}
+      {pagePanel("dashboard", DemoEstimateBoard ? <Suspense fallback={<p role="status">正在读取经营估算…</p>}><DemoEstimateBoard today={today} onError={pageError("dashboard")} onOpen={goTo} /></Suspense> : <DashboardPage onError={pageError("dashboard")} />)}
       {pagePanel("modules", <><ModuleSettings onError={pageError("modules")} onChange={setModules} /><SystemSettings defaultDays={backfillDays} /></>)}
       {pagePanel("people", <PeoplePage today={today} onError={pageError("people")} />)}
       {pagePanel("csAccounts", <CsAccountsPage supervisor={user.role === "cs_supervisor"} />)}
@@ -185,13 +200,13 @@ export function App() {
 
       </main>
       </div>
-      <nav className="bottom-nav" aria-label="底部导航">
-        {items.slice(0, 5).map((item) => (
-          <button key={item.id} aria-current={activePage === item.id ? "page" : undefined} className={activePage === item.id ? "active" : ""} onClick={() => goTo(item.id)}>
-            {item.id === "csAccounts" ? "客服接待账号" : item.label}
+      {sidebarItems.length > 0 && <nav className="bottom-nav" aria-label="底部导航">
+        {sidebarItems.slice(0, 5).map((item) => (
+          <button key={item.id} aria-current={navCurrent === item.id ? "page" : undefined} className={navCurrent === item.id ? "active" : ""} onClick={() => goTo(item.id)}>
+            {item.label}
           </button>
         ))}
-      </nav>
+      </nav>}
     </div>
   );
 }
@@ -302,10 +317,11 @@ function Home({
   onNavigate: (page: Page) => void;
   onOpenBusiness:(view:LiveView)=>void;
 }) {
-  if (user.role === "finance") return <FinanceWorkspace today={today} />;
+  if (DemoOpsAnalysis && user.role === "ops") return <Suspense fallback={<p role="status">正在读取运营工作台…</p>}><DemoOpsAnalysis today={today} onOpenReports={()=>onNavigate("ops")}/></Suspense>;
+  if (user.role === "finance") return <FinanceDesk today={today} onOpenSalary={() => onNavigate("salaries")} />;
   if (user.role === "boss") return <DashboardHome today={today} onNavigate={onNavigate} onOpenBusiness={onOpenBusiness} />;
-  if (user.role === "admin") return <AdminHome onNavigate={onNavigate} />;
-  if (user.role === "cs_supervisor") return <SupervisorHome today={today} onNavigate={onNavigate} />;
+  if (user.role === "admin") return import.meta.env.MODE === "demo" ? <AdminWorkbench onNavigate={onNavigate}/> : <AdminHome onNavigate={onNavigate} />;
+  if (user.role === "cs_supervisor") return import.meta.env.MODE === "demo" ? <SupervisorWorkbench today={today} onNavigate={onNavigate}/> : <SupervisorHome today={today} onNavigate={onNavigate} />;
   return (
     <section className="card">
       <h2>今日 {today || "—"}</h2>
@@ -360,7 +376,7 @@ function FanSummaryPage({ today, onError, supervisor = false, onNavigate }: { to
   const noReports = loaded && !loading && !empty && teams.every((team) => team.details.every((item) => item.status !== "reported"));
 
   return (
-    <><LeadWorkspace today={today}/><details className="card" aria-busy={loading}><summary>原始加粉日报与当日沟通汇报</summary><section>
+    <><LeadWorkspace today={today} layered={import.meta.env.MODE==='demo'} supervisor={supervisor}/><details className="card" aria-busy={loading}><summary>原始加粉日报与当日沟通汇报</summary><section>
 
       <h2>加粉日报汇总</h2>
       <p className="notice">当日沟通情况可包含往日客户；月进粉仅作累计汇报。初步转化请看上方客户明细考核。</p>
@@ -381,7 +397,7 @@ function FanSummaryPage({ today, onError, supervisor = false, onNavigate }: { to
       {(empty || noReports) && <div className="empty-state" role="status">
         <strong>{loadedDate} 还没有加粉记录</strong>
         <p>{supervisor ? "可切换上方日期查看其他业务日；如果本组客服还没出现在这里，请去“本组客服微信”确认微信已登记。" : "可切换上方日期查看其他业务日。"}</p>
-        {supervisor && <button type="button" className="secondary" onClick={() => onNavigate("csAccounts")}>去本组客服微信</button>}
+        {supervisor && <button type="button" className="secondary" onClick={() => onNavigate("csAccounts")}>去本组客服账号管理</button>}
       </div>}
       {!empty && teams.map((team) => (
         <div key={team.teamId} className="card">

@@ -21,7 +21,9 @@ const newKey = () => `${Date.now().toString(36)}-${++sequence}`;
 
 export function readWorkspaceRoute(href: string): WorkspaceRoute {
   const url = new URL(href);
-  const page = fillEntryFromPath(url.pathname) ?? (pages.includes(url.searchParams.get("page") as Page) ? url.searchParams.get("page") as Page : "home");
+  const requested = url.searchParams.get("page");
+  const pageFromUrl = fillEntryFromPath(url.pathname) ?? (pages.includes(requested as Page) ? requested as Page : "home");
+  const page = import.meta.env.MODE === "demo" && url.searchParams.get("role") === "boss" && pageFromUrl === "home" ? "dashboard" : pageFromUrl;
   const id = url.searchParams.get("order");
   const route:WorkspaceRoute = page === "orders" && id && /^[a-z\d_-]{1,128}$/i.test(id) ? { page, orderId: id } : { page };
   if(page==='orders'){
@@ -34,7 +36,8 @@ export function workspaceUrl(href: string, route: WorkspaceRoute, role: Role): s
   const url = new URL(href);
   const fill = route.page === "fans" || route.page === "orders" ? route.page : null;
   url.pathname = fill && canUseFillEntry(role, fill) ? fillEntries[fill].path : "/";
-  if (route.page === "home" || fill && canUseFillEntry(role, fill)) url.searchParams.delete("page");
+  const demoBossRoot = import.meta.env.MODE === "demo" && role === "boss" && route.page === "dashboard";
+  if (route.page === "home" || demoBossRoot || fill && canUseFillEntry(role, fill)) url.searchParams.delete("page");
   else url.searchParams.set("page", route.page);
   if (route.page === "orders" && route.orderId) url.searchParams.set("order", route.orderId);
   else url.searchParams.delete("order");

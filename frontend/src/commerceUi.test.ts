@@ -1,6 +1,6 @@
 import {describe,it,expect} from "vitest";
 import {itemPreview,money,submissionKey,defaultBuyingFee,buyingFeeAfterPriceChange,buyingFeeRestored} from "./commerceUi";
-import {navItems,roleLabel,canAccessSalaries,canAccessDashboard} from "./access";
+import {bossDemoNav,navItems,roleLabel,canAccessSalaries,canAccessDashboard} from "./access";
 describe("财务与订单界面口径",()=>{
  it("展示逐块舍入、不混入成品加费，拒绝超过分的输入",()=>{const a=itemPreview("100.05","material")!,b=itemPreview("20.00","finished")!;expect(a.fee).toBe("10.01");expect(b.fee).toBe("0.00");expect(money(a.total+b.total)).toBe("130.06");expect(itemPreview("1.001","material")).toBe(null);});
  it("服务费默认按谈成价10%四舍五入到分，成品不加费",()=>{
@@ -26,3 +26,5 @@ describe("财务与订单界面口径",()=>{
  });
  it("财务可核算工资，BOSS可只读查看结算与工资",()=>{expect(roleLabel.finance).toBe("财务");expect(navItems("finance").map(x=>x.id)).toEqual(["home","salaries"]);expect(navItems("boss").some(x=>x.id==="finance")).toBe(true);expect(navItems("admin").some(x=>x.id==="finance")).toBe(false);expect(navItems("cs_supervisor").some(x=>x.id==="finance")).toBe(false);expect(canAccessDashboard("finance")).toBe(false);expect(canAccessSalaries("finance")).toBe(true);});
 });
+
+it("演示侧栏只保留经营估算、直播间、加粉和拍剪",()=>{expect(bossDemoNav().map(item=>item.label)).toEqual(["经营估算","直播间经营","加粉汇总","拍剪汇总"]);expect(bossDemoNav().some(item=>["home","finance","ops","salaries"].includes(item.id))).toBe(false);});

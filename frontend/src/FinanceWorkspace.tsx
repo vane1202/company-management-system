@@ -16,7 +16,7 @@ export function FinanceWorkspace({today,readOnly=false}:{today:string;readOnly?:
   return readOnly&&DemoBossCashBoard?<Suspense fallback={<p role="status">正在读取收款与到账…</p>}><DemoBossCashBoard today={today} financialDetail={(query,range)=><FinanceLedgerWorkspace today={today} readOnly initialQuery={query} initialRange={range} initialPendingOnly={false}/>} /></Suspense>:<FinanceLedgerWorkspace today={today} readOnly={readOnly}/>;
 }
 
-function FinanceLedgerWorkspace({today,readOnly=false,initialQuery='',initialRange,initialPendingOnly=true}:{today:string;readOnly?:boolean;initialQuery?:string;initialRange?:{from:string;to:string};initialPendingOnly?:boolean}) {
+export function FinanceLedgerWorkspace({today,readOnly=false,initialQuery='',initialRange,initialPendingOnly=true,heading,hideCompanions=false}:{today:string;readOnly?:boolean;initialQuery?:string;initialRange?:{from:string;to:string};initialPendingOnly?:boolean;heading?:string;hideCompanions?:boolean}) {
   const [data,setData]=useState<FinanceData|null>(null),[error,setError]=useState(""),[busy,setBusy]=useState(false);
   const [filters,setFilters]=useState({from:initialRange?.from??"",to:initialRange?.to??"",query:initialQuery,currency:"",channel:"",pendingOnly:initialPendingOnly});
   const [selected,setSelected]=useState<Record<string,{foreignAmount:string;netCny:string}>>({});
@@ -36,7 +36,7 @@ function FinanceLedgerWorkspace({today,readOnly=false,initialQuery='',initialRan
   const candidates=data?.payments.filter(p=>!p.voided_at&&p.third_party&&p.currency===form.currency&&p.channel===form.channel&&cents(p.pendingAmount)!==0n)??[];
   const allocations=Object.entries(selected).map(([paymentId,a])=>({paymentId,...a}));
   const allocationTotal=allocations.every(a=>cents(a.netCny)!==null)?money(allocations.reduce((n,a)=>n+(cents(a.netCny)??0n),0n)):"—";
-  return <div className="commerce-workspace"><header className="commerce-heading"><div><p className="eyebrow">客户付款 · 第三方结算</p><h1>{readOnly?"收款与结算":"财务工作台"}<InfoTip label="收款与结算说明" text={`${readOnly?"BOSS 只读查看。":"由财务登记扣点、结汇与人民币到账。"}客户付款已抵扣客户应收，结算扣费和汇差由公司承担。`}/></h1></div><button className="secondary" disabled={busy} onClick={()=>void reload()}>{busy?"读取中…":"刷新"}</button></header>
+  return <div className="commerce-workspace"><header className="commerce-heading"><div><p className="eyebrow">客户付款 · 第三方结算</p><h1>{heading??(readOnly?"收款与结算":"财务工作台")}<InfoTip label="收款与结算说明" text={`${readOnly?"BOSS 只读查看。":"由财务登记扣点、结汇与人民币到账。"}客户付款已抵扣客户应收，结算扣费和汇差由公司承担。`}/></h1></div><button className="secondary" disabled={busy} onClick={()=>void reload()}>{busy?"读取中…":"刷新"}</button></header>
     {error&&<p className="error" role="alert">{error}</p>}
     {!data?<section className="card">{error?"未能读取财务数据，可点击刷新重试。":"正在读取财务数据…"}</section>:<>
     <section className="card"><p className="eyebrow">全部已登记流水 · 累计<InfoTip label="累计口径" text="人民币流入已扣除结算手续费，不再重复扣费。此处不含旧订单未知收款，也不计算退款流出与利润。"/></p><div className="commerce-kpis"><div><small>实际人民币累计流入</small><strong>¥ {data.summary.totalCny}</strong></div><div><small>直接收款</small><strong>¥ {data.summary.directCny}</strong></div><div><small>第三方净到账</small><strong>¥ {data.summary.settledCny}</strong></div></div><div className="commerce-pending">{Object.entries(data.summary.pending).map(([cur,value])=><span key={cur}>待第三方结算 · {currencies[cur as Currency]}<b>{value} {cur}</b></span>)}</div></section>
@@ -47,8 +47,8 @@ function FinanceLedgerWorkspace({today,readOnly=false,initialQuery='',initialRan
     <section className="card"><h2>第三方结算记录</h2><p className="notice">按公司到账日期排列，共 {data.settlements.length} 笔。</p>{!data.settlements.length&&<p>尚未登记结算。</p>}{data.settlements.map(s=><details className={`commerce-settlement ${s.voided_at?"commerce-void":""}`} key={s.id}><summary>{s.settled_on} · {s.channel} · ¥ {s.net_cny}{s.voided_at?" · 已作废":""}</summary><p>流水：{s.reference} · 结算原币 {s.currency}</p><p>实际扣费 {s.fee_amount} {s.fee_currency}{s.fee_percent!==null?` · 扣点 ${s.fee_percent}%`:""}{s.fx_rate?` · 汇率 ${s.fx_rate}`:""}</p>{s.allocations.map(a=><p key={a.paymentId}>{data.payments.find(p=>p.id===a.paymentId)?.order_ref??a.paymentId}：本次结算 {a.foreignAmount} {s.currency} → 净到账 ¥ {a.netCny}</p>)}{s.note&&<p>{s.note}</p>}{s.voided_at?<p>作废原因：{s.void_reason}</p>:!readOnly&&<button className="secondary" disabled={busy} onClick={()=>{setVoidId(s.id);setReason("");}}>纠正此笔结算</button>}</details>)}</section>
     {voidId&&!readOnly&&<section className="card commerce-correction"><h2>作废结算登记</h2><p>用于登记纠错，将恢复第三方待结金额并保留原记录；不会改变客户付款，也不表示资金已退款。</p><form onSubmit={e=>{e.preventDefault();void action(async()=>{await api.financeAction(`settlements/${voidId}/void`,{reason});setVoidId("");},`结算已作废（流水 ${data.settlements.find(x=>x.id===voidId)?.reference??""}），原记录保留`);}}><Field label="作废原因"><input required maxLength={500} value={reason} onChange={e=>setReason(e.target.value)}/></Field><div className="commerce-line"><button disabled={busy}>{busy?"保存中…":"确认作废"}</button><button className="secondary" type="button" onClick={()=>setVoidId("")}>取消</button></div></form></section>}
     </>}
-    <CompanyPayments today={today} readOnly={readOnly} />
-    <PaidPerformance today={today} readOnly={readOnly}/>
-    <AdAccountsWorkspace today={today} readOnly={readOnly} />
+    {!hideCompanions&&<CompanyPayments today={today} readOnly={readOnly} />}
+    {!hideCompanions&&<PaidPerformance today={today} readOnly={readOnly}/>}
+    {!hideCompanions&&<AdAccountsWorkspace today={today} readOnly={readOnly} />}
   </div>;
 }

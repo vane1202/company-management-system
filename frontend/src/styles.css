@@ -488,6 +488,8 @@ progress::-moz-progress-bar { background: #4c7954; border-radius: 1rem; }
 .role-panel-title .text-action { font-size: 12px; white-space: nowrap; }
 .role-detail-grid { display: grid; grid-template-columns: minmax(0,1.2fr) minmax(0,1fr); gap: 18px; }
 .role-action-list { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 14px; }
+.finance-work-list { grid-template-columns: repeat(2,minmax(0,1fr)); }
+.finance-desk .role-home-action { width: 100%; border: 0; cursor: pointer; }
 .role-home-action { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 17px 14px; background: #f4f7f2; color: #335543; border-radius: 10px; text-align: left; }
 .role-home-action > span { display: grid; gap: 6px; flex: 1; min-width: 0; }
 .role-home-action strong { font-size: 14px; font-weight: 550; }
@@ -516,7 +518,7 @@ progress::-moz-progress-bar { background: #4c7954; border-radius: 1rem; }
 .role-team-row > span { color: #7b887f; white-space: nowrap; }
 .role-empty p { color: #7a897d; line-height: 1.8; font-size: 13px; }
 @media (hover: hover) and (pointer: fine) { .role-metric:hover, .role-home-action:hover { background: #edf3ea; border-color: #b4c8b8; } }
-@media (max-width: 950px) { .role-action-list { grid-template-columns: 1fr; }.role-detail-grid { grid-template-columns: 1fr; } }
+@media (max-width: 950px) { .role-action-list, .finance-work-list { grid-template-columns: 1fr; }.role-detail-grid { grid-template-columns: 1fr; } }
 @media (max-width: 799px) {
   .role-home-heading { align-items: center; min-height: 50px; }
   .role-home-heading h1 { font-size: 22px; margin-bottom: 5px; }
@@ -859,3 +861,5 @@ label.row small.hint,label.row>small{display:block;margin-top:4px;color:var(--mu
   .boss-video-summary h2{font-size:16px}
   .boss-video-fold{padding:14px 15px}
 }
+
+.item-photo{display:grid;gap:8px;min-width:0}.item-photo input[type=file]{max-width:100%;font-size:16px}.item-photo img{width:100%;max-height:220px;object-fit:contain;background:#f4f1ea;border-radius:8px}

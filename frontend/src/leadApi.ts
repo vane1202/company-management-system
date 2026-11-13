@@ -19,3 +19,11 @@ export function leadCoverage(leads:Lead[],reports:LeadReport[]){
  for(const r of reports){const list=leads.filter(l=>!l.voidedAt&&l.accountId===r.accountId&&l.pageName===r.pageName&&l.receivedOn===r.businessDate);reported+=r.msToday===null||r.wsToday===null?r.addedCount:r.msToday+r.wsToday;if(r.msToday===null||r.wsToday===null||list.filter(l=>l.channel==='ms').length!==r.msToday||list.filter(l=>l.channel==='ws').length!==r.wsToday)mismatches++;}
  return {mismatches,reported};
 }
+/** Seven complete business days must have ended; today's last observation day is still partial. */
+export function sevenDayResult(leads:Lead[],today:string,reports?:LeadReport[]) {
+ const end=(date:string)=>new Date(Date.parse(date+'T00:00:00Z')+6*86400000).toISOString().slice(0,10);
+ const active=leads.filter(l=>!l.voidedAt),mature=active.filter(l=>end(l.receivedOn)<today);
+ const converted=mature.filter(l=>l.qualifiedOn&&l.qualifiedOn>=l.receivedOn&&l.qualifiedOn<=end(l.receivedOn)).length;
+ const missing=reports?leadCoverage(mature,reports.filter(r=>end(r.businessDate)<today)).mismatches:0;
+ return {received:mature.length,converted,observing:active.length-mature.length,missing,rate:mature.length&&!missing?Math.round(converted/mature.length*1000)/10:null};
+}

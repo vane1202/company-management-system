@@ -120,9 +120,11 @@ export function SupervisorHome({ today, onNavigate }: { today: string; onNavigat
         <HomeMetric label="取得沟通" value={total("commReplied")} page="summary" onNavigate={onNavigate} pending={loading && !data} />
         <HomeMetric label="无效客源" value={total("commInvalid")} page="summary" onNavigate={onNavigate} pending={loading && !data} />
       </div>
-      <FanStateBar total={total("totalAdded")} replied={total("commReplied")} readNoReply={total("commReadNoReply")} unread={total("commUnread")} invalid={total("commInvalid")} />
-      {missingList.length > 0 && <section className="role-missing" aria-label="今日未报账号"><strong>今日未报 {missingList.length}</strong><div className="missing-chips">{missingList.map(item => <button type="button" key={item.userId} className="missing-chip" title={`${item.teamName} · 今日未报，点击查看加粉明细`} onClick={() => onNavigate("summary")}>{item.displayName}</button>)}</div><button type="button" className="text-action" onClick={() => onNavigate("summary")}>明细<DashboardIcon name="arrow" /></button></section>}
       <section className="role-home-panel role-order-preview"><div className="role-panel-title"><h2>今日订单概况<InfoTip label="营业额口径" text="与 BOSS 首页营业额同一口径：只计开单卡的料价和代购费，按开单卡日期统计；设计雕刻等追加收费另列，不计入；已登记跑单和历史退款标记的订单不计入。人民币。" /></h2><button type="button" className="text-action" onClick={() => onNavigate("orders")}>全部消费<DashboardIcon name="arrow" /></button></div><div className="role-order-values"><div><span>营业额</span><strong>{yuan(turnover)}</strong></div><div><span>有效开单</span><strong>{turnoverCount ?? "—"}<small>笔</small></strong></div></div></section>
+
+      {missingList.length > 0 && <section className="role-missing" aria-label="今日未报账号"><strong>今日未报 {missingList.length}</strong><div className="missing-chips">{missingList.map(item => <button type="button" key={item.userId} className="missing-chip" title={`${item.teamName} · 今日未报，点击查看加粉明细`} onClick={() => onNavigate("summary")}>{item.displayName}</button>)}</div><button type="button" className="text-action" onClick={() => onNavigate("summary")}>明细<DashboardIcon name="arrow" /></button></section>}
+      <details className="role-home-panel role-communication"><summary>当日沟通详情</summary><FanStateBar total={total("totalAdded")} replied={total("commReplied")} readNoReply={total("commReadNoReply")} unread={total("commUnread")} invalid={total("commInvalid")} /></details>
+
     </>}
     <HomeErrors errors={errors} retry={refresh} />
     {!noScope && <section className="role-home-panel"><div className="role-panel-title"><h2>本组加粉日报填报进度<InfoTip label="填报口径" text="按接待账号及原员工账号计数，多主页不重复计数。填报 0 仍计为已报。" /></h2><button type="button" className="text-action" onClick={() => onNavigate("summary")}>查看明细<DashboardIcon name="arrow" /></button></div>
@@ -131,7 +133,7 @@ export function SupervisorHome({ today, onNavigate }: { today: string; onNavigat
       {teams?.map(team => <div className="role-team-row" key={team.teamId}><div><strong>{team.teamName}</strong><small>已报 {team.reportedCount} / 应报 {team.expectedCount}</small></div><span>未报 {team.missingCount}</span></div>)}
       {!!teams?.some(team => team.statsIncomplete) && <p className="data-flag">含未分类旧记录 · 状态统计不完整</p>}
     </section>}
-    <section className="role-home-panel"><div className="role-panel-title"><h2>本组客服接待账号</h2><span>{accounts ? `${accounts.length} 个已登记` : "—"}</span></div><p className="role-account-split">{accounts ? <>启用 <b>{accounts.filter(account => account.isActive).length}</b> · 停用 <b>{accounts.filter(account => !account.isActive).length}</b></> : loading ? "正在读取接待账号列表…" : "接待账号列表暂不可用"}</p><div className="role-action-list"><HomeAction page="csAccounts" title="登记与维护接待账号" detail="发放一次性登记码、更新本组接待账号" onNavigate={onNavigate} /></div></section>
+    <section className="role-home-panel"><div className="role-panel-title"><h2>本组客服账号管理</h2><span>{accounts ? `${accounts.length} 个已登记` : "—"}</span></div><p className="role-account-split">{accounts ? <>启用 <b>{accounts.filter(account => account.isActive).length}</b> · 停用 <b>{accounts.filter(account => !account.isActive).length}</b></> : loading ? "正在读取接待账号列表…" : "接待账号列表暂不可用"}</p><div className="role-action-list"><HomeAction page="csAccounts" title="登记与维护接待账号" detail="发放一次性登记码、更新本组接待账号" onNavigate={onNavigate} /></div></section>
     <p className="role-home-scope">数据范围<InfoTip label="数据范围说明" text="仅汇总已授权小组。加粉与订单按业务日的小组归属读取；历史筛选请进入对应明细。" /></p>
   </div>;
 }

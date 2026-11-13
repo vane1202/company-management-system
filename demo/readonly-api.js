@@ -2,8 +2,8 @@
 (() => {
   "use strict";
   const nativeFetch = window.fetch.bind(window);
-  const roles = ["boss", "admin", "cs_supervisor", "finance"];
-  const requestedRole = new URLSearchParams(window.location.search).get("role");
+  const roles = ["boss", "admin", "cs_supervisor", "finance", "cs", "editor", "ops"];
+  const requestedRole = new URLSearchParams(window.location.search).get("role") || (/^\/fill(?:\/(orders|fans|after-sales|attendance))?\/?$/.test(window.location.pathname || "") ? "cs" : /^\/fill\/editor\/?$/.test(window.location.pathname || "") ? "editor" : null);
   let role = roles.includes(requestedRole) ? requestedRole : window.sessionStorage.getItem("cms-fictional-role") || "boss";
   if (!roles.includes(role)) role = "";
   const today = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
@@ -13,14 +13,14 @@
   const sumMoney = (rows, key) => money(rows.reduce((sum, row) => sum + cents(row[key] || "0.00"), 0n));
   const sum = (rows, key) => rows.reduce((total, row) => total + Number(row[key] || 0), 0);
   const meta = { today, timezone: "Asia/Shanghai", backfillDays: 3, disclaimer: "公开只读演示：所有账号、金额和记录均为虚构，不连接正式后台，不用于真实经营判断。" };
-  const names = { boss: "演示 BOSS", admin: "演示后台管理员", cs_supervisor: "演示客服主管", finance:"演示财务" };
-  const usernames = { boss: "demo_boss", admin: "demo_admin", cs_supervisor: "demo_supervisor", finance:"demo_finance" };
+  const names = { boss: "演示 BOSS", admin: "演示后台管理员", cs_supervisor: "演示客服主管", finance:"演示财务", cs:"演示客服填报", editor:"演示拍剪填报", ops:"演示运营" };
+  const usernames = { boss: "demo_boss", admin: "demo_admin", cs_supervisor: "demo_supervisor", finance:"demo_finance", cs:"demo_cs", editor:"demo_editor", ops:"demo_ops" };
   const currentUser = () => ({ id: "demo-" + role, username: usernames[role], displayName: names[role], role, isActive: true, mustChangePassword: false, accountKind: "employee" });
   const teams = [{ id: "demo-team-a", name: "演示一组" }, { id: "demo-team-b", name: "演示二组" }];
   // 第 3 个虚构微信归演示一组、今日未报，用于展示“今日未报”提示；无订单、无加粉记录。
   const accounts = [...teams, teams[0]].map((team, i) => ({ id: "demo-wechat-" + (i + 1), wechatId: "Demo_WeChat_0" + (i + 1), phoneLabel: "演示客服手机 0" + (i + 1), isActive: true, teamId: team.id, teamName: team.name, createdAt: today + "T01:00:00Z" }));
-  accounts.forEach((a,i)=>{a.platform=i===1?'whatsapp':'messenger';a.accountIdentifier=i===1?'+999000000002':'demo.messenger.0'+(i+1);a.wechatId=(a.platform==='whatsapp'?'WhatsApp':'Messenger')+' · '+a.accountIdentifier;});
-  const staff = [...roles.map((r) => ({ id: "demo-" + r, username: usernames[r], displayName: names[r], role: r, isActive: true, accountKind: "employee", managedTeamIds: r === "cs_supervisor" ? [teams[0].id] : [], currentTeam: null })), ...["ops", "editor", "assistant"].map((r) => ({ id: "demo-" + r, username: "demo_" + r, displayName: {ops:"演示运营",editor:"演示拍剪",assistant:"演示助理"}[r], role: r, isActive: true, accountKind: "employee", currentTeam: null }))];
+  accounts.forEach((a,i)=>{a.platform=i===1?'whatsapp':'messenger';a.accountIdentifier=i===1?'+999000000002':'demo.messenger.0'+(i+1);a.wechatId=(a.platform==='whatsapp'?'WhatsApp':'Messenger')+' · '+a.accountIdentifier;a.holderName=['演示客服甲','演示客服乙','演示客服丙'][i]||'演示客服';});
+  const staff = [...roles.filter(r=>r!=="cs"&&r!=="editor").map((r) => ({ id: "demo-" + r, username: usernames[r], displayName: names[r], role: r, isActive: true, accountKind: "employee", managedTeamIds: r === "cs_supervisor" ? [teams[0].id] : [], currentTeam: null })), ...["editor", "assistant"].map((r) => ({ id: "demo-" + r, username: "demo_" + r, displayName: {ops:"演示运营",editor:"演示拍剪",assistant:"演示助理"}[r], role: r, isActive: true, accountKind: "employee", currentTeam: null }))];
   const assetUsers = accounts.map((a) => ({ id: a.id, username: a.wechatId, displayName: a.wechatId, wechatId: a.wechatId, accountKind: "cs_service", role: "cs", isActive: true, currentTeam: { id: a.teamId, name: a.teamName } }));
   const fans = [
     { id:"demo-fan-1", userId:accounts[0].id, businessDate:today, pageName:"演示主页 A", msToday:4, wsToday:3, msMonth:120, wsMonth:48, validToday:5, commReplied:3, commReadNoReply:1, commUnread:1, commInvalid:1, addedCount:7 },
@@ -61,7 +61,7 @@
   function leadDemo(q){const from=q.get('from')||today,to=q.get('to')||today,allowed=visibleAccounts().map(a=>a.id);return {from,to,today,leads:leadFixtures.filter(l=>allowed.includes(l.accountId)&&l.receivedOn>=from&&l.receivedOn<=to),reports:fans.filter(f=>allowed.includes(f.userId)&&f.businessDate>=from&&f.businessDate<=to).map(f=>({accountId:f.userId,businessDate:f.businessDate,pageName:f.pageName,msToday:f.msToday,wsToday:f.wsToday,addedCount:f.addedCount}))};}
   const visibleTeams = () => role === "cs_supervisor" ? [teams[0]] : teams;
   const visibleOrders = () => orders.filter((o)=>visibleAccounts().some((a)=>a.id===o.userId));
-  orders.forEach((o,index)=>{o.workflowEnabled=index<3||index>=4;o.cancelled=!!o.cancelled;Object.assign(o,{personaCode:index===2?'DEMO-P-B':'DEMO-P-A',personaName:index===2?'演示人设 B':'演示人设 A',liveRoomCode:index===2?'DEMO-LIVE-02':'DEMO-LIVE-01',hostName:index===2?'演示主播乙':'演示主播甲',customerCode:'DEMO-C-'+(index+1),operatorName:'演示经办员'});});
+  orders.forEach((o,index)=>{o.workflowEnabled=index<3||index>=4;o.cancelled=!!o.cancelled;Object.assign(o,{personaCode:index===2?'DEMO-P-B':'DEMO-P-A',personaName:index===2?'演示人设 B':'演示人设 A',liveRoomCode:index===2?'DEMO-LIVE-02':'DEMO-LIVE-01',hostName:index===2?'演示主播乙':'演示主播甲',customerCode:'DEMO-C-'+(index+1),operatorName:['演示客服甲','演示客服丙','演示客服乙','','演示客服甲','演示前任客服'][index]||''});});
   // Same acquisition persona may lead into different receiving groups/rooms; it is not a fixed room assignment.
   Object.assign(orders[2],{personaCode:'DEMO-P-A',personaName:'演示人设 A'});
   Object.assign(orders[3],{liveRoomCode:'',hostName:'',personaCode:'',personaName:'',customerCode:'',operatorName:''});
@@ -341,11 +341,18 @@
     if(path==="/api/auth/meta")return json(meta);
     if(!["GET","HEAD"].includes(method))return json({error:"这是公开只读演示，不保存任何修改。请在正式后台操作。"},403);
     if(path==="/api/modules")return json({version:1,modules:{fans:true,ops:true,editor:true,orders:true},labels:{fans:"客服加粉",ops:"运营投放",editor:"拍剪",orders:"订单"}});
+    if(role==='cs'&&path!=="/api/cs-accounts")return json({error:"客服填报演示仅提供虚构账号选择与本页试填，不开放管理数据"},403);
+    if(role==='editor')return json({error:"拍剪填报演示仅提供预置姓名选择与本页试填，不开放管理数据"},403);
     if(path==='/api/demo/boss-overview')return role==='boss'?bossOverview(q):json({error:'仅BOSS可查看演示经营总览'},403);
     if(path==='/api/demo/ops-analysis'){
-      if(role!=='boss')return json({error:'仅BOSS可查看演示投放分析'},403);
+      if(!['boss','ops'].includes(role))return json({error:'仅BOSS与运营可查看演示投放分析'},403);
       if(!window.CmsOpsAnalysis)return json({error:'独立演示投放指标未加载'},503);
-      try{return json(window.CmsOpsAnalysis.build({rows:ops,rates:demoFxRates},Object.fromEntries(q),{today}));}catch{return json({error:'投放分析日期或维度无效'},400);}
+      try{return json(window.CmsOpsAnalysis.build({rows:role==='ops'?ops.filter(r=>r.userId===currentUser().id):ops,rates:demoFxRates},Object.fromEntries(q),{today}));}catch{return json({error:'投放分析日期或维度无效'},400);}
+    }
+    if(role==='ops'){
+      if(path==='/api/ops-reports')return json({reports:ops.filter(r=>r.userId===currentUser().id)});
+      if(path==='/api/ad-accounts')return json(adLedger);
+      return json({error:'运营演示仅开放本人投放日报、投放分析和广告台账'},403);
     }
     if(role==="admin"&&!/^\/api\/(admin|cs-accounts)(\/|$)/.test(path))return json({error:"演示管理员仅管理系统，不查看业务数据"},403);
     if(/^\/api\/salaries(\/|$)/.test(path))return ["finance","boss"].includes(role)?salaryApi(path,q):json({error:"仅财务与BOSS可查看工资"},403);

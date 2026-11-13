@@ -57,7 +57,7 @@
     return {
       version: 'ops-analysis/v1', demo: true, period: { ...period, today: clock.today, timezone: 'Asia/Shanghai', partial: period.to === clock.today },
       selected, dimension, summary, groups, records,
-      comparison: { label: baselineLabel, from: base.from, to: base.to, totals: previous, method: 'reported_daily_totals', percentage: null },
+      comparison: { label: baselineLabel, from: base.from, to: base.to, totals: previous, records: between(scoped, base.from, base.to), method: 'reported_daily_totals', percentage: null },
       trend: { from: trendFrom, to: period.to, days: trend },
       balances: { accounts: accountBalances, totalUsd: accountBalances.length && accountBalances.every(r => r.amountUsd != null) ? money(accountBalances.reduce((n, r) => n + cents(r.amountUsd), 0n)) : null, scope: 'whole_account' },
       options: Object.fromEntries(Object.entries(dimensions).map(([key, field]) => [key, [...new Set(active.map(r => r[field] || '__unassigned__'))].sort()])),

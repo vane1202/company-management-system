@@ -31,21 +31,21 @@ export function createCsAccountsRouter(db: Pool, config: AppConfig): Router {
       const date = String(req.query.date ?? businessToday(new Date(), config.businessTimezone));
       if (!isIsoDate(date)) throw new HttpError(400, "业务日无效");
       const scopes = isBossOrAdmin(actor) ? null : await managedTeamIds(db, actor);
-      const rows = await query(db, `SELECT u.id, u.wechat_id,u.service_platform,u.service_account_label, u.phone_label, u.is_active, u.created_at,
+      const rows = await query(db, `SELECT u.id, u.wechat_id,u.service_platform,u.service_account_label, u.phone_label, u.holder_name, u.is_active, u.created_at,
         m.team_id, t.name AS team_name FROM users u
         LEFT JOIN LATERAL (SELECT team_id FROM team_memberships WHERE user_id=u.id AND start_date <= $1::date AND (end_date IS NULL OR end_date >= $1::date) ORDER BY start_date DESC LIMIT 1) m ON TRUE
         LEFT JOIN teams t ON t.id=m.team_id
         WHERE u.account_kind IN ('cs_wechat','cs_service') AND ($2::uuid[] IS NULL OR m.team_id=ANY($2::uuid[])) ORDER BY u.service_platform,lower(u.wechat_id)`, [date, scopes]);
-      res.json({ accounts: rows.map((row) => ({ id: row.id, wechatId: row.service_account_label,platform:row.service_platform,accountIdentifier:row.wechat_id, phoneLabel: row.phone_label, isActive: row.is_active, teamId: row.team_id, teamName: row.team_name, createdAt: row.created_at })) });
+      res.json({ accounts: rows.map((row) => ({ id: row.id, wechatId: row.service_account_label,platform:row.service_platform,accountIdentifier:row.wechat_id, phoneLabel: row.phone_label, holderName: row.holder_name, isActive: row.is_active, teamId: row.team_id, teamName: row.team_name, createdAt: row.created_at })) });
     } catch (error) { next(error); }
   });
   router.post('/',async(req,res,next)=>{try{
     if(!['admin','cs_supervisor'].includes(req.actor!.role))throw new HttpError(403,'仅管理员或本组主管可维护接待账号');
-    const {platform,identifier}=parseServiceIdentity(req.body?.platform,req.body?.accountIdentifier),teamId=parseAccountId(req.body?.teamId),phoneLabel=String(req.body?.phoneLabel??'').trim();if(phoneLabel.length>64)throw new HttpError(400,'设备备注最多64字');
+    const {platform,identifier}=parseServiceIdentity(req.body?.platform,req.body?.accountIdentifier),teamId=parseAccountId(req.body?.teamId),phoneLabel=String(req.body?.phoneLabel??'').trim(),holderName=parseHolderName(req.body?.holderName);if(phoneLabel.length>64)throw new HttpError(400,'设备备注最多64字');
     const c=await db.connect();try{await c.query('BEGIN');await assertTeamScope(c,req.actor!,teamId);const team=await queryOne(c,'SELECT id FROM teams WHERE id=$1 AND is_active=TRUE FOR SHARE',[teamId]);if(!team)throw new HttpError(400,'请选择有效小组');
       const label=serviceLabel(platform,identifier),password=await hashPassword(randomBytes(32).toString('hex'));
-      const account=await queryOne(c,"INSERT INTO users(username,password_hash,display_name,role,must_change_password,account_kind,wechat_id,service_platform,phone_label) VALUES($1,$2,$3,'cs',FALSE,'cs_service',$4,$5,$6) RETURNING id",['csdev_'+randomBytes(12).toString('hex'),password,label,identifier,platform,phoneLabel||null]);
-      const today=businessToday(new Date(),config.businessTimezone);await c.query('INSERT INTO team_memberships(user_id,team_id,start_date) VALUES($1,$2,$3)',[account!.id,teamId,today]);await writeAudit(c,{actorId:req.actor!.id,action:'cs_service_account_create',entityType:'user',entityId:account!.id,after:{platform,accountIdentifier:identifier,teamId,phoneLabel},ip:req.ip});await c.query('COMMIT');res.status(201).json({id:account!.id});
+      const account=await queryOne(c,"INSERT INTO users(username,password_hash,display_name,role,must_change_password,account_kind,wechat_id,service_platform,phone_label,holder_name) VALUES($1,$2,$3,'cs',FALSE,'cs_service',$4,$5,$6,$7) RETURNING id",['csdev_'+randomBytes(12).toString('hex'),password,label,identifier,platform,phoneLabel||null,holderName||null]);
+      const today=businessToday(new Date(),config.businessTimezone);await c.query('INSERT INTO team_memberships(user_id,team_id,start_date) VALUES($1,$2,$3)',[account!.id,teamId,today]);await writeAudit(c,{actorId:req.actor!.id,action:'cs_service_account_create',entityType:'user',entityId:account!.id,after:{platform,accountIdentifier:identifier,teamId,phoneLabel,holderName},ip:req.ip});await c.query('COMMIT');res.status(201).json({id:account!.id});
     }catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}
   }catch(e){next(e);}});
   router.post("/registration-codes", async (req, res, next) => {
@@ -104,24 +104,32 @@ export function createCsAccountsRouter(db: Pool, config: AppConfig): Router {
       const id = parseAccountId(req.params.id);
       const phoneLabel = String(req.body?.phoneLabel ?? "").trim();
       if (phoneLabel.length > 64) throw new HttpError(400, "设备备注最多64字");
+      const holderProvided = !!req.body && Object.prototype.hasOwnProperty.call(req.body, "holderName");
+      const holderName = holderProvided ? parseHolderName(req.body.holderName) : null;
       const client = await db.connect();
       try {
         await client.query("BEGIN");
-        const before = await queryOne(client, "SELECT id,wechat_id,phone_label,service_platform FROM users WHERE id=$1 AND account_kind IN ('cs_wechat','cs_service') FOR UPDATE", [id]);
+        const before = await queryOne(client, "SELECT id,wechat_id,phone_label,holder_name,service_platform FROM users WHERE id=$1 AND account_kind IN ('cs_wechat','cs_service') FOR UPDATE", [id]);
         if (!before) throw new HttpError(404, "客服接待账号不存在");
         await assertAccountScope(client, req.actor!, id, config);
         if(req.body?.platform&&req.body.platform!==before.service_platform)throw new HttpError(400,'更换平台请新增接待账号，历史数据继续保留原归属');
         const wechatId=before.service_platform==='legacy_wechat'?parseWechatId(req.body?.wechatId??req.body?.accountIdentifier):parseServiceIdentity(before.service_platform,req.body?.accountIdentifier).identifier;
         const changedId = before.wechat_id !== wechatId;
-        await client.query("UPDATE users SET wechat_id=$2,display_name=$5,phone_label=$3,device_version=device_version+$4,updated_at=now() WHERE id=$1", [id, wechatId, phoneLabel || null, changedId ? 1 : 0,serviceLabel(String(before.service_platform),wechatId)]);
+        await client.query("UPDATE users SET wechat_id=$2,display_name=$5,phone_label=$3,holder_name=COALESCE($6,holder_name),device_version=device_version+$4,updated_at=now() WHERE id=$1", [id, wechatId, phoneLabel || null, changedId ? 1 : 0,serviceLabel(String(before.service_platform),wechatId),holderProvided?holderName||null:null]);
         if (changedId) await client.query("UPDATE cs_registration_codes SET revoked_at=now() WHERE bound_user_id=$1 AND used_at IS NULL", [id]);
-        await writeAudit(client, { actorId: req.actor!.id, action: "cs_account_update", entityType: "user", entityId: id, before, after: { wechatId, phoneLabel }, ip: req.ip });
+        await writeAudit(client, { actorId: req.actor!.id, action: "cs_account_update", entityType: "user", entityId: id, before, after: { wechatId, phoneLabel, holderName: holderProvided ? holderName : before.holder_name }, ip: req.ip });
         await client.query("COMMIT"); res.json({ ok: true, needsRegistration: changedId });
       } catch (error) { await client.query("ROLLBACK"); throw error; }
       finally { client.release(); }
     } catch (error) { next(error); }
   });
   return router;
+}
+
+function parseHolderName(value: unknown) {
+  const name = String(value ?? "").trim();
+  if (name.length > 32) throw new HttpError(400, "账号持有人最多32字");
+  return name;
 }
 
 async function assertAccountScope(db: Parameters<typeof membershipOnDate>[0], actor: Parameters<typeof assertTeamScope>[1], id: string, config: AppConfig) {
@@ -137,7 +145,7 @@ export function createCsDeviceRegistrationRouter(db: Pool, config: AppConfig): R
   router.post('/options',async(req,res,next)=>{try{
     if(req.actor)throw new HttpError(409,'请先退出当前账号');const code=normalizeRegistrationCode(req.body?.registrationCode),today=businessToday(new Date(),config.businessTimezone);
     const invite=await queryOne(db,"SELECT c.team_id,c.bound_user_id FROM cs_registration_codes c JOIN teams t ON t.id=c.team_id WHERE c.code_hash=$1 AND c.used_at IS NULL AND c.revoked_at IS NULL AND c.expires_at>now() AND t.is_active=TRUE",[registrationHash(code)]);if(!invite)throw new HttpError(400,'登记码无效、已使用或已过期');
-    const accounts=await query(db,`SELECT u.id,u.service_platform AS platform,u.wechat_id AS "accountIdentifier",u.service_account_label AS label,u.phone_label AS "phoneLabel" FROM users u JOIN team_memberships m ON m.user_id=u.id WHERE u.account_kind IN ('cs_service','cs_wechat') AND u.is_active=TRUE AND m.team_id=$1 AND m.start_date<=$2::date AND (m.end_date IS NULL OR m.end_date>=$2::date) AND ($3::uuid IS NULL OR u.id=$3) ORDER BY u.service_platform,u.service_account_label`,[invite.team_id,today,invite.bound_user_id]);
+    const accounts=await query(db,`SELECT u.id,u.service_platform AS platform,u.wechat_id AS "accountIdentifier",u.service_account_label AS label,u.phone_label AS "phoneLabel",u.holder_name AS "holderName" FROM users u JOIN team_memberships m ON m.user_id=u.id WHERE u.account_kind IN ('cs_service','cs_wechat') AND u.is_active=TRUE AND m.team_id=$1 AND m.start_date<=$2::date AND (m.end_date IS NULL OR m.end_date>=$2::date) AND ($3::uuid IS NULL OR u.id=$3) ORDER BY u.service_platform,u.service_account_label`,[invite.team_id,today,invite.bound_user_id]);
     res.setHeader('Cache-Control','no-store');res.json({accounts});
   }catch(e){next(e);}});
   router.post("/", async (req, res, next) => {

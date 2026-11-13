@@ -3,15 +3,26 @@ const vm=require('node:vm');
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const script=fs.readFileSync(require('node:path').join(__dirname,'readonly-api.js'),'utf8');
-function environment(role){
+function environment(role,pathname=""){
  const storage=new Map();let networkRequests=0;
- const window={location:{origin:'https://fictional.example',search:'?role='+role,assign(){}},sessionStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value)},fetch:async()=>{networkRequests++;throw Error('Unexpected backend network request');}};
+ const window={location:{origin:'https://fictional.example',search:role?'?role='+role:'',pathname,assign(){}},sessionStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value)},fetch:async()=>{networkRequests++;throw Error('Unexpected backend network request');}};
  window.CmsBossOverview=require('./boss-overview-metrics.js');
  window.CmsOpsAnalysis=require('./ops-analysis-metrics.js');
  window.CmsLiveRoomOperations=require('./live-room-operations.js');
  vm.runInNewContext(script,{window,document:{addEventListener(){}},URL,URLSearchParams,Response,Date});
  return {fetch:window.fetch,json:async(path,method='GET',body)=>{const response=await window.fetch(path,{method,body:JSON.stringify(body)});return {status:response.status,body:await response.json()};},network:()=>networkRequests};
 }
+
+test('客服填报演示提供固定接待账号，不创建客服员工账号且拒绝业务写入和管理读取',async()=>{
+ const e=environment('cs');
+ assert.equal((await e.json('/api/auth/me')).body.user.role,'cs');
+ const accounts=await e.json('/api/cs-accounts');assert.equal(accounts.status,200);assert.equal(accounts.body.accounts.length,3);
+ assert.ok(accounts.body.accounts.every(a=>['whatsapp','messenger'].includes(a.platform)));
+ for(const path of ['/api/orders','/api/finance','/api/salaries','/api/admin/users'])assert.equal((await e.json(path)).status,403);
+ for(const path of ['/api/order-records','/api/fan-reports','/api/order-records/1/expenses'])assert.equal((await e.json(path,'POST',{amount:'600'})).status,403);
+ const admin=environment('admin');assert.ok(!(await admin.json('/api/admin/users')).body.users.some(u=>u.role==='cs'&&u.accountKind==='employee'));
+ assert.equal(e.network(),0);
+});
 
 test('经营看板分开当期开单进度和历史待收款，保持原币且不受结汇影响',async()=>{
  const e=environment('boss'),data=(await e.json('/api/dashboard/live-business')).body;
@@ -281,4 +292,50 @@ test('live-room filters leave company advertising scoped to the same dates; othe
 test('同一引流人设可来自不同承接小组和直播间，不构造固定人设直播间关系',async()=>{
  const e=environment('boss'),rows=(await e.json('/api/orders?from=2020-01-01')).body.orders;
  const source=rows.filter(o=>o.personaCode==='DEMO-P-A');assert.equal(new Set(source.map(o=>o.liveRoomCode)).size,2);assert.equal(new Set(source.map(o=>o.userId)).size,2);
+});
+
+test('拍剪填报演示只选择预置拍剪师，拒绝读取和保存管理数据',async()=>{
+ const e=environment('editor');
+ const me=await e.json('/api/auth/me');
+ assert.equal(me.body.user.role,'editor');
+ assert.equal(me.body.user.displayName,'演示拍剪填报');
+ for(const path of ['/api/editor-reports','/api/orders','/api/admin/users','/api/salaries'])assert.equal((await e.json(path)).status,403);
+ assert.equal((await e.json('/api/editor-reports','PUT',{editorName:'demo'})).status,403);
+ assert.equal(e.network(),0);
+});
+
+test('客服工作台与入场直链自动选用客服演示身份，且不开放写入',async()=>{
+ for(const pathname of ['/fill','/fill/','/fill/attendance','/fill/attendance/']){
+  const e=environment(null,pathname);
+  assert.equal((await e.json('/api/auth/me')).body.user.role,'cs');
+  assert.equal((await e.json('/api/cs-accounts')).status,200);
+  assert.equal((await e.json('/api/finance')).status,403);
+  assert.equal((await e.json('/api/attendance','POST',{count:12})).status,403);
+  assert.equal(e.network(),0);
+ }
+ const editor=environment(null,'/fill/editor');
+ assert.equal((await editor.json('/api/auth/me')).body.user.role,'editor');
+});
+
+
+test('运营演示入口读取本人投放和广告台账，拒绝其他业务与所有写入',async()=>{
+ const e=environment('ops');
+ const me=await e.json('/api/auth/me');
+ assert.equal(me.body.user.role,'ops');assert.equal(me.body.user.displayName,'演示运营');
+ const reports=await e.json('/api/ops-reports');assert.equal(reports.status,200);
+ assert.ok(reports.body.reports.length>0);assert.ok(reports.body.reports.every(r=>r.userId===me.body.user.id));
+ const analysis=await e.json('/api/demo/ops-analysis');assert.equal(analysis.status,200);
+ assert.equal(analysis.body.summary.spendUsd,'29.20');assert.equal(analysis.body.summary.consultCount,6);assert.equal(analysis.body.summary.clickCount,180);
+ assert.equal((await e.json('/api/ad-accounts')).body.summary.balanceUsd,'120.80');
+ for(const p of ['/api/orders','/api/order-records/demo-order-1','/api/finance','/api/salaries','/api/admin/users','/api/cs-accounts','/api/cs-accounts/teams','/api/fan-reports/summary','/api/fan-reports/export','/api/dashboard/live-business','/api/editor-reports','/api/demo/boss-overview'])assert.equal((await e.json(p)).status,403,p);
+ for(const [p,method] of [['/api/ops-reports','PUT'],['/api/ad-accounts','POST'],['/api/ad-accounts/topups','POST']])assert.equal((await e.json(p,method,{amount:'10.00'})).status,403);
+ const users=(await environment('admin').json('/api/admin/users')).body.users;
+ assert.equal(users.filter(u=>u.id==='demo-ops').length,1);
+ assert.equal(e.network(),0);
+});
+
+test('演示发布页在桌面按钮与手机菜单均提供运营入口',()=>{
+ const pack=fs.readFileSync(require('node:path').join(__dirname,'../scripts/package-role-demo.cjs'),'utf8');
+ assert.match(pack,/<button type="button" data-demo-role="ops">运营端<\/button>/);
+ assert.match(pack,/<option value="ops">运营端<\/option>/);
 });
