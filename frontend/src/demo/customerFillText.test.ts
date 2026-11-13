@@ -55,6 +55,8 @@ describe("每日加粉日报识别", () => {
     expect(r.fields).toMatchObject({ businessDate: "2026-11-08", msMonth: "40", wsMonth: "12", msToday: "5", wsToday: "0", commReadNoReply: "6", commUnread: "28", commInvalid: "16" });
     expect(r.leads.map(l => l.customer)).toEqual(["Sheree Chen", "Loh Kenny", "Winson Lin", "鐘浚銘", "洪豆冰"]);
     expect(r.leads.every(l => l.channel === "ms" && !l.qualified)).toBe(true);
+    expect(r.leads.map((l) => l.contact)).toEqual(["read_no_reply", "replied", "replied", "read_no_reply", "read_no_reply"]);
+    expect(r.leads.every((l) => l.invalidReason === "")).toBe(true);
     expect(r.unknownLines).toEqual([]);
   });
   it("不同渠道分别归类，不用姓名或日报文字切换所选接待账号", () => {
@@ -76,5 +78,16 @@ describe("每日加粉日报识别", () => {
     expect(parseFanText("x".repeat(12001), today).errors.length).toBeGreaterThan(0);
     const r = parseFanText(fans + "\n<script>alert(1)</script>", today);
     expect(r.unknownLines).toContain("<script>alert(1)</script>");
+  });
+  it("识别固定无效原因，不把已读不回算进无效粉", () => {
+    const text = "今日Ms进粉总数：3\n1 客户甲 不会中文\n2 客户乙 按错咨询按钮\n3 客户丙 已读不回\n无效粉：3\n不会中文：1\n误点咨询：1\n色情咨询：2";
+    const parsed = parseFanText(text, today);
+    expect(parsed.leads.map((l) => [l.contact, l.invalidReason, l.qualified])).toEqual([
+      ["invalid", "no_chinese", false],
+      ["invalid", "misclick", false],
+      ["read_no_reply", "", false]
+    ]);
+    expect(parsed.errors.join("")).toContain("不能超过");
+    expect(parsed.fields.invalidNoChinese).toBe("1");
   });
 });

@@ -12,7 +12,8 @@ export type Page =
   | "people"
   | "csAccounts"
   | "salaries"
-  | "modules";
+  | "modules"
+  | "assessment";
 
 export const roleLabel: Record<Role, string> = {
   boss: "BOSS",
@@ -38,7 +39,7 @@ export function navItems(role: Role): { id: Page; label: string }[] {
     { id: "summary", label: "加粉汇总" },
     { id: "editor", label: "拍剪汇总" }
   ];
-  if (role === "cs_supervisor") return [{ id: "home", label: "本组工作台" }, { id: "summary", label: "本组加粉" }, { id: "orders", label: "本组消费业绩" }, { id: "csAccounts", label: "本组客服账号管理" }];
+  if (role === "cs_supervisor") { const items: { id: Page; label: string }[] = [{ id: "home", label: "本组工作台" }, { id: "summary", label: "本组加粉" }, { id: "orders", label: "本组消费业绩" }, { id: "csAccounts", label: "本组客服账号管理" }]; if (import.meta.env.MODE === "demo") items.splice(2, 0, { id: "assessment", label: "客服考核" }); return items; }
   const items: { id: Page; label: string }[] = [{ id: "home", label: "首页" }];
   if (role === "cs") items.push({ id: "fans", label: "加粉填报" }, { id: "orders", label: "订单填报" });
   if (role === "ops") return import.meta.env.MODE === "demo" ? [{id:"home",label:"运营工作台"},{id:"ops",label:"投放填报与台账"}] : [...items, { id: "ops", label: "推广" }];
@@ -63,6 +64,7 @@ export function bossDemoNav(): { id: Page; label: string }[] {
     { id: "dashboard", label: "经营估算" },
     { id: "orders", label: "直播间经营" },
     { id: "summary", label: "加粉汇总" },
+    { id: "assessment", label: "客服考核" },
     { id: "editor", label: "拍剪汇总" }
   ];
 }

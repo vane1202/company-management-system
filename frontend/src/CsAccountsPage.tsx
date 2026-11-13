@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { api, type CsAccount, type Team } from "./api";
 import { toErrorMessage } from "./errors";
 import { FillEntryLinks } from "./FillEntryLinks";
 import {platformLabels} from './serviceAccounts';
 import { toast } from "./Toast";
+const DemoTenurePanel = import.meta.env.MODE === "demo" ? lazy(() => import("./demo/AccountTenurePanel")) : null;
 
 const REFRESH_AFTER_SAVE_FAILED = "已保存，但列表刷新失败，请点刷新";
 
@@ -67,6 +68,6 @@ export function CsAccountsPage({ supervisor = false }: { supervisor?: boolean })
     <div className="card"><h3>已登记接待账号（{accounts.length}）</h3><div className="row"><label htmlFor="cs-search">筛选接待账号、持有人或设备备注</label><input id="cs-search" value={filter} onChange={(e) => setFilter(e.target.value)} /></div>
       {!accounts.length && <p className="notice">尚无接待账号，请先按真实名单录入WhatsApp或Messenger账号。</p>}
       <div className="grid two">{accounts.filter((a) => `${a.wechatId} ${a.holderName ?? ""} ${a.phoneLabel ?? ""}`.toLowerCase().includes(filter.toLowerCase())).map((account) => <article className="review-card cs-account-card" key={account.id}><h3>{account.wechatId}</h3><p>持有人：{account.holderName || "未填写"}</p><p>{account.phoneLabel || "未填设备备注"} · {account.teamName || "无当前小组"}</p><p className={account.isActive ? "ok" : "notice"}>{account.isActive ? "启用中" : "已停用"}</p><div className="actions"><button className="secondary" disabled={pending} onClick={() => { setEditing(account); setEditForm({ accountIdentifier: account.accountIdentifier??account.wechatId, phoneLabel: account.phoneLabel || "", holderName: account.holderName || "" }); setIssued(null); }}>更新资料</button><button disabled={pending || !account.isActive} onClick={() => { setSelected(account); setIssued(null); }}>重新登记</button><button className="secondary" disabled={pending} onClick={() => toggle(account)}>{account.isActive ? "停用" : "启用"}</button></div></article>)}</div>
-    </div><button className="secondary" type="button" disabled={pending} onClick={() => refresh().catch((err) => setError(toErrorMessage(err)))}>刷新接待账号列表</button>{!supervisor && <FillEntryLinks />}
+    </div>{DemoTenurePanel && <Suspense fallback={<p className="notice">正在读取账号使用历史。</p>}><DemoTenurePanel accounts={accounts} /></Suspense>}<button className="secondary" type="button" disabled={pending} onClick={() => refresh().catch((err) => setError(toErrorMessage(err)))}>刷新接待账号列表</button>{!supervisor && <FillEntryLinks />}
   </section>;
 }

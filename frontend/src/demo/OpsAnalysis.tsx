@@ -7,6 +7,7 @@ import { buildOpsReference } from './opsReferenceView';
 import { useReferenceQuotes } from './useReferenceQuotes';
 import { AnalysisPlot, ChartStyleControl, useChartStyle } from './AnalysisChart';
 import type { TrendSeries } from './bossTrendData';
+import InvalidLeadFacts from './InvalidLeadFacts';
 
 type Totals = {spendUsd:string|null;spendCny:string|null;consultationCostCny?:string|null;consultCount:number|null;clickCount:number|null;consultationCostUsd:string|null;costStatus:string;recordCount:number;reportedDays:number;missingSpendCount:number;missingConsultCount:number;missingClickCount:number};
 type RecordRow={id:string;businessDate:string;personaName:string;adAccountRef:string;platform:string;spendUsd:string|null;consultCount:number|null;consultCostUsd:string|null;clickCount:number|null;ctrPercent:string|null;balanceUsd:string|null;promoVideoCount:number|null;promoCost:string|null;note:string};
@@ -93,6 +94,7 @@ export default function OpsAnalysis({today,onOpenReports}:{today:string;onOpenRe
         {detailRecords.map(r=><details className="oa-record" key={r.id} open={expanded.includes(r.id)} onToggle={e=>{const open=e.currentTarget.open;setExpanded(ids=>open?(ids.includes(r.id)?ids:[...ids,r.id]):ids.filter(id=>id!==r.id));}}><summary><span><b>{r.personaName||'未关联主页'}</b><small>{r.businessDate} · {r.platform||'平台待补'} · {r.adAccountRef||'账户待补'}</small></span><strong>{amount(r.spendUsd)} USD</strong></summary><dl>{[['广告账户',r.adAccountRef],['人设／主页',r.personaName],['平台',r.platform],['广告消耗 USD',amount(r.spendUsd)],['咨询量（上报）',count(r.consultCount)],['咨询成本 USD（原上报）',amount(r.consultCostUsd)],['点击量',count(r.clickCount)],['点击率 %（原上报）',r.ctrPercent??'未上报'],['账户余额快照 USD',amount(r.balanceUsd)],['推广视频上报数',count(r.promoVideoCount)],...(r.promoCost&&r.promoCost!=='0.00'?[['历史费用（币种未记录）',r.promoCost]]:[]),['备注',r.note||'—']].map(([key,value])=><div key={key}><dt>{key}</dt><dd>{value||'未上报'}</dd></div>)}</dl></details>)}
         {!detailRecords.length&&<p className="oa-muted">当前筛选没有日报。</p>}
       </details></section>
+      {onOpenReports && <InvalidLeadFacts />}
     </>}
   </section>;
 }

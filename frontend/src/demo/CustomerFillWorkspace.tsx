@@ -2,12 +2,12 @@ import { useEffect, useState } from "react";
 import { api, type CsAccount } from "../api";
 import { CreateOrder, Field } from "../OrderWorkspace";
 import { cents, currencies, expenseLabels } from "../commerceUi";
-import { fanFields, fanNote } from "../dailyDetail";
 import { toErrorMessage } from "../errors";
 import ReportTextImport from "./ReportTextImport";
 import { afterSaleTotals, emptyAfterSale, parseAfterSaleText, signedMoney, type AfterSaleExpense, type AfterSaleFields } from "./afterSalesText";
-import { emptyFanFields, fanFillLabels, parseFanText, type FanLeadDraft } from "./fanText";
 import RoomAttendance from "./RoomAttendance";
+import FanFillForm from "./FanFillForm";
+import type { AssessmentFoundation } from "./assessmentFoundation";
 import "./customer-fill.css";
 import "./role-workbenches.css";
 
@@ -22,14 +22,15 @@ function PreviewFields({ fields, labels }: { fields: Record<string, string | und
 
 export default function CustomerFillWorkspace({ today }: { today: string }) {
   const [page, setPage] = useState<FillPage>(pathPage), [accounts, setAccounts] = useState<CsAccount[]>([]), [account, setAccount] = useState("");
-  const [pendingAccount, setPendingAccount] = useState<string | null>(null), [error, setError] = useState(""), [loading, setLoading] = useState(true);
-  async function load() { setLoading(true); try { const data = await api.csAccounts(); setAccounts(data.accounts.filter(a => a.isActive)); setError(""); } catch (e) { setError(toErrorMessage(e)); } finally { setLoading(false); } }
+  const [pendingAccount, setPendingAccount] = useState<string | null>(null), [error, setError] = useState(""), [foundationError, setFoundationError] = useState(""), [loading, setLoading] = useState(true), [foundation, setFoundation] = useState<AssessmentFoundation | null>(null);
+  async function load() { setLoading(true); try { const [data, base] = await Promise.all([api.csAccounts(), api.assessmentFoundation().then((value) => ({ ok: true as const, value })).catch((cause) => ({ ok: false as const, cause }))]); setAccounts(data.accounts.filter((item) => item.isActive)); setFoundation(base.ok ? base.value : null); setFoundationError(base.ok ? "" : toErrorMessage(base.cause)); setError(""); } catch (cause) { setError(toErrorMessage(cause)); } finally { setLoading(false); } }
   useEffect(() => { void load(); const onPop = () => setPage(pathPage()); window.addEventListener("popstate", onPop); return () => window.removeEventListener("popstate", onPop); }, []);
   function navigate(next: FillPage) { window.history.pushState({}, "", next === "home" ? "/fill?role=cs" : `/fill/${next}?role=cs`); setPage(next); window.scrollTo({top:0,behavior:"instant"}); }
   const selected = accounts.find(a => a.id === account);
   return <main className="customer-fill role-desk"><header className="desk-heading"><div><p className="eyebrow">客服工作台 · 演示试填</p><h1>{page === "home" ? "今天要填什么" : pages[page]}</h1></div>{page !== "home" && <button type="button" className="secondary" onClick={()=>navigate("home")}>返回工作台</button>}</header>
     <section className="card fill-account"><Field label="本次填报归属的接待账号"><select value={account} disabled={loading} onChange={e => account ? setPendingAccount(e.target.value) : setAccount(e.target.value)}><option value="">{loading ? "正在读取账号…" : "请选择接待账号"}</option>{accounts.map(a => <option key={a.id} value={a.id}>{a.wechatId} · {a.holderName ? `${a.holderName} · ` : ""}{a.teamName || "未分组"}</option>)}</select></Field>
       {selected && <p className="notice">{selected.teamName || "未分组"} · 当前持有人：{selected.holderName || "待设置"}</p>}
+      {foundationError && <p className="notice">{foundationError}</p>}
       {error && <p className="error" role="alert">{error}<button type="button" onClick={() => void load()}>重新读取</button></p>}
       {pendingAccount !== null && <div role="alert"><p>切换接待账号会清空所有页面的试填内容。确认切换吗？</p><div className="actions"><button type="button" onClick={() => { setAccount(pendingAccount); setPendingAccount(null); }}>确认切换并清空</button><button type="button" className="secondary" onClick={() => setPendingAccount(null)}>保留当前账号</button></div></div>}
     </section>
@@ -37,33 +38,11 @@ export default function CustomerFillWorkspace({ today }: { today: string }) {
     <nav hidden={page === "home"} className="fill-page-nav" aria-label="客服填报内容">{Object.entries(pages).map(([key, title]) => <a key={key} href={`/fill/${key}?role=cs`} aria-current={page === key ? "page" : undefined} onClick={e => { if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) { e.preventDefault(); navigate(key as FillPage); } }}>{title}</a>)}</nav>
     {!selected ? <section className="card"><h2>{loading ? "正在读取接待账号" : error ? "账号暂不可用" : accounts.length ? "先选择接待账号" : "暂无可用接待账号"}</h2><p>{loading ? "请稍候。" : error ? "请重新读取账号后继续。" : accounts.length ? "选择正在使用的 WhatsApp 或 Messenger 账号后，即可试填。" : "请联系主管设置接待账号。"}</p></section> : <div key={selected.id}>
       <section className="card" hidden={page !== "orders"} aria-label="开单记录填报"><h2>开单记录填报</h2><p className="notice">当前接待账号：{selected.wechatId}。料价和代购费计入开单营业额；收款另行核对，不自动结汇。</p><CreateOrder today={today} operator={selected.holderName || ""} onSaved={() => {}} previewOnly /></section>
-      <section hidden={page !== "fans"} aria-label="每日加粉填报"><FanFill today={today} operator={selected.holderName || ""} /></section>
-      <section hidden={page !== "attendance"}><RoomAttendance today={today} account={selected}/></section>
+      <section hidden={page !== "fans"} aria-label="每日加粉填报"><FanFillForm today={today} account={selected} employees={foundation?.employees ?? []} tenures={foundation?.tenures ?? []} /></section>
+      <section hidden={page !== "attendance"}><RoomAttendance today={today} account={selected} employees={foundation?.employees ?? []} tenures={foundation?.tenures ?? []} attendance={foundation?.attendance ?? []} /></section>
       <section hidden={page !== "after-sales"} aria-label="售后费用填报"><AfterSalesFill today={today} operator={selected.holderName || ""} /></section>
     </div>}
   </main>;
-}
-
-function FanFill({ today, operator }: { today: string; operator: string }) {
-  const [form, setForm] = useState(() => ({...emptyFanFields(), operatorName:operator})), [leads, setLeads] = useState<FanLeadDraft[]>([]), [reviewed, setReviewed] = useState(false), [needsReviewed, setNeedsReviewed] = useState(false);
-  const dirty = Object.entries(form).some(([key, value]) => !!value && (key !== "operatorName" || value !== operator)) || leads.length > 0;
-  const total = /^\d+$/.test(form.msToday) && /^\d+$/.test(form.wsToday) ? Number(form.msToday) + Number(form.wsToday) : null;
-  const unique = new Set(leads.map(l => `${l.channel}:${l.customer.trim().toLowerCase()}`));
-  const complete = total !== null && leads.length === total && unique.size === leads.length && leads.filter(l => l.channel === "ms").length === Number(form.msToday) && leads.filter(l => l.channel === "ws").length === Number(form.wsToday) && leads.every(l => l.customer.trim() && (!l.qualified || l.summary.trim()));
-  const conversions = leads.filter(l => l.qualified && l.summary.trim()).length;
-  const example = `客服：演示客服甲\n日期：${today}\n主页(全名)：演示主页甲\n本月Ms进粉总数：40\n本月Ws进粉人数：12\n今日Ms进粉总数：2\n1 演示客户甲 已读不回\n2 演示客户乙 白冰手镯，预算4000台币\n今日Ws进粉人数：0\n今日有效：2\n正常沟通回复：2\n已读不回：6\n未读：28\n无效粉：16`;
-  return <div className="card"><h2>每日加粉填报</h2><ReportTextImport name="每日加粉" example={example} dirty={dirty} parse={text => parseFanText(text, today)} preview={r => <><PreviewFields fields={r.fields} labels={fanFillLabels} /><p>客户明细：{r.leads.length}条 · 是否明确需求待确认</p></>} onApply={r => { setForm(f => ({ ...f, ...r.fields })); setLeads(r.leads); setReviewed(false); setNeedsReviewed(false); }} />
-    <form onSubmit={e => { e.preventDefault(); setReviewed(true); }} onChange={() => { setReviewed(false); setNeedsReviewed(false); }}><div className="grid two">{(["businessDate", "operatorName", "pageName", "personaCode"] as const).map(key => <Field key={key} label={fanFillLabels[key]}><input required={key !== "personaCode"} type={key === "businessDate" ? "date" : "text"} max={key === "businessDate" ? today : undefined} maxLength={128} value={form[key]} onChange={e => setForm({ ...form, [key]: e.target.value })} /></Field>)}</div>
-      <h3>进粉与当日沟通</h3><p className="notice">{fanNote}</p><div className="grid two">{Object.entries(fanFields).map(([key, label]) => <Field key={key} label={label}><input required inputMode="numeric" pattern="[0-9]{1,7}" value={form[key as keyof typeof fanFields]} onChange={e => setForm({ ...form, [key]: e.target.value })} /></Field>)}</div>
-      <h3>今日承接客户明细</h3><p className="notice">本页逐条登记当日新承接客户。聊出客户的具体需求才勾选「已明确需求」；普通回复和已读不回不算初步转化。姓名含空格时请核对识别结果。</p>
-      {leads.map((lead, index) => <fieldset key={index} className="fill-line"><legend>客户 {index + 1}</legend><div className="grid two"><Field label="客户ID / 昵称"><input required maxLength={128} value={lead.customer} onChange={e => setLeads(leads.map((l, i) => i === index ? { ...l, customer: e.target.value } : l))} /></Field><Field label="咨询渠道"><select value={lead.channel} onChange={e => setLeads(leads.map((l, i) => i === index ? { ...l, channel: e.target.value as "ms" | "ws" } : l))}><option value="ms">Messenger</option><option value="ws">WhatsApp</option></select></Field></div><Field label="沟通情况 / 具体需求摘要"><textarea required={lead.qualified} maxLength={1000} value={lead.summary} onChange={e => setLeads(leads.map((l, i) => i === index ? { ...l, summary: e.target.value } : l))} /></Field><label className="fill-check"><input type="checkbox" checked={lead.qualified} onChange={e => setLeads(leads.map((l, i) => i === index ? { ...l, qualified: e.target.checked } : l))} />已明确客户的具体需求</label><button type="button" className="secondary" onClick={() => setLeads(leads.filter((_, i) => i !== index))}>移除此客户</button></fieldset>)}
-      <button type="button" className="secondary" disabled={leads.length >= 100} onClick={() => setLeads([...leads, { customer: "", channel: "ms", summary: "", qualified: false }])}>＋ 添加客户明细</button>
-      <div className="actions"><button type="button" className="secondary" disabled={!complete} onClick={() => setNeedsReviewed(true)}>确认以上客户需求判定</button></div>
-      <div className="fill-totals"><span>当日承接 <strong>{total ?? "—"} 人</strong></span><span>已明确需求 <strong>{conversions} 人</strong></span><span>初步转化率 <strong>{complete && needsReviewed && total && total > 0 ? `${(conversions / total * 100).toFixed(1)}%` : "待完整核对"}</strong></span></div>
-      {complete && !needsReviewed && <p className="notice">请确认以上客户需求判定后查看转化率，避免把尚未核对误读为零转化。</p>}
-      {!complete && <p className="notice">明细须与各渠道今日进粉数相符、无重复客户后，才展示转化率；月累计和当日沟通人数不作分母。</p>}
-      <Field label="备注"><textarea maxLength={1000} value={form.note} onChange={e => setForm({ ...form, note: e.target.value })} /></Field><button type="button" onClick={e => { if (e.currentTarget.form?.reportValidity()) setReviewed(true); }}>检查试填内容（不保存）</button>{reviewed && <p role="status">{complete ? "基础必填项已填写，请再核对实际客户需求。" : "请继续补齐和核对客户明细。"}演示未保存。</p>}
-    </form></div>;
 }
 
 function AfterSalesFill({ today, operator }: { today: string; operator: string }) {

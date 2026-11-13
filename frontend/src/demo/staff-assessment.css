@@ -1,0 +1,5 @@
+.staff-assessment .oa-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}
+.staff-assessment .oa-kpis article.is-attention strong{color:#925219}
+.staff-assessment .oa-sort{display:flex;align-items:center;gap:8px}
+.staff-assessment .oa-sort select{min-height:36px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:inherit;padding:4px 8px}
+@media(max-width:799px){.staff-assessment .oa-kpis{grid-template-columns:1fr}}

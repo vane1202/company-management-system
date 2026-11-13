@@ -1,3 +1,4 @@
+import type { AssessmentFoundation } from "./demo/assessmentFoundation";
 import { httpErrorMessage, networkErrorMessage } from "./errors";
 export type Role = "boss" | "admin" | "finance" | "assistant" | "ops" | "editor" | "cs" | "cs_supervisor";
 
@@ -80,6 +81,7 @@ export const api = {
   adAction: (action:string,payload:Record<string,unknown>) => requestInner(`/api/ad-accounts${action?`/${action}`:""}`,{method:"POST",body:JSON.stringify(payload)}),
   financeAction: (action: string, payload: Record<string,unknown>) => requestInner<{id:string}>(`/api/finance/${action}`,{method:"POST",body:JSON.stringify(payload)}),
   csAccounts: (date?: string) => requestInner<{ accounts: CsAccount[] }>(`/api/cs-accounts${date ? `?date=${encodeURIComponent(date)}` : ""}`),
+  assessmentFoundation: () => requestInner<AssessmentFoundation>("/api/assessment/foundation"),
   csTeams: () => requestInner<{ teams: Team[] }>("/api/cs-accounts/teams"),
   createCsAccount:(payload:{platform:'whatsapp'|'messenger';accountIdentifier:string;teamId:string;phoneLabel:string;holderName:string})=>requestInner<{id:string}>('/api/cs-accounts',{method:'POST',body:JSON.stringify(payload)}),
   updateCsAccount: (id: string, payload: { accountIdentifier: string; phoneLabel: string; holderName: string }) => requestInner<{ needsRegistration: boolean }>(`/api/cs-accounts/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(payload) }),

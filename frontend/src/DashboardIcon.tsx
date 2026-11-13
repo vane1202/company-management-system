@@ -13,6 +13,7 @@ const paths: Record<Page | "refresh" | "arrow", string> = {
   csAccounts: "M7 2h10v20H7z M10 5h4 M11 19h2 M10 9h4v5h-4z",
   salaries: "M3 5h18v14H3z M3 9h18 M15 14h3",
   modules: "M4 5h16v6H4z M4 15h16v6H4z M8 8h1 M15 18h1",
+  assessment: "M4 19V5 M4 19h16 M8 16v-5 M12 16V7 M16 16v-3",
   refresh: "M20 8a8 8 0 1 0 0 8 M20 3v5h-5",
   arrow: "M5 12h14 M14 7l5 5-5 5"
 };

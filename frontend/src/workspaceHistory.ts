@@ -3,7 +3,7 @@ import type { Role } from "./api";
 import { canUseFillEntry, fillEntries, fillEntryFromPath } from "./fillEntries";
 import { validLiveView, liveViewKey, type LiveView } from './liveBusinessNavigation';
 
-const pages: readonly Page[] = ["home", "finance", "fans", "summary", "orders", "ops", "editor", "dashboard", "people", "csAccounts", "salaries", "modules"];
+const pages: readonly Page[] = ["home", "finance", "fans", "summary", "orders", "ops", "editor", "dashboard", "people", "csAccounts", "salaries", "modules", "assessment"];
 export type WorkspaceRoute = { page: Page; orderId?: string; live?: LiveView; orderList?: true };
 type Trail = { key: string; route: WorkspaceRoute; position: number; scrollY: number };
 export type WorkspaceEntry = Trail & { owner: string; parents: Trail[] };

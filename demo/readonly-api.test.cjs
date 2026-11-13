@@ -9,6 +9,7 @@ function environment(role,pathname=""){
  window.CmsBossOverview=require('./boss-overview-metrics.js');
  window.CmsOpsAnalysis=require('./ops-analysis-metrics.js');
  window.CmsLiveRoomOperations=require('./live-room-operations.js');
+ window.CmsAssessmentFoundation=require('./assessment-foundation.js');
  vm.runInNewContext(script,{window,document:{addEventListener(){}},URL,URLSearchParams,Response,Date});
  return {fetch:window.fetch,json:async(path,method='GET',body)=>{const response=await window.fetch(path,{method,body:JSON.stringify(body)});return {status:response.status,body:await response.json()};},network:()=>networkRequests};
 }
@@ -338,4 +339,43 @@ test('演示发布页在桌面按钮与手机菜单均提供运营入口',()=>{
  const pack=fs.readFileSync(require('node:path').join(__dirname,'../scripts/package-role-demo.cjs'),'utf8');
  assert.match(pack,/<button type="button" data-demo-role="ops">运营端<\/button>/);
  assert.match(pack,/<option value="ops">运营端<\/option>/);
+});
+
+
+test("assessment foundation is scoped by role and keeps sealed staff", async () => {
+  const supervisor = environment("cs_supervisor");
+  const review = await supervisor.json("/api/assessment/foundation");
+  assert.equal(review.status, 200);
+  assert.equal(review.body.version, "assessment-foundation/v1");
+  assert.equal(review.body.view, "review");
+  assert.equal(review.body.holderCheck.every((row) => row.matched), true);
+  assert.equal(review.body.employees.some((row) => row.id === "demo-staff-yi"), false);
+  const former = review.body.leads.find((row) => row.id === "seal-lead-1");
+  assert.equal(former.employeeId, "demo-staff-former");
+  assert.equal(review.body.attendance.find((row) => row.id === "seal-attendance-former").orderedCustomerIds.length, 3);
+  assert.equal(review.body.attendance.find((row) => row.id === "seal-attendance-jia").orderLink, "unlinked");
+  const jiaReplied = review.body.leads.filter((row) => row.employeeId === "demo-staff-jia" && row.contact === "replied");
+  assert.equal(jiaReplied.length, 21);
+  assert.equal(jiaReplied.filter((row) => row.qualified).length, 10);
+  assert.equal(review.body.leads.some((row) => row.employeeId === "demo-staff-yi"), false);
+  const boss = await environment("boss").json("/api/assessment/foundation");
+  assert.equal(boss.body.leads.filter((row) => row.employeeId === "demo-staff-yi" && row.contact === "replied").length, 3);
+  assert.equal(boss.body.orders.some((row) => row.employeeId === "demo-staff-jia"), true);
+  assert.equal(boss.body.orders.some((row) => row.accountId === "demo-wechat-2"), true);
+  const admin = await environment("admin").json("/api/assessment/foundation");
+  assert.equal(admin.body.view, "directory");
+  assert.equal(admin.body.leads, undefined);
+  assert.equal(admin.body.attendance, undefined);
+  assert.equal(admin.body.orders, undefined);
+  const ops = await environment("ops").json("/api/assessment/foundation");
+  assert.equal(ops.body.view, "invalid");
+  assert.equal(ops.body.employees, undefined);
+  assert.equal(ops.body.invalid.some((row) => row.no_chinese === 1 && row.received === 4), true);
+  const capture = await environment("cs").json("/api/assessment/foundation");
+  assert.equal(capture.status, 200);
+  assert.equal(capture.body.view, "capture");
+  assert.equal(capture.body.leads, undefined);
+  assert.equal((await environment("cs").json("/api/orders")).status, 403);
+  for (const role of ["finance", "editor"]) assert.equal((await environment(role).json("/api/assessment/foundation")).status, 403);
+  assert.equal((await environment("boss").json("/api/assessment/foundation", "POST", { employeeId: "x" })).status, 403);
 });

@@ -340,6 +340,7 @@
     if(path==="/api/auth/me")return json({user:currentUser(),...meta});
     if(path==="/api/auth/meta")return json(meta);
     if(!["GET","HEAD"].includes(method))return json({error:"这是公开只读演示，不保存任何修改。请在正式后台操作。"},403);
+    if(path==="/api/assessment/foundation"){if(!window.CmsAssessmentFoundation)return json({error:"考核数据基础未加载"},503);const view=window.CmsAssessmentFoundation.present({role,today,accounts:visibleAccounts().map((a)=>({id:a.id,holderName:a.holderName})),orders:orders.map((o)=>({id:o.id,accountId:o.userId,businessDate:o.businessDate,customerLabel:o.customerLabel,cancelled:!!o.cancelled,status:o.status}))});return view?json(view):json({error:"当前身份不能查看考核数据基础"},403);}
     if(path==="/api/modules")return json({version:1,modules:{fans:true,ops:true,editor:true,orders:true},labels:{fans:"客服加粉",ops:"运营投放",editor:"拍剪",orders:"订单"}});
     if(role==='cs'&&path!=="/api/cs-accounts")return json({error:"客服填报演示仅提供虚构账号选择与本页试填，不开放管理数据"},403);
     if(role==='editor')return json({error:"拍剪填报演示仅提供预置姓名选择与本页试填，不开放管理数据"},403);
