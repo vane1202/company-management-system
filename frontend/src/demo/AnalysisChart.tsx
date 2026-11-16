@@ -2,6 +2,7 @@ import { useId, useSyncExternalStore } from 'react';
 import type { ChartStyle, TrendSeries } from './bossTrendData';
 import { lineSegments } from './bossTrendData';
 import './analysis-chart.css';
+import './chart-style-control.css';
 
 const styleKey='cms-demo-boss-chart-style-v1';
 const listeners=new Set<()=>void>();
@@ -12,7 +13,7 @@ export function useChartStyle(){
   return [style,(value:ChartStyle)=>{chosen=value;try{localStorage.setItem(styleKey,value);}catch{/* Optional appearance preference. */}listeners.forEach(listener=>listener());}] as const;
 }
 export function ChartStyleControl({style,onChange}:{style:ChartStyle;onChange:(style:ChartStyle)=>void}){
-  return <div className="bt-style" role="group" aria-label="图表形式">{(['line','bar'] as const).map(value=><button type="button" key={value} aria-pressed={style===value} onClick={()=>onChange(value)}>{value==='line'?'折线图':'柱状图'}</button>)}</div>;
+  return <div className="chart-style-control" role="group" aria-label="图表形式">{(['line','bar'] as const).map(value=><button type="button" key={value} aria-pressed={style===value} onClick={()=>onChange(value)}>{value==='line'?'折线图':'柱状图'}</button>)}</div>;
 }
 export function chartCeiling(max:number){if(max<=0)return 1;const base=10**Math.floor(Math.log10(max));return [1,2,5,10].map(n=>n*base).find(n=>n>=max)||base*10;}
 const palette=['#1f6f64','#476e97','#85649d','#92601f','#4e7880','#6c7451'];

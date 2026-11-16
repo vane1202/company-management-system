@@ -6,7 +6,7 @@
   'use strict';
   const { cents, money, convert, periodOf, comparisonPeriods } = core;
   const shift = (d, n) => new Date(Date.parse(d + 'T00:00:00Z') + n * 86400000).toISOString().slice(0, 10);
-  const dimensions = { persona: 'personaName', platform: 'platform', account: 'adAccountRef' };
+  const dimensions = { persona: 'personaName', platform: 'platform', account: 'adAccountRef', operator: 'operatorName' };
   function integer(value) { return value != null && Number.isSafeInteger(value) && value >= 0; }
   function sumMoney(rows, key) { return rows.length && rows.every(r => r[key] != null) ? money(rows.reduce((n, r) => n + cents(r[key]), 0n)) : null; }
   function sumCount(rows, key) { return rows.length && rows.every(r => integer(r[key])) ? rows.reduce((n, r) => n + r[key], 0) : null; }
@@ -39,7 +39,7 @@
   function build(dataset, query, clock) {
     const period = periodOf(query, clock.today), dimension = query.dimension || 'persona';
     if (!Object.hasOwn(dimensions, dimension)) throw Error('分类维度无效');
-    const selected = { persona: query.persona || '', platform: query.platform || '', account: query.account || '' };
+    const selected = { persona: query.persona || '', platform: query.platform || '', account: query.account || '', operator: query.operator || '' };
     const active = dataset.rows.filter(r => !r.voided);
     const scope = rows => rows.filter(r => Object.entries(selected).every(([key, value]) => !value || (r[dimensions[key]] || '__unassigned__') === value));
     const between = (rows, from, to) => rows.filter(r => r.businessDate >= from && r.businessDate <= to);
@@ -50,15 +50,18 @@
     }));
     const base = comparisonPeriods(period)[0], previous = totals(between(scoped, base.from, base.to), dataset.rates);
     const baselineLabel = !period.custom && period.preset === 'day' ? '昨日已报' : !period.custom && period.preset === 'week' ? '上周同期已报' : !period.custom && period.preset === 'month' ? '上月同期已报' : '上期已报';
-    const trendFrom = shift(period.to, -6);
-    const trend = Array.from({ length: 7 }, (_, i) => { const date = shift(trendFrom, i); return { date, partial: date === clock.today, ...totals(scoped.filter(r => r.businessDate === date), dataset.rates) }; });
-    const accountBalances = balances(active, records, period.to);
+    const trendFrom = query.trendScope === 'period' ? period.from : shift(period.to, -6);
+    const trendLength = Math.round((Date.parse(period.to)-Date.parse(trendFrom))/86400000)+1;
+    const trend = Array.from({ length: trendLength }, (_, i) => { const date = shift(trendFrom, i); return { date, partial: date === clock.today, ...totals(scoped.filter(r => r.businessDate === date), dataset.rates) }; });
+    // Account identity comes from the selected scope across history. A date
+    // range without reports can still show the last snapshot before its end.
+    const accountBalances = balances(active, scoped, period.to);
     const fxUsed = records.filter(r => r.spendUsd != null).map(r => convert({ amount: r.spendUsd, currency: 'USD', date: r.businessDate }, dataset.rates));
     return {
       version: 'ops-analysis/v1', demo: true, period: { ...period, today: clock.today, timezone: 'Asia/Shanghai', partial: period.to === clock.today },
-      selected, dimension, summary, groups, records,
+      selected, dimension, summary, groups, records, scopeAccounts: [...new Set(scoped.map(row => row.adAccountRef).filter(Boolean))].sort(),
       comparison: { label: baselineLabel, from: base.from, to: base.to, totals: previous, records: between(scoped, base.from, base.to), method: 'reported_daily_totals', percentage: null },
-      trend: { from: trendFrom, to: period.to, days: trend },
+      trend: { from: trendFrom, to: period.to, days: trend, records: between(scoped, trendFrom, period.to) },
       balances: { accounts: accountBalances, totalUsd: accountBalances.length && accountBalances.every(r => r.amountUsd != null) ? money(accountBalances.reduce((n, r) => n + cents(r.amountUsd), 0n)) : null, scope: 'whole_account' },
       options: Object.fromEntries(Object.entries(dimensions).map(([key, field]) => [key, [...new Set(active.map(r => r[field] || '__unassigned__'))].sort()])),
       fx: { ratesUsed: [...new Map(fxUsed.filter(r => r.rate).map(r => [r.rate + r.rateDate, { cnyPerUnit: r.rate, effectiveFrom: r.rateDate }])).values()], missing: [...new Set(fxUsed.filter(r => !r.rate).map(r => r.date))], referenceOnly: true },

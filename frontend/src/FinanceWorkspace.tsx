@@ -8,12 +8,13 @@ import { CurrencySelect, Field } from "./OrderWorkspace";
 import { toErrorMessage } from "./errors";
 import { InfoTip } from "./InfoTip";
 import { toast } from "./Toast";
+import type { CashView } from "./cashNavigation";
 
 const REFRESH_AFTER_SAVE_FAILED="已保存，但列表刷新失败，请点刷新";
 const DemoBossCashBoard=import.meta.env.MODE==='demo'?lazy(()=>import('./demo/BossCashBoard')):null;
 
-export function FinanceWorkspace({today,readOnly=false}:{today:string;readOnly?:boolean}) {
-  return readOnly&&DemoBossCashBoard?<Suspense fallback={<p role="status">正在读取收款与到账…</p>}><DemoBossCashBoard today={today} financialDetail={(query,range)=><FinanceLedgerWorkspace today={today} readOnly initialQuery={query} initialRange={range} initialPendingOnly={false}/>} /></Suspense>:<FinanceLedgerWorkspace today={today} readOnly={readOnly}/>;
+export function FinanceWorkspace({today,readOnly=false,cashView}:{today:string;readOnly?:boolean;cashView?:CashView}) {
+  return readOnly&&DemoBossCashBoard?<Suspense fallback={<p role="status">正在读取收款与到账…</p>}><DemoBossCashBoard today={today} context={cashView} financialDetail={(query,range)=><FinanceLedgerWorkspace today={today} readOnly initialQuery={query} initialRange={range} initialPendingOnly={false}/>} /></Suspense>:<FinanceLedgerWorkspace today={today} readOnly={readOnly}/>;
 }
 
 export function FinanceLedgerWorkspace({today,readOnly=false,initialQuery='',initialRange,initialPendingOnly=true,heading,hideCompanions=false}:{today:string;readOnly?:boolean;initialQuery?:string;initialRange?:{from:string;to:string};initialPendingOnly?:boolean;heading?:string;hideCompanions?:boolean}) {

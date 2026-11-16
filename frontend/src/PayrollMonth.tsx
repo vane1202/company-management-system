@@ -45,7 +45,7 @@ export function PayrollMonth({ today, readOnly, employees }: { today: string; re
   const t = data?.totals;
   const currentMonth = shiftMonth(today);
   const selectedEmployee = employees.find(e => e.id === userId);
-  // 只做展示拆分：合计口径不变（负数仍按后端计入实发合计）。
+  // 只做展示拆分：合计口径不变（负数仍按后端计入核算净额合计）。
   const split = data ? payrollStatusSplit(data.employees, t?.net) : null;
   // 读取中且尚无数据：用固定尺寸灰色占位；读取完仍为“—”才表示无数据。
   const pending = loading && !data ? <Skeleton width="4em" /> : "—";
@@ -65,13 +65,13 @@ export function PayrollMonth({ today, readOnly, employees }: { today: string; re
     </section>
     {error && <p className="error" role="alert">{error} <button className="secondary" disabled={loading} onClick={() => void load()}>刷新</button></p>}
     <section className="card payroll-totals" aria-label="工资单合计">
-      <div className="payroll-net"><small>{month} 工资单净额（含草稿）· 人民币</small><strong className={t?.netNegative ? "negative" : ""}>{t ? `¥ ${t.net}` : loading ? <Skeleton width="7em" height="1.3em" /> : "—"}</strong></div>
+      <div className="payroll-net"><small>{month} 核算净额（含草稿）· 人民币</small><strong className={t?.netNegative ? "negative" : ""}>{t ? `¥ ${t.net}` : loading ? <Skeleton width="7em" height="1.3em" /> : "—"}</strong></div>
       {split?.matchesTotal && <div className="payroll-status-split" aria-label="按工资单状态拆分">
         <div><span>已锁定 {split.locked.count} 人</span><b>¥ {split.locked.net}</b></div>
-        <div><span>草稿 {split.draft.count} 人</span><b className={split.draft.net.startsWith("-") ? "negative" : ""}>¥ {split.draft.net}</b></div>
+        <div><span>草稿待核定 {split.draft.count} 人</span><b className={split.draft.net.startsWith("-") ? "negative" : ""}>¥ {split.draft.net}</b></div>
       </div>}
-      {!!split?.negatives.length && <div className="payroll-negatives" aria-label="实发为负">
-        <span>实发为负 {split.negatives.length} 人 · 已计入上方合计，需财务核对</span>
+      {!!split?.negatives.length && <div className="payroll-negatives" aria-label="核算净额为负">
+        <span>核算净额为负 {split.negatives.length} 人 · 已计入上方合计，需财务核对</span>
         {split.negatives.map(n => <b key={n.userId} className="negative-chip">{n.displayName} ¥ {n.net} · {n.status === "locked" ? "已锁定" : "草稿"}</b>)}
       </div>}
       <dl className="payroll-breakdown">
@@ -80,11 +80,11 @@ export function PayrollMonth({ today, readOnly, employees }: { today: string; re
         <div><dt>奖金</dt><dd>{t ? `+${t.bonus}` : pending}</dd></div>
         <div><dt>扣款</dt><dd>{t ? `−${t.deduction}` : pending}</dd></div>
       </dl>
-      {t && !split?.matchesTotal && <p className="notice">{t.employeeCount} 人 · 已锁定 {t.lockedCount} 人{t.negativeCount ? <> · <b className="negative">{t.negativeCount} 人实发为负，需财务核对</b></> : null}</p>}
+      {t && !split?.matchesTotal && <p className="notice">{t.employeeCount} 人 · 已锁定 {t.lockedCount} 人{t.negativeCount ? <> · <b className="negative">{t.negativeCount} 人核算净额为负，需财务核对</b></> : null}</p>}
     </section>
-    {data && data.roles.length > 1 && <section className="card"><h2>各岗位合计</h2>{data.roles.map(r => <article key={r.role} className="commerce-record"><span><strong>{roleLabel[r.role]}</strong><small>{r.employeeCount} 人 · 底薪 {r.base} · 提成 {r.commission} · 奖金 {r.bonus} · 扣款 {r.deduction}</small></span><span className={`commerce-amount ${r.netNegative ? "negative" : ""}`}>¥ {r.net}<small>实发</small></span></article>)}</section>}
+    {data && data.roles.length > 1 && <section className="card"><h2>各岗位合计</h2>{data.roles.map(r => <article key={r.role} className="commerce-record"><span><strong>{roleLabel[r.role]}</strong><small>{r.employeeCount} 人 · 底薪 {r.base} · 提成 {r.commission} · 奖金 {r.bonus} · 扣款 {r.deduction}</small></span><span className={`commerce-amount ${r.netNegative ? "negative" : ""}`}>¥ {r.net}<small>核算净额</small></span></article>)}</section>}
     <section className="card" aria-busy={loading}>
-      <h2>员工工资单{data?.note && <InfoTip label="工资单口径" text={data.note} />}</h2>
+      <h2>员工工资单{data?.note && <InfoTip label="工资单口径" text={data.note+' 核算净额不代表已发放；草稿待核定，锁定只代表核算结果已确认。'} />}</h2>
       {loading && !data && [0, 1, 2].map(i => <div key={i} className="payroll-slip-skeleton" aria-hidden="true"><span><Skeleton width="5em" height="1em" /><Skeleton width="8em" height=".75em" /></span><Skeleton width="5.5em" height="1.1em" /></div>)}
       {data && !data.employees.length && <div className="empty-state"><strong>{month} 还没有工资单</strong><p>本月暂无工资标准或工资项目。{readOnly ? "工资单由财务登记后会显示在这里。" : "先在“工资标准”登记底薪，或选择员工后录入项目。"}</p></div>}
       {data?.employees.map(emp => <EmployeeSlip key={emp.userId} emp={emp} month={month} readOnly={readOnly} open={open === emp.userId} onToggle={() => setOpen(open === emp.userId ? "" : emp.userId)} onSaved={async text => { toast.success(text); await load(true); }} />)}
@@ -126,15 +126,15 @@ function EmployeeSlip({ emp, month, readOnly, open, onToggle, onSaved }: { emp: 
   return <article className={`payroll-slip ${emp.netNegative ? "is-negative" : ""}`}>
     <button type="button" className="payroll-slip-head" aria-expanded={open} onClick={onToggle}>
       <span><strong>{emp.displayName}</strong><small>{roleLabel[emp.role]}{!emp.isActive ? " · 已停用" : ""} · <span className={`payroll-badge ${locked ? "locked" : ""}`}>{locked ? "已锁定" : "草稿"}</span></small></span>
-      <span className={`commerce-amount ${emp.netNegative ? "negative" : ""}`}>¥ {emp.net}<small>{emp.netNegative ? "实发为负·待核对" : "实发"}</small></span>
+      <span className={`commerce-amount ${emp.netNegative ? "negative" : ""}`}>¥ {emp.net}<small>{emp.netNegative ? "核算净额为负·待核对" : locked ? "核算净额" : "核算净额 · 待核定"}</small></span>
     </button>
     {open && <div className="payroll-slip-body" ref={panelRef}>
       <dl className="payroll-breakdown">
         <div><dt>底薪</dt><dd>{emp.base}</dd></div><div><dt>提成</dt><dd>+{emp.commission}</dd></div>
         <div><dt>奖金</dt><dd>+{emp.bonus}</dd></div><div><dt>扣款</dt><dd>−{emp.deduction}</dd></div>
       </dl>
-      {emp.netNegative && <p className="error">扣款大于应发，实发为负数。系统不自动截断为 0，请财务核对扣款或跨月处理。</p>}
-      {locked && emp.changedAfterLock && <p className="error">锁定后工资标准有变动：锁定金额底薪 {emp.base}、实发 {emp.net}；按现行标准应为底薪 {emp.liveBase}、实发 {emp.liveNet}。如需更新请财务解锁后重新锁定。</p>}
+      {emp.netNegative && <p className="error">扣款大于应发，核算净额为负数。系统不自动截断为 0，请财务核对扣款或跨月处理。</p>}
+      {locked && emp.changedAfterLock && <p className="error">锁定后工资标准有变动：锁定金额底薪 {emp.base}、核算净额 {emp.net}；按现行标准应为底薪 {emp.liveBase}、核算净额 {emp.liveNet}。如需更新请财务解锁后重新锁定。</p>}
       <h3>底薪来源</h3>
       {!emp.baseRecords.length && <p className="notice">本月无工资标准，底薪为 0。</p>}
       {emp.baseRecords.map(r => <p key={r.id} className="payroll-line"><span>月薪 {r.monthlyAmount}<small>{r.effectiveFrom} 至 {r.effectiveTo ?? "长期"}</small></span><b>{r.allocated}</b></p>)}

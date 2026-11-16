@@ -57,7 +57,7 @@ export async function buildTrend(data:LiveBusinessData,range:{from:string;to:str
       return {date,value:fx.cny,reason:fx.cny===null?(fx.incomplete?"明细待补齐":"缺参考汇率"):"",count:items.length,native:`${usd} USD`,estimated:true};
     }catch{return {date,value:null,reason:"金额待核对",count:items.length,native:"",estimated:true};}
   }));
-  const all:Record<TrendKey,TrendSeries>={turnover:{key:"turnover",label:"开单营业额",points:rawPoints(allDates,rows,"sale")},receipts:{key:"receipts",label:"客户已付款",points:receipts},ads:{key:"ads",label:"广告消耗",points:ads},expenses:{key:"expenses",label:"业务费用",points:rawPoints(allDates,rows,"expense")}};
+  const all:Record<TrendKey,TrendSeries>={turnover:{key:"turnover",label:"开单营业额",points:rawPoints(allDates,rows,"sale")},receipts:{key:"receipts",label:"客户已付款",points:receipts},ads:{key:"ads",label:"广告消耗",points:ads},expenses:{key:"expenses",label:"售后费用",points:rawPoints(allDates,rows,"expense")}};
   const totals={} as TrendData['totals'],prev={} as TrendData['previous'],series={} as TrendData['series'];
   for(const key of Object.keys(all) as TrendKey[]){const s=all[key];series[key]={...s,points:s.points.filter(p=>p.date>=range.from)};totals[key]=sumPoints(series[key].points);prev[key]=sumPoints(s.points.filter(p=>p.date<range.from));}
   const roomIds=[...new Set(rows.filter(e=>e.kind==="sale").map(e=>e.order.live_room_code||"__unassigned__"))];

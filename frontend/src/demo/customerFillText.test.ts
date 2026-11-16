@@ -52,7 +52,7 @@ describe("每日加粉日报识别", () => {
   it("本月累计和当日沟通分开；不要求沟通合计等于进粉", () => {
     const r = parseFanText(fans, today);
     expect(r.errors).toEqual([]);
-    expect(r.fields).toMatchObject({ businessDate: "2026-11-08", msMonth: "40", wsMonth: "12", msToday: "5", wsToday: "0", commReadNoReply: "6", commUnread: "28", commInvalid: "16" });
+    expect(r.fields).toMatchObject({ businessDate: "2026-11-08", operatorName: "廖始航", adAccountId: "6149", msMonth: "40", wsMonth: "12", msToday: "5", wsToday: "0", commReadNoReply: "6", commUnread: "28", commInvalid: "16" });
     expect(r.leads.map(l => l.customer)).toEqual(["Sheree Chen", "Loh Kenny", "Winson Lin", "鐘浚銘", "洪豆冰"]);
     expect(r.leads.every(l => l.channel === "ms" && !l.qualified)).toBe(true);
     expect(r.leads.map((l) => l.contact)).toEqual(["read_no_reply", "replied", "replied", "read_no_reply", "read_no_reply"]);
@@ -82,12 +82,56 @@ describe("每日加粉日报识别", () => {
   it("识别固定无效原因，不把已读不回算进无效粉", () => {
     const text = "今日Ms进粉总数：3\n1 客户甲 不会中文\n2 客户乙 按错咨询按钮\n3 客户丙 已读不回\n无效粉：3\n不会中文：1\n误点咨询：1\n色情咨询：2";
     const parsed = parseFanText(text, today);
-    expect(parsed.leads.map((l) => [l.contact, l.invalidReason, l.qualified])).toEqual([
-      ["invalid", "no_chinese", false],
-      ["invalid", "misclick", false],
-      ["read_no_reply", "", false]
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.leads.map((l) => [l.contact, l.invalidReason, l.qualified, l.roster])).toEqual([
+      ["invalid", "no_chinese", false, "intake"],
+      ["invalid", "misclick", false, "intake"],
+      ["read_no_reply", "", false, "intake"]
     ]);
-    expect(parsed.errors.join("")).toContain("不能超过");
+    expect(parsed.warnings.join("")).toContain("不生成没有称呼的复核");
     expect(parsed.fields.invalidNoChinese).toBe("1");
   });
+  it("今日申请无效按称呼建档，人数不生成复核", () => {
+    const text = fans + "\n今日申请无效：\n1  演示客户丙  Messenger  非中文客户  全程英文,无法沟通\n2  演示客户丁  WhatsApp  自定义  对方反复发送无关内容\n3  演示客户戊  误点咨询";
+    const parsed = parseFanText(text, today);
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.leads.filter((l) => l.roster === "reviewOnly").map((l) => [l.customer, l.channel, l.invalidReason, l.invalidNote])).toEqual([
+      ["演示客户丙", "ms", "no_chinese", "全程英文,无法沟通"],
+      ["演示客户丁", "ws", "custom", "对方反复发送无关内容"],
+      ["演示客户戊", "ms", "misclick", ""]
+    ]);
+    expect(parsed.leads.filter((l) => l.roster !== "reviewOnly")).toHaveLength(5);
+    expect(parsed.leads.find((l) => l.customer === "洪豆冰")?.contact).toBe("read_no_reply");
+    expect(parsed.warnings.join("")).toContain("其余 13 人只计入当日人数");
+    expect(parseFanText(text.replace("对方反复发送无关内容", ""), today).errors.join("")).toContain("自定义");
+    expect(parseFanText(fans + "\n今日申请无效：\n1  演示客户丙  只写了称呼", today).errors.join("")).toContain("缺少无效原因");
+  });
 });
+
+  it("括号中的编号是下粉广告户ID，姓名分开，前导零原样保留", () => {
+    const full = parseFanText("客服：廖始航（01871）\n下粉广告户ID：01871\n主页(全名)：南詔工匠 小雪", today);
+    expect(full.errors).toEqual([]);
+    expect(full.fields.operatorName).toBe("廖始航");
+    expect(full.fields.adAccountId).toBe("01871");
+    const wide = parseFanText("客服：廖始航（1871）", today);
+    expect(wide.fields).toMatchObject({ operatorName: "廖始航", adAccountId: "1871" });
+    expect(parseFanText("客服：廖始航（1871）\n广告户ID：1872", today).errors.join()).toContain("不同");
+    expect(parseFanText("下粉广告户ID：18.71", today).errors.join()).toContain("数字");
+  });
+  it("没有广告户ID时不按客服或主页猜测", () => {
+    const parsed = parseFanText("客服：廖始航\n主页(全名)：南詔工匠 小雪", today);
+    expect(parsed.fields.operatorName).toBe("廖始航");
+    expect(parsed.fields.adAccountId).toBe("");
+    expect(parsed.fields.pageName).toBe("南詔工匠 小雪");
+    expect(parsed.warnings.join()).toContain("来源待补");
+  });
+
+  it("人设ID并入人设／主页，相同内容不重复，不同内容阻止填入", () => {
+    const same = parseFanText("人设：南詔工匠 小雪\n人设ID：南詔工匠 小雪", today);
+    expect(same.errors).toEqual([]);
+    expect(same.fields.pageName).toBe("南詔工匠 小雪");
+    expect(same.fields).not.toHaveProperty("personaCode");
+    const onlyId = parseFanText("人设ID：演示主页甲", today);
+    expect(onlyId.fields.pageName).toBe("演示主页甲");
+    expect(parseFanText("人设：主页甲\n人设ID：主页乙", today).errors.join()).toContain("同一项");
+  });

@@ -1,7 +1,8 @@
 export const invalidReasonLabels = {
-  no_chinese: "不具备中文沟通能力",
-  misclick: "明确表示误点咨询",
-  obscene: "淫秽、色情咨询"
+  no_chinese: "非中文客户",
+  misclick: "误点咨询",
+  obscene: "淫秽、色情类",
+  custom: "自定义"
 } as const;
 export type InvalidReason = keyof typeof invalidReasonLabels;
 export type ContactStatus = "replied" | "read_no_reply" | "unread" | "invalid";
@@ -9,22 +10,27 @@ export type EmployeeStatus = "active" | "left";
 export type EmployeeRecord = { id: string; code: string; name: string; status: EmployeeStatus; teamId: string };
 export type TenureRecord = { id: string; accountId: string; employeeId: string; startDate: string; endDate: string | null };
 export type OrderLink = "linked" | "unlinked";
-export type AssessmentLead = { id: string; accountId: string; businessDate: string; employeeId: string; pageName: string; channel: "ms" | "ws"; contact: ContactStatus; qualified: boolean; invalidReason: InvalidReason | "" };
+export type AssessmentLead = { id: string; accountId: string; businessDate: string; employeeId: string; pageName: string; sourceAdAccountId?: string; channel: "ms" | "ws"; contact: ContactStatus; qualified: boolean; invalidReason: InvalidReason | "" };
 export type AssessmentAttendance = { id: string; accountId: string; businessDate: string; employeeId: string; roomCode: string; roomName: string; enteredCount: number; orderedCustomerIds: string[]; orderLink: OrderLink; source: string };
 export type OrderAttribution = { id: string; accountId: string; businessDate: string; customerLabel: string; employeeId: string | null; countsAsOrder: boolean };
-export type InvalidFact = { businessDate: string; pageName: string; received: number; no_chinese: number; misclick: number; obscene: number; unspecified: number };
+export type InvalidFact = { businessDate: string; pageName: string; sourceAdAccountId?: string; received: number; no_chinese: number; misclick: number; obscene: number; unspecified: number };
+export type SourceAdSummary = { adAccountId: string; received: number; replied: number; qualified: number; no_chinese: number; misclick: number; obscene: number; unspecified: number };
+export function sourceAdLabel(id?: string): string { const value = (id || "").trim(); return value || "来源待补"; }
 export type AssessmentFoundation = {
   version: "assessment-foundation/v1";
   demo: true;
   today: string;
   view: "directory" | "capture" | "review" | "invalid";
   employees?: EmployeeRecord[];
+  teams?: {id:string;name:string}[];
   tenures?: TenureRecord[];
   leads?: AssessmentLead[];
   attendance?: AssessmentAttendance[];
   orders?: OrderAttribution[];
   invalid?: InvalidFact[];
+  sourceAds?: SourceAdSummary[];
   holderCheck?: { accountId: string; matched: boolean }[];
+  privateSales?: { id: string; businessDate: string; operatorName: string; customerLabel: string; amount: string; cancelled: boolean }[];
   note: string;
 };
 

@@ -27,4 +27,4 @@ describe("财务与订单界面口径",()=>{
  it("财务可核算工资，BOSS可只读查看结算与工资",()=>{expect(roleLabel.finance).toBe("财务");expect(navItems("finance").map(x=>x.id)).toEqual(["home","salaries"]);expect(navItems("boss").some(x=>x.id==="finance")).toBe(true);expect(navItems("admin").some(x=>x.id==="finance")).toBe(false);expect(navItems("cs_supervisor").some(x=>x.id==="finance")).toBe(false);expect(canAccessDashboard("finance")).toBe(false);expect(canAccessSalaries("finance")).toBe(true);});
 });
 
-it("演示侧栏保留经营入口，并提供客服考核",()=>{expect(bossDemoNav().map(item=>item.label)).toEqual(["经营估算","直播间经营","加粉汇总","客服考核","拍剪汇总"]);expect(bossDemoNav().some(item=>["home","finance","ops","salaries"].includes(item.id))).toBe(false);});
+it("演示侧栏聚焦三个经营入口",()=>{expect(bossDemoNav().map(item=>item.label)).toEqual(["经营总览","直播间经营","拍剪数据"]);expect(bossDemoNav().some(item=>["home","finance","ops","salaries"].includes(item.id))).toBe(false);});

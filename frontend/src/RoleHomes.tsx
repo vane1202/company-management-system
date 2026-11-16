@@ -133,7 +133,7 @@ export function SupervisorHome({ today, onNavigate }: { today: string; onNavigat
       {teams?.map(team => <div className="role-team-row" key={team.teamId}><div><strong>{team.teamName}</strong><small>已报 {team.reportedCount} / 应报 {team.expectedCount}</small></div><span>未报 {team.missingCount}</span></div>)}
       {!!teams?.some(team => team.statsIncomplete) && <p className="data-flag">含未分类旧记录 · 状态统计不完整</p>}
     </section>}
-    <section className="role-home-panel"><div className="role-panel-title"><h2>本组客服账号管理</h2><span>{accounts ? `${accounts.length} 个已登记` : "—"}</span></div><p className="role-account-split">{accounts ? <>启用 <b>{accounts.filter(account => account.isActive).length}</b> · 停用 <b>{accounts.filter(account => !account.isActive).length}</b></> : loading ? "正在读取接待账号列表…" : "接待账号列表暂不可用"}</p><div className="role-action-list"><HomeAction page="csAccounts" title="登记与维护接待账号" detail="发放一次性登记码、更新本组接待账号" onNavigate={onNavigate} /></div></section>
+    <section className="role-home-panel"><div className="role-panel-title"><h2>客服账号管理</h2><span>{accounts ? `${accounts.length} 个已登记` : "—"}</span></div><p className="role-account-split">{accounts ? <>启用 <b>{accounts.filter(account => account.isActive).length}</b> · 停用 <b>{accounts.filter(account => !account.isActive).length}</b></> : loading ? "正在读取接待账号列表…" : "接待账号列表暂不可用"}</p><div className="role-action-list"><HomeAction page="csAccounts" title="登记与维护接待账号" detail="发放一次性登记码、更新本组接待账号" onNavigate={onNavigate} /></div></section>
     <p className="role-home-scope">数据范围<InfoTip label="数据范围说明" text="仅汇总已授权小组。加粉与订单按业务日的小组归属读取；历史筛选请进入对应明细。" /></p>
   </div>;
 }

@@ -5,6 +5,7 @@ import {dashboardPresetRange,isIsoDate} from '../dates';
 import {toErrorMessage} from '../errors';
 import {buildCashBoard,formatCashValue,type CashAmounts} from './cashBoardData';
 import {CustomerPaymentSummary} from './CustomerPaymentSummary';
+import type {CashView} from '../cashNavigation';
 import './boss-cash-board.css';
 
 const amount=(v:string|null|undefined)=>v==null?'待核对':`¥${formatCashValue(v)}`;
@@ -14,11 +15,11 @@ function Amounts({values,empty}:{values?:CashAmounts;empty:string}){
   if(!values)return <strong>—</strong>;
   return entries.length?<div className="cb-currency-list">{entries.map(([cur,v])=><strong key={cur}>{v===null?'待核对':formatCashValue(v)}<small>{currencyNames[cur as keyof typeof currencyNames]} · {cur}</small></strong>)}</div>:<strong className="cb-empty-number">{empty}</strong>;
 }
-type Props={today:string;financialDetail:(query?:string,range?:{from:string;to:string})=>ReactNode};
+type Props={today:string;context?:CashView;financialDetail:(query?:string,range?:{from:string;to:string})=>ReactNode};
 
 /* Independent demo BOSS view. Money positions are separate from customer debt;
  * full accounting forms and permissions stay in the existing ledger view. */
-export default function BossCashBoard({today,financialDetail}:Props){
+export default function BossCashBoard({today,financialDetail,context}:Props){
   const [data,setData]=useState<FinanceData|null>(null),[error,setError]=useState(''),[loading,setLoading]=useState(true),[refresh,setRefresh]=useState(0);
   const [preset,setPreset]=useState('day'),[custom,setCustom]=useState<{from:string;to:string}|null>(null);
   const period=custom??dashboardPresetRange(today,preset);
@@ -27,6 +28,13 @@ export default function BossCashBoard({today,financialDetail}:Props){
   const [detailPeriodOnly,setDetailPeriodOnly]=useState(false);
   const [focused,setFocused]=useState<'arrivals'|'held'|'payments'|null>(null);
   const heldRef=useRef<HTMLElement>(null),arrivalsRef=useRef<HTMLElement>(null),detailRef=useRef<HTMLDetailsElement>(null);
+  useEffect(()=>{
+    if(!context || context.to>today)return;
+    const inherited={from:context.from,to:context.to};
+    const matching=['day','week','month'].find(key=>{const range=dashboardPresetRange(today,key);return range.from===inherited.from&&range.to===inherited.to;});
+    setPreset(matching??'day');setCustom(matching?null:inherited);setDraft(inherited);setDateError('');
+    setChannel('');setCurrency('');setQuery('');setDetailOpen(false);setDetailPeriodOnly(true);setFocused('payments');
+  },[context,today]);
   useEffect(()=>{let active=true;setLoading(true);setData(null);setError('');api.finance().then(d=>{if(active)setData(d);}).catch(e=>{if(active)setError(toErrorMessage(e));}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[refresh]);
   const board=data?buildCashBoard(data,period):null;
   const groups=board?.groups.filter(g=>(!channel||g.channel===channel)&&(!currency||g.currency===currency))??[];
@@ -37,6 +45,7 @@ export default function BossCashBoard({today,financialDetail}:Props){
   return <div className="cb-board" aria-label="BOSS收款与到账" aria-busy={loading}>
     <header className="cb-heading"><div><h1>收款与到账</h1><p>{period.from} 至 {period.to}</p></div><button type="button" className="secondary" disabled={loading} onClick={()=>{setDetailOpen(false);setRefresh(v=>v+1);}}> {loading?'读取中…':'刷新'}</button></header>
     <section className="cb-toolbar" aria-label="资金日期筛选"><div className="overview-segments">{[['day','今日'],['week','本周'],['month','本月']].map(([key,label])=><button key={key} type="button" className={!custom&&preset===key?'selected':''} aria-pressed={!custom&&preset===key} onClick={()=>pickPreset(key)}>{label}</button>)}</div><details><summary>自定义日期{custom?' · 已设置':''}</summary><form onSubmit={e=>{e.preventDefault();if(!isIsoDate(draft.from)||!isIsoDate(draft.to)||draft.from>draft.to||draft.to>today){setDateError('请选择有效日期，结束日期不能晚于今天');return;}setCustom({...draft});setDateError('');setFocused(null);}}><label>开始日期<input type="date" required max={today} value={draft.from} onChange={e=>setDraft({...draft,from:e.target.value})}/></label><label>结束日期<input type="date" required min={draft.from} max={today} value={draft.to} onChange={e=>setDraft({...draft,to:e.target.value})}/></label><button type="submit" className="secondary">查询</button></form></details></section>
+    {context&&<p className="cb-detail-note">客户付款 · 全公司 · 按付款日 · {period.from} 至 {period.to}</p>}
     {dateError&&<p role="alert" className="error">{dateError}</p>}
     {error&&<div className="overview-error" role="alert"><strong>资金数据暂不可用</strong><p>{error}</p><button type="button" onClick={()=>setRefresh(v=>v+1)}>重新读取</button></div>}
     <section className="cb-kpis" aria-label="资金位置概览">

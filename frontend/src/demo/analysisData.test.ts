@@ -1,6 +1,6 @@
 import {describe,expect,it} from 'vitest';
 import {editorAnalysis} from './editorAnalysisData';
-import {leadAnalysis} from './leadAnalysisData';
+import {leadAnalysis,selectAnalysisLeads} from './leadAnalysisData';
 import type {ProductionRow} from '../productionGroups';
 import type {Lead,LeadReport} from '../leadApi';
 
@@ -38,6 +38,13 @@ describe('拍剪期间流量与截止库存分别统计',()=>{
 const lead=(id:string,date:string,extra:object={}):Lead=>({id,receivedOn:date,accountId:'a',teamId:'t',teamName:'一组',wechatId:'MS-A',pageName:'主页A',operatorName:'甲',channel:'ms',qualifiedOn:null,voidedAt:null,...extra}) as Lead;
 const report=(date:string,count:number):LeadReport=>({accountId:'a',pageName:'主页A',businessDate:date,msToday:count,wsToday:0,addedCount:count});
 describe('线索排名和逐日趋势同源',()=>{
+  it('独立七日趋势沿用账号、小组和人员筛选，不混入其他组的客户',()=>{
+    const rows=[lead('a',range.to,{personaCode:'P'}),lead('b',range.to,{teamName:'二组',operatorName:'乙',personaCode:'P'})];
+    const selected=selectAnalysisLeads(rows,{account:'a',team:'一组',page:'主页A',persona:'P',operator:'甲',channel:'ms',adAccount:''});
+    expect(selected.map(item=>item.id)).toEqual(['a']);
+    const result=leadAnalysis(selected,[report(range.to,2)],range,range.to,'team',rows);
+    expect(result.series[0].points.at(-1)?.value).toBe('1');
+  });
   it('无效保留、作废剔除；当日明确需求与后续明确分开，月累计不参与日趋势',()=>{
     const rows=[lead('1',range.from,{qualifiedOn:range.from}),lead('2',range.from,{qualifiedOn:range.to}),lead('3',range.from,{invalidReason:'垃圾线索'}),lead('void',range.from,{voidedAt:'x'})];
     const view=leadAnalysis(rows,[report(range.from,3),report(range.to,0)],range,range.to,'team');
@@ -56,5 +63,12 @@ describe('线索排名和逐日趋势同源',()=>{
   it('长范围仅画末31天，分类汇总仍覆盖整个所选区间',()=>{
     const view=leadAnalysis([lead('1','2026-10-01'),lead('2',range.to,{accountId:'b',wechatId:'WS-B'})],[],{from:'2026-10-01',to:range.to},range.to,'account');
     expect(view.series[0].points).toHaveLength(31);expect(view.groups.reduce((n,g)=>n+g.stats.received,0)).toBe(2);expect(view.from).toBe('2026-10-13');
+  });
+
+  it('下粉广告户按登记文本筛选，空值只表示来源待补',()=>{
+    const base={account:'',team:'',page:'',persona:'',operator:'',channel:'',adAccount:''};
+    const rows=[lead('kept',range.to,{sourceAdAccountId:'09001',pageName:'主页A',operatorName:'甲'}),lead('other',range.to,{sourceAdAccountId:'9001',pageName:'主页A',operatorName:'甲'}),lead('blank',range.to,{pageName:'主页A',operatorName:'甲'})];
+    expect(selectAnalysisLeads(rows,{...base,adAccount:'09001'}).map(item=>item.id)).toEqual(['kept']);
+    expect(selectAnalysisLeads(rows,{...base,adAccount:'__missing__'}).map(item=>item.id)).toEqual(['blank']);
   });
 });

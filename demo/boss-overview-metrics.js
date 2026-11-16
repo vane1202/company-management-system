@@ -33,8 +33,10 @@
   }
   function periodOf(query, today) {
     if (!dateOk(today)) throw Error('业务日期无效');
-    const preset = query.preset || 'day';
-    if (!['day', 'week', 'month'].includes(preset)) throw Error('日期预设无效');
+    const named = ['day', 'week', 'month'].includes(query.preset);
+    if (query.preset && !named && query.preset !== 'custom') throw Error('日期预设无效');
+    if (query.preset === 'custom' && (!query.from || !query.to)) throw Error('请同时提供开始和结束日期');
+    const preset = named ? query.preset : 'day';
     const weekday = (new Date(today + 'T00:00:00Z').getUTCDay() + 6) % 7;
     if (!!query.from !== !!query.to) throw Error('请同时提供开始和结束日期');
     const from = query.from || (preset === 'month' ? today.slice(0, 8) + '01' : preset === 'week' ? shift(today, -weekday) : today), to = query.to || today;

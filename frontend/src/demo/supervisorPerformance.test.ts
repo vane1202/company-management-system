@@ -62,6 +62,22 @@ describe("主管消费业绩的独立口径与个人贡献",()=>{
     const unknown=aggregate([a,b],{...filter,operator:'乙'});
     expect(teamShare(unknown.turnover,unknown.teamTurnover,unknown.teamUnknownBookings)).toBeNull();
   });
+  it("私推只计料价，不因缺少直播间变成资料待补，也不进入直播间开单", () => {
+    const live = source("live", "甲");
+    const pushed = source("private", "甲");
+    pushed.identity.dealChannel = "private";
+    pushed.identity.liveRoomCode = "";
+    pushed.record.details!.dealChannel = "private";
+    pushed.record.details!.liveRoomCode = "";
+    pushed.record.items = [{ id: "item", label: "料子", material_ref: "", kind: "material", price_cny: "600.00", buying_fee_cny: "0.00" }];
+    const stats = aggregate([live, pushed], filter);
+    expect(stats.liveTurnover).toBe(11000n);
+    expect(stats.privateTurnover).toBe(60000n);
+    expect(stats.turnover).toBe(71000n);
+    expect(stats.privateCount).toBe(1);
+    expect(pendingFor(pushed, today).some(row => row.missing === "直播间")).toBe(false);
+    expect(stats.contributions.find(row => row.name === "甲")?.privateTurnover).toBe(60000n);
+  });
   it("收款按付款日参考折算，缺汇率不报完整人民币总额",async()=>{
     const rows=[{date:today,amount:"100.00",currency:"TWD"},{date:today,amount:"50.00",currency:"CNY"}];
     const quote=async(date:string,currency:"TWD"|"USD")=>({currency,date,sourceDate:date,rate:"0.200000",updatedAt:today+"T05:00:00Z",checkedAt:0,source:"test",delayed:false,stale:false});

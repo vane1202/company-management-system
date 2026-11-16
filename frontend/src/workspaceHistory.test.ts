@@ -53,6 +53,47 @@ function setup(href?: string) {
 }
 
 describe("统一工作台返回与浏览器历史", () => {
+  it("广告卡下钻按所选期间且可刷新返回，不残留其他模块的范围", () => {
+    const { browser, navigation } = setup();
+    const target = { page: "ops" as const, ops: { from: "2026-11-01", to: "2026-11-14" } };
+    browser.scroll(300); navigation.navigate(target);
+    expect(readWorkspaceRoute(browser.location.href)).toEqual(target);
+    expect(navigation.snapshot().entry.scrollY).toBe(0);
+    const bad = encodeURIComponent(JSON.stringify({from:"2026-11-31",to:"2026-11-14"}));
+    expect(readWorkspaceRoute(`https://example.test/?page=ops&ops=${bad}`)).toEqual({page:"ops"});
+    expect(workspaceUrl(browser.location.href,{page:"home"},"boss")).toBe("/?role=boss");
+    navigation.up(); expect(navigation.snapshot().entry.scrollY).toBe(300);
+  });
+
+  it("首页付款下钻保留期间、指标与全公司范围，刷新与返回恢复原位置", () => {
+    const { browser, navigation } = setup();
+    const target = { page: "finance" as const, cash: { from: "2026-11-09", to: "2026-11-14", metric: "receipts" as const, scope: "company" as const } };
+    browser.scroll(580);
+    navigation.navigate(target);
+    expect(readWorkspaceRoute(browser.location.href)).toEqual(target);
+    expect(navigation.snapshot().entry.scrollY).toBe(0);
+    browser.scroll(180);
+    navigation.dispose();
+    const restored = new WorkspaceHistory(browser, "boss-id:boss", "boss", () => {});
+    expect(restored.snapshot().entry.route).toEqual(target);
+    expect(restored.snapshot().entry.scrollY).toBe(180);
+    restored.up();
+    expect(restored.snapshot().entry.route).toEqual({ page: "home" });
+    expect(restored.snapshot().entry.scrollY).toBe(580);
+  });
+
+  it("不同付款期间不是同一路由，无效日期和跨模块付款参数会被剔除", () => {
+    const { browser, navigation } = setup();
+    const cash = { from: "2026-11-09", to: "2026-11-14", metric: "receipts" as const, scope: "company" as const };
+    navigation.navigate({ page: "finance", cash });
+    navigation.navigate({ page: "finance", cash: { ...cash, from: "2026-11-01" } });
+    expect(browser.entries).toHaveLength(3);
+    const invalid = encodeURIComponent(JSON.stringify({ ...cash, from: "2026-11-31" }));
+    expect(readWorkspaceRoute(`https://example.test/?page=finance&cash=${invalid}`)).toEqual({ page: "finance" });
+    expect(readWorkspaceRoute(`https://example.test/?page=orders&cash=${encodeURIComponent(JSON.stringify(cash))}`)).toEqual({ page: "orders" });
+    expect(workspaceUrl(browser.location.href, { page: "home" }, "boss")).toBe("/?role=boss");
+  });
+
   it('财务核定与售后收款为独立明细，日期与直播间上下文可刷新和返回',()=>{
     for(const view of ['paid','afterSales'] as const){
       const route={page:'orders' as const,live:{...defaultLiveView(),view,filters:{room:'LIVE-01',host:'主播甲',persona:'',operator:''}}};

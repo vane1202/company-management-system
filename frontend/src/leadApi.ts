@@ -1,5 +1,5 @@
 import {requestInner} from './api';
-export type Lead={id:string;accountId:string;wechatId:string;teamId:string;teamName:string;receivedOn:string;pageName:string;personaCode:string;operatorName:string;channel:'ms'|'ws';customerLabel:string;customerRef:string;contactStatus:'unread'|'read_no_reply'|'replied';repliedOn:string|null;qualifiedOn:string|null;needSummary:string;invalidReason:string;lossReason:string;nextFollowup:string|null;note:string;version:number;voidedAt:string|null;voidReason:string|null};
+export type Lead={id:string;accountId:string;wechatId:string;teamId:string;teamName:string;receivedOn:string;pageName:string;personaCode:string;operatorName:string;sourceAdAccountId?:string;channel:'ms'|'ws';customerLabel:string;customerRef:string;contactStatus:'unread'|'read_no_reply'|'replied';repliedOn:string|null;qualifiedOn:string|null;needSummary:string;invalidReason:string;lossReason:string;nextFollowup:string|null;note:string;version:number;voidedAt:string|null;voidReason:string|null};
 export type LeadReport={accountId:string;pageName:string;businessDate:string;msToday:number|null;wsToday:number|null;addedCount:number};
 export const leadApi={
   list:(from:string,to:string)=>requestInner<{from:string;to:string;today:string;leads:Lead[];reports:LeadReport[]}>(`/api/fan-leads?${new URLSearchParams({from,to})}`),

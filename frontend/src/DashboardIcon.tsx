@@ -3,9 +3,11 @@ import type { Page } from "./access";
 const paths: Record<Page | "refresh" | "arrow", string> = {
   home: "M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z",
   finance: "M3 5h18v14H3z M3 9h18 M15 14h3 M7 14h2",
+  financeOut: "M3 5h18v14H3z M3 9h18 M12 11v6 M9 14l3 3 3-3",
   fans: "M8 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M2 21v-2a6 6 0 0 1 12 0v2 M19 7v8 M15 11h8",
   summary: "M3 20h18 M6 16v-5 M12 16V4 M18 16V8",
   orders: "M6 3h12v18l-3-2-3 2-3-2-3 2z M9 8h6 M9 12h6",
+  opsFeedback: "M4 4h16v12H9l-5 4z M8 8h8 M8 12h5",
   ops: "M3 9v6h4l11 5V4L7 9z M7 15l2 6 M21 9v6",
   editor: "M3 5h18v14H3z M3 9h18 M7 5l3 4 M14 5l3 4 M10 12l5 2-5 2z",
   dashboard: "M3 19l6-6 4 3 8-12 M15 4h6v6",
@@ -14,6 +16,8 @@ const paths: Record<Page | "refresh" | "arrow", string> = {
   salaries: "M3 5h18v14H3z M3 9h18 M15 14h3",
   modules: "M4 5h16v6H4z M4 15h16v6H4z M8 8h1 M15 18h1",
   assessment: "M4 19V5 M4 19h16 M8 16v-5 M12 16V7 M16 16v-3",
+  reportHistory: "M3 12a9 9 0 1 0 3-7 M3 3v6h6 M12 7v5l3 2",
+  customerReview: "M5 3h14v18H5z M8 8h8 M8 13l3 3 5-6",
   refresh: "M20 8a8 8 0 1 0 0 8 M20 3v5h-5",
   arrow: "M5 12h14 M14 7l5 5-5 5"
 };

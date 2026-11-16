@@ -3,16 +3,209 @@ const vm=require('node:vm');
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const script=fs.readFileSync(require('node:path').join(__dirname,'readonly-api.js'),'utf8');
-function environment(role,pathname=""){
- const storage=new Map();let networkRequests=0;
+test('财务报销登记核对分次付款独立汇总，不增加运营成本或重复业务成本',async()=>{
+ const store=new Map(),f=environment('finance','',undefined,store),boss=environment('boss','',undefined,store),path='/api/demo/reimbursements';
+ const expense=(await f.json('/api/finance/payables')).body.expenses.find(e=>e.id==='demo-expense-0'),date=expense.business_date;
+ const before=(await boss.json('/api/demo/boss-priority')).body.expenses;
+ const input={action:'create',claimant:'演示员工',department:'演示小组',category:'temporary',purpose:'临时支出报销',amount:'100.00',expenseDate:date,claimDate:date,expenseId:'',receiptRef:'REIM-01',note:'测试',requestKey:'reim-key-1'};
+ for(const role of ['boss','warehouse','admin','cs_supervisor','cs','editor','ops']){
+  assert.equal((await environment(role).json(path)).status,403);assert.equal((await environment(role).json(path,'POST',input)).status,403);
+ }
+ assert.equal((await f.json(path,'POST',{...input,amount:'-1'})).status,400);
+ assert.equal((await f.json(path,'POST',{...input,expenseDate:'2026-02-30'})).status,400);
+ const created=await f.json(path,'POST',input);assert.equal(created.status,200);let claim=created.body.state.claims[0];
+ assert.equal((await f.json(path,'POST',input)).body.state.claims.length,1);
+ assert.equal((await f.json(path,'POST',{...input,requestKey:'another-key'})).status,400);
+ const pay={action:'pay',id:claim.id,version:1,amount:'40.00',date,payee:'演示员工',account:'公司账户',reference:'REIM-PAY-1'};
+ assert.equal((await f.json(path,'POST',pay)).status,400);
+ let r=await f.json(path,'POST',{action:'review',id:claim.id,version:1,decision:'approved',reason:'凭证已核对'});assert.equal(r.status,200);
+ assert.equal((await f.json(path,'POST',pay)).status,409);
+ r=await f.json(path,'POST',{...pay,version:2});assert.equal(r.status,200);assert.equal(r.body.state.payments[0].amount,'40.00');
+ assert.equal((await f.json(path,'POST',{...pay,version:3,amount:'61.00',reference:'OVER'})).status,400);
+ assert.equal((await f.json(path,'POST',{...pay,version:3})).status,400);
+ assert.equal((await f.json(path,'POST',{...pay,version:3,reference:'DEMO-SUP-PAY-001'})).status,400);
+ r=await f.json(path,'POST',{...pay,version:3,amount:'60.00',reference:'REIM-PAY-2'});assert.equal(r.status,200);
+ assert.equal((await environment('finance','',undefined,store).json(path)).body.state.payments.length,2);
+ assert.deepEqual((await boss.json('/api/demo/boss-priority')).body.expenses,before);
+ const base=(await f.json('/api/finance/payables')).body.summary.costCny;
+ r=await f.json(path,'POST',{...input,requestKey:'linked-key',receiptRef:'REIM-LINK-1',expenseId:expense.id,amount:expense.pending_cny});assert.equal(r.status,200);claim=r.body.state.claims.at(-1);
+ await f.json(path,'POST',{action:'review',id:claim.id,version:1,decision:'approved',reason:'原费用关联核对'});
+ r=await f.json(path,'POST',{...pay,id:claim.id,version:2,amount:expense.pending_cny,reference:'REIM-LINK-PAY'});assert.equal(r.status,200);
+ const current=(await f.json('/api/finance/payables')).body;assert.equal(current.summary.costCny,base);assert.equal(current.expenses.find(e=>e.id===expense.id).pending_cny,'0.00');
+ assert.equal((await f.json(path,'DELETE')).status,405);assert.equal(f.network()+boss.network(),0);
+});
+test('库房提交、财务审核分次付款共享台账，关联成本不重复，新成本审核后入账',async()=>{
+ const store=new Map(),w=environment('warehouse','',undefined,store),f=environment('finance','',undefined,store),boss=environment('boss','',undefined,store),path='/api/demo/warehouse';
+ const initial=(await w.json(path)).body,expense=initial.expenses.find(e=>e.id==='demo-expense-0');
+ assert.equal((await w.json('/api/finance')).status,403);assert.equal((await w.json('/api/salaries')).status,403);
+ for(const role of ['boss','admin','cs_supervisor','cs','editor','ops'])assert.equal((await environment(role).json(path)).status,403);
+ const date=expense.business_date,input={action:'create',orderId:expense.order_id,expenseId:expense.id,category:expense.category,label:expense.label,counterparty:'演示供货方',amount:expense.pending_cny,date,materialRef:'D-001',proof:'P-001',note:'测试库房',requestKey:'request-1'};
+ assert.equal((await f.json(path,'POST',input)).status,403);
+ assert.equal((await w.json(path,'POST',{...input,amount:'9999'})).status,400);
+ const created=await w.json(path,'POST',input);assert.equal(created.status,200);assert.equal(created.body.state.bills.length,1);
+ assert.equal((await w.json(path,'POST',input)).body.state.bills.length,1);
+ assert.equal((await w.json(path,'POST',{...input,requestKey:'request-duplicate'})).status,400);
+ let bill=created.body.state.bills[0];
+ assert.equal((await w.json(path,'POST',{action:'review',id:bill.id,version:1,decision:'approved',reason:'核对'})).status,403);
+ assert.equal((await f.json(path,'POST',{action:'pay',id:bill.id,version:1,amount:'1.00',date,payee:'供货方',account:'公司',reference:'X'})).status,400);
+ let r=await f.json(path,'POST',{action:'review',id:bill.id,version:1,decision:'approved',reason:'已核对原成本'});assert.equal(r.status,200);
+ assert.equal((await f.json(path,'POST',{action:'review',id:bill.id,version:1,decision:'approved',reason:'重复'})).status,409);
+ const base=(await boss.json('/api/finance/payables')).body.summary.costCny;
+ const pay={action:'pay',id:bill.id,version:2,amount:'100.00',date,payee:'供货方',account:'公司账户',reference:'WAREHOUSE-PAY-1'};
+ r=await f.json(path,'POST',pay);assert.equal(r.status,200);assert.equal(r.body.state.payments.length,1);
+ assert.equal((await f.json(path,'POST',{...pay,version:3,amount:'99999.00',reference:'OVER'})).status,400);
+ assert.equal((await f.json(path,'POST',{...pay,version:3})).status,400);
+ const current=(await boss.json('/api/finance/payables')).body;assert.equal(current.summary.costCny,base);assert.equal(current.expenses.find(e=>e.id===expense.id).paid_cny,'700.00');
+ assert.equal((await w.json(path)).body.state.payments[0].amount,'100.00');
+ const newBill=await w.json(path,'POST',{...input,expenseId:'',category:'sourcing',amount:'400.00',proof:'NEW-2',materialRef:'D-002',requestKey:'request-2'});
+ bill=newBill.body.state.bills.at(-1);
+ assert.equal((await boss.json('/api/finance/payables')).body.summary.costCny,base);
+ r=await f.json(path,'POST',{action:'review',id:bill.id,version:1,decision:'approved',reason:'新成本已核对'});assert.equal(r.status,200);
+ const cents=v=>Math.round(Number(v)*100);assert.equal(cents((await boss.json('/api/finance/payables')).body.summary.costCny),cents(base)+40000);
+ assert.ok((await f.json('/api/order-records/'+expense.order_id)).body.expenses.some(e=>e.id==='warehouse-exp-'+bill.id));
+ assert.equal(w.network()+f.network()+boss.network(),0);
+});
+test('订单跟进仅本组主管可写，保存备注不改变收款，版本冲突与非法日期拒绝',async()=>{
+ const storage=new Map(),e=environment('cs_supervisor','',undefined,storage),path='/api/demo/order-followups';
+ const before=(await e.json('/api/order-records/demo-order-2')).body;
+ const input={orderId:'demo-order-2',version:0,note:'已联系客户，约定再次确认',nextContactOn:''};
+ assert.equal((await e.json(path,'POST',{...input,orderId:'demo-order-3'})).status,404);
+ for(const role of ['boss','admin','finance','cs','ops','editor']){
+  assert.equal((await environment(role).json(path)).status,403);
+  assert.equal((await environment(role).json(path,'POST',input)).status,403);
+ }
+ assert.equal((await e.json(path,'POST',{...input,nextContactOn:'2026-02-30'})).status,400);
+ assert.equal((await e.json(path,'POST',{...input,nextContactOn:'2020-01-01'})).status,400);
+ assert.equal((await e.json(path,'POST',{...input,note:''})).status,400);
+ const saved=await e.json(path,'POST',{...input,paid:'2300.00',status:'settled'});
+ assert.equal(saved.status,200);assert.equal(saved.body.records[0].version,1);
+ assert.equal((await e.json(path,'POST',input)).status,409);
+ const second=await e.json(path,'POST',{...input,version:1,note:'第二次联系'});
+ assert.equal(second.body.records[0].version,2);assert.equal(second.body.records[0].history[0].note,input.note);
+ assert.equal((await environment('cs_supervisor','',undefined,storage).json(path)).body.records[0].note,'第二次联系');
+ const after=(await e.json('/api/order-records/demo-order-2')).body;
+ assert.deepEqual(after.payments,before.payments);assert.equal(after.balance,before.balance);
+ assert.equal((await e.json(path,'DELETE')).status,405);
+ assert.equal(e.network(),0);
+});
+function environment(role,pathname="",directory,storage=new Map(),adLinks=[]){
+ let networkRequests=0;
  const window={location:{origin:'https://fictional.example',search:role?'?role='+role:'',pathname,assign(){}},sessionStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value)},fetch:async()=>{networkRequests++;throw Error('Unexpected backend network request');}};
  window.CmsBossOverview=require('./boss-overview-metrics.js');
  window.CmsOpsAnalysis=require('./ops-analysis-metrics.js');
  window.CmsLiveRoomOperations=require('./live-room-operations.js');
+ window.CmsOpsWorkspace=require('./ops-workspace.js');
+ window.CmsBossPriority=require('./boss-priority.js');
+ window.CmsWarehouse=require('./warehouse-settlements.js');
+ window.CmsReimbursements=require('./reimbursements.js');
+ window.CmsEditorHistory=require('./editor-history.js');
+ window.CmsSupervisorConsultationCost=require('./supervisor-consultation-cost.js');
+ window.CmsSupervisorAdLinks=adLinks;
  window.CmsAssessmentFoundation=require('./assessment-foundation.js');
+ window.CmsServiceAccountManagement=require('./service-account-management.js');
+ if(directory)window.CmsServiceDirectory=directory;
  vm.runInNewContext(script,{window,document:{addEventListener(){}},URL,URLSearchParams,Response,Date});
  return {fetch:window.fetch,json:async(path,method='GET',body)=>{const response=await window.fetch(path,{method,body:JSON.stringify(body)});return {status:response.status,body:await response.json()};},network:()=>networkRequests};
 }
+
+test('BOSS优先卡片与财务日常费用只读写隔离，私推纳入总业绩且费用与广告分开',async()=>{
+ const storage=new Map(),boss=environment('boss','',undefined,storage),finance=environment('finance','',undefined,storage);
+ const initial=await boss.json('/api/demo/boss-priority?preset=day');assert.equal(initial.status,200);assert.equal(initial.body.performance.total,'2370.50');assert.equal(initial.body.performance.private,'600.00');
+ assert.equal(initial.body.expenses.registered,null);
+ const date=initial.body.period.to,input={date,category:'utilities',amount:'100.00',purpose:'办公室电费',operator:'财务',proof:'P-01'};
+ assert.equal((await boss.json('/api/demo/daily-expenses','POST',input)).status,403);
+ assert.equal((await finance.json('/api/demo/daily-expenses','POST',input)).status,200);
+ assert.equal((await boss.json('/api/demo/boss-priority?preset=day')).body.expenses.registered,'100.00');
+ for(const role of ['admin','cs','cs_supervisor','ops','editor']){
+  assert.equal((await environment(role).json('/api/demo/boss-priority')).status,403);
+  assert.equal((await environment(role).json('/api/demo/daily-expenses','POST',input)).status,403);
+ }
+ assert.equal((await finance.json('/api/demo/boss-priority')).status,403);
+ assert.equal((await finance.json('/api/demo/daily-expenses','POST',{...input,category:'salary'})).status,400);
+ assert.equal(boss.network()+finance.network(),0);
+});
+
+test('拍剪本人历史可读改，拒绝修改其他老师记录及通用管理接口',async()=>{
+ const e=environment('editor');
+ assert.equal((await e.json('/api/demo/editor-history')).status,403);
+ assert.equal((await e.json('/api/demo/editor-identity','POST',{editor:'魏磊'})).status,200);
+ const first=(await e.json('/api/demo/editor-history')).body.records;
+ assert.ok(first.length&&first.every(record=>record.editorName==='魏磊'));
+ const original=first[0];
+ const saved=await e.json('/api/demo/editor-history','POST',{id:original.id,version:original.version,businessDate:original.businessDate,lines:original.lines.map((line,i)=>({...line,editCount:i===0?8:line.editCount})),reason:'核验补录',editorName:'尚杰'});
+ assert.equal(saved.status,200);assert.equal(saved.body.records[0].editorName,'魏磊');assert.equal(saved.body.records[0].version,2);
+ assert.equal(saved.body.records[0].history.at(-1).before.lines[0].editCount,original.lines[0].editCount);
+ await e.json('/api/demo/editor-identity','POST',{editor:'尚杰'});
+ assert.ok((await e.json('/api/demo/editor-history')).body.records.every(record=>record.editorName==='尚杰'));
+ assert.equal((await e.json('/api/demo/editor-history','POST',{id:original.id,version:2,businessDate:original.businessDate,lines:original.lines,reason:'越权'})).status,400);
+ for(const role of ['boss','cs','cs_supervisor','ops','admin','finance']){assert.equal((await environment(role).json('/api/demo/editor-history')).status,403);assert.equal((await environment(role).json('/api/demo/editor-identity','POST',{editor:'魏磊'})).status,403);}
+ assert.equal((await e.json('/api/demo/editor-history','DELETE')).status,405);
+ assert.equal((await e.json('/api/editor-reports','POST',{})).status,403);
+ assert.equal(e.network(),0);
+});
+
+test('主管咨询成本只读且限本组，未关联不回退公司总数，已关联与运营口径一致',async()=>{
+ const path='/api/demo/supervisor-consultation-cost';
+ const missing=await environment('cs_supervisor').json(path);
+ assert.equal(missing.status,200);assert.equal(missing.body.current.status,'unlinked');assert.equal(missing.body.current.spendUsd,null);
+ const linked=environment('cs_supervisor','',undefined,new Map(),[{teamId:'demo-team-a',account:'DEMO-ADS-01',from:'2026-01-01'}]);
+ const scoped=await linked.json(path);
+ assert.equal(scoped.body.current.spendUsd,'22.20');assert.equal(scoped.body.current.consultCount,5);
+ const ops=(await environment('ops').json('/api/demo/ops-analysis?account=DEMO-ADS-01')).body;
+ assert.equal(scoped.body.current.spendUsd,ops.summary.spendUsd);assert.equal(scoped.body.current.consultCount,ops.summary.consultCount);
+ assert.equal(JSON.stringify(scoped.body).includes('DEMO-ADS-02'),false);
+ assert.equal((await linked.json(path+'?teamId=demo-team-b')).status,403);
+ assert.equal((await linked.json(path+'?date=2026-02-30')).status,400);
+ assert.equal((await linked.json(path,'POST',{})).status,403);
+ for(const role of ['ops','boss','admin','finance','cs'])assert.equal((await environment(role).json(path)).status,403);
+ assert.equal(linked.network(),0);
+});
+
+test('四位运营身份、账户范围和反馈按人员隔离，禁止越权及伪造作者', async () => {
+ const storage=new Map(),first=environment('ops','',undefined,storage);
+ const workspace=(await first.json('/api/demo/ops-workspace')).body;
+ assert.deepEqual(workspace.people.map(p=>p.name),['子恒','小蒲','代运营A','代运营B']);
+ assert.equal(workspace.accounts.length,2);assert.equal(workspace.loginEnabled,false);
+ const today=(await first.json('/api/auth/me')).body.today;
+ const input={account:workspace.accounts[0].id,persona:workspace.accounts[0].personas[0],date:today,from:today,to:today,category:'strategy',problem:'测试观察',suggestion:'测试建议',authorId:'forged',authorName:'冒充他人',attachments:[]};
+ const saved=await first.json('/api/demo/ops-feedback','POST',input);
+ assert.equal(saved.status,200);assert.equal(saved.body.records[0].authorName,'子恒');
+ const id=saved.body.records[0].id;
+ const second=environment('ops&operator=demo-ops-xiaopu','',undefined,storage);
+ assert.equal((await second.json('/api/auth/me')).body.user.displayName,'小蒲');
+ assert.equal((await second.json('/api/demo/ops-feedback')).body.records.length,0);
+ assert.equal((await second.json('/api/demo/ops-feedback','POST',{kind:'followup',id,status:'done',followup:'越权'})).status,404);
+ assert.equal((await second.json('/api/demo/ops-feedback','POST',input)).status,400);
+ const rows=(await second.json('/api/ops-reports')).body.reports;
+ assert.ok(rows.every(row=>row.userId==='demo-ops-xiaopu'&&row.adAccountRef.startsWith('DEMO-XP-')));
+ assert.ok((await second.json('/api/ad-accounts')).body.accounts.every(a=>a.code.startsWith('DEMO-XP-')));
+ const returned=environment('ops&operator=demo-ops','',undefined,storage);
+ assert.equal((await returned.json('/api/demo/ops-feedback')).body.records.length,1);
+ assert.equal((await returned.json('/api/demo/ops-feedback','POST',{kind:'followup',id,status:'done',followup:'已调整素材并观察'})).status,200);
+ for(const role of ['boss','admin','finance','cs_supervisor','cs']){
+  assert.equal((await environment(role).json('/api/demo/ops-feedback')).status,403);
+  assert.equal((await environment(role).json('/api/demo/ops-feedback','POST',input)).status,403);
+ }
+ assert.equal(returned.network()+second.network()+first.network(),0);
+});
+
+test('账号新增与交接只在演示会话内生效，权限与历史归属隔离', async () => {
+ const directory={enabled:true,confirmedOn:'2026-11-13',version:'service-directory/v1',people:[{id:'old',name:'原客服'},{id:'next',name:'接手客服'}],team:{id:'scope',name:'本组',roomName:'海外一线',hostName:'主播'},accounts:[{id:'a',registeredHolderId:'old',holderName:'原客服',teamId:'scope',isActive:true,platform:'messenger',accountIdentifier:'10000000001'}]};
+ const e=environment('cs_supervisor','',directory),today=(await e.json('/api/auth/me')).body.today;
+ const before=(await e.json('/api/orders')).body;
+ const created=await e.json('/api/demo/service-directory/manage','POST',{kind:'create',teamId:'scope',employeeId:'next',platform:'whatsapp',identifier:'+8613800000000',effectiveOn:today});
+ assert.equal(created.status,200);assert.equal(created.body.directory.accounts.length,2);
+ assert.equal((await e.json('/api/cs-accounts')).body.accounts.length,2);
+ const moved=await e.json('/api/demo/service-directory/manage','POST',{kind:'handover',teamId:'scope',accountIds:['a'],employeeId:'next',effectiveOn:today,reason:'离职',markLeft:true});
+ assert.equal(moved.status,200);assert.equal(moved.body.directory.accounts[0].registeredHolderId,'next');
+ assert.equal((await e.json('/api/demo/service-directory')).body.managementHistory.length,2);
+ assert.deepEqual((await e.json('/api/orders')).body,before);
+ assert.equal(directory.accounts[0].registeredHolderId,'old');
+ for(const role of ['cs','boss','finance','ops'])assert.equal((await environment(role,'',directory).json('/api/demo/service-directory/manage','POST',{kind:'reset'})).status,403);
+ assert.equal((await e.json('/api/demo/service-directory/manage','POST',{kind:'handover',teamId:'other',effectiveOn:today})).status,400);
+ assert.equal((await e.json('/api/demo/service-directory/manage','POST',{kind:'reset'})).body.directory.accounts.length,1);
+ assert.equal(e.network(),0);
+});
 
 test('客服填报演示提供固定接待账号，不创建客服员工账号且拒绝业务写入和管理读取',async()=>{
  const e=environment('cs');
@@ -44,9 +237,9 @@ test('经营看板分开当期开单进度和历史待收款，保持原币且�
 
 test('按主播筛选不因财务人员费用补入无关直播间，无匹配时返回空看板',async()=>{
  const e=environment('boss');
- const one=(await e.json('/api/dashboard/live-business?host='+encodeURIComponent('演示主播甲'))).body;
+ const one=(await e.json('/api/dashboard/live-business?host='+encodeURIComponent('甜甜'))).body;
  assert.deepEqual(one.rooms.map(r=>r.key),['DEMO-LIVE-01']);
- assert.ok(one.operations.orders.every(o=>o.hostName==='演示主播甲'));
+ assert.ok(one.operations.orders.every(o=>o.hostName==='甜甜'));
  const none=(await e.json('/api/dashboard/live-business?host=NO_MATCH')).body;
  assert.equal(none.rooms.length,0);assert.equal(none.operations.summary.total,0);
  assert.equal(none.operations.orders.length,0);assert.equal(none.ads.spendUsd,'29.20');
@@ -74,7 +267,7 @@ test('直播间人员成本不按主播、人设或客服维度推测分摊，�
 test('P0独立演示首屏与原明细逐笔一致；原币保留；正式后台零请求',async()=>{
  const e=environment('boss'),d=(await e.json('/api/demo/boss-overview')).body;
  const old=(await e.json('/api/dashboard/live-business')).body;
- assert.equal(d.version,'boss-overview-p0/v1');assert.equal(d.metrics.turnover.value,old.totals.performanceCny);
+ assert.equal(d.version,'boss-overview-p0/v1');assert.equal(d.metrics.turnover.value,old.totals.performanceCny);assert.equal(d.privatePush.amount,'600.00');assert.equal(d.privatePush.count,1);assert.equal(d.ledger.some(row=>row.bucket==='excludedBooking'&&row.label==='DEMO-P-001'),true);
   assert.equal(d.metrics.receipts.value,'2538.50');assert.equal(d.metrics.visibleCost.value,'325.24');assert.equal(d.metrics.estimatedContribution.value,'2213.26');assert.equal(d.metrics.roi.value,'12.07');
   assert.equal(d.metrics.roi.unit,'倍');
   assert.equal(d.costBreakdown.visibleBusiness.value,'115.00');assert.equal(d.costBreakdown.advertising.value,'210.24');assert.equal(d.costBreakdown.excludedMaterial.value,'1300.00');
@@ -123,10 +316,14 @@ test('主管首页营业额与BOSS营业额同口径：不含追加收费、扣�
   const mine=(await sup.json(`/api/orders?from=${day}&to=${day}`)).body,ids=new Set(mine.orders.map(o=>o.id));
   const live=(await boss.json(`/api/dashboard/live-business?from=${day}&to=${day}`)).body;
   const sales=live.events.filter(e=>e.kind==='sale'&&ids.has(e.order_id)&&!e.order.cancelled&&e.order.status!=='refunded');
-  const expected=(sales.reduce((n,e)=>n+Math.round(Number(e.amount)*100),0)/100).toFixed(2);
-  assert.equal(mine.totals.turnover,expected,day);assert.equal(mine.totals.turnoverCount,sales.length,day);
+  const liveExpected=(sales.reduce((n,e)=>n+Math.round(Number(e.amount)*100),0)/100).toFixed(2);
+  const privateRows=mine.orders.filter(o=>o.dealChannel==='private'&&!o.cancelled&&o.status!=='refunded');
+  const privateExpected=(privateRows.reduce((n,o)=>n+Math.round(Number(o.bookingAmount)*100),0)/100).toFixed(2);
+  const combined=((Math.round(Number(liveExpected)*100)+Math.round(Number(privateExpected)*100))/100).toFixed(2);
+  assert.equal(live.events.some(e=>e.order_id==='demo-order-7'),false,day);
+  assert.equal(mine.totals.turnover,combined,day);assert.equal(mine.totals.turnoverCount,sales.length+privateRows.length,day);
  }
- const t=(await sup.json(`/api/orders?from=${today}&to=${today}`)).body.totals;assert.equal(t.turnover,'1770.50');assert.equal(t.amount,'1970.50');
+ const t=(await sup.json(`/api/orders?from=${today}&to=${today}`)).body.totals;assert.equal(t.turnover,'2370.50');assert.equal(t.amount,'2570.50');
  const y=(await sup.json(`/api/orders?from=${yesterday}&to=${yesterday}`)).body.totals;assert.deepEqual([y.turnover,y.cancelled,y.turnoverCount],['550.00','330.00',1]);
  const cancelled=(await sup.json('/api/order-records/demo-order-5')).body;assert.equal(cancelled.order.cancelled,true);assert.equal(cancelled.cancellations.length,1);
  assert.equal((await sup.json('/api/order-records/demo-order-6/cancellations','POST',{version:1,reason:'演示'})).status,403);
@@ -148,7 +345,7 @@ test('public preview identities are fictional and business access follows the pr
  for(const path of ['/api/orders','/api/fan-reports/summary','/api/dashboard/summary','/api/salaries'])assert.equal((await admin.json(path)).status,403);
 });
 test('supervisor sees one fictional group and cannot query another fictional account',async()=>{
- const e=environment('cs_supervisor');const orders=await e.json('/api/orders');assert.equal(orders.body.orders.length,4);assert.ok(orders.body.orders.every(row=>row.userId==='demo-wechat-1'));assert.deepEqual(orders.body.totals,{amount:'2850.50',refunds:'0.00',cancelled:'330.00',turnover:'2320.50',turnoverCount:3});
+ const e=environment('cs_supervisor');const orders=await e.json('/api/orders');assert.equal(orders.body.orders.length,5);assert.ok(orders.body.orders.every(row=>row.userId==='demo-wechat-1'));assert.deepEqual(orders.body.totals,{amount:'3450.50',refunds:'0.00',cancelled:'330.00',turnover:'2920.50',turnoverCount:4});const pushed=orders.body.orders.find(row=>row.orderRef==='DEMO-P-001');assert.equal(pushed.dealChannel,'private');assert.equal(pushed.bookingAmount,'600.00');assert.equal(pushed.liveRoomCode,'');
  assert.deepEqual((await e.json('/api/orders?userId=demo-wechat-2')).body.orders,[]);assert.equal((await e.json('/api/cs-accounts')).body.accounts.length,2);const fans=(await e.json('/api/fan-reports/summary')).body.teams;assert.equal(fans.length,1);assert.equal(fans[0].expectedCount,2);assert.equal(fans[0].reportedCount,1);assert.deepEqual(fans[0].missing.map(m=>m.displayName),['Messenger · demo.messenger.03']);assert.equal(fans[0].totalAdded,7);assert.equal((await e.json('/api/admin/users')).status,403);
 });
 test('BOSS filters dates/statuses and uses the latest monthly snapshot rather than summing snapshots',async()=>{
@@ -160,8 +357,8 @@ test('BOSS filters dates/statuses and uses the latest monthly snapshot rather th
 test('all preview writes are refused and never contact the actual backend',async()=>{
  for(const role of ['admin','boss','cs_supervisor','finance']){const e=environment(role);for(const path of ['/api/orders','/api/cs-accounts/registration-codes','/api/admin/users','/api/modules','/api/admin/settings','/api/finance/settlements','/api/order-records']){assert.equal((await e.json(path,'POST',{role:'boss',amount:'999.00'})).status,403);}assert.equal(e.network(),0);}
 });
-test('finance preview separates customer credit from fictional company settlement and keeps costs private',async()=>{
- const finance=environment('finance'),result=await finance.json('/api/finance');assert.equal(result.status,200);assert.equal(result.body.summary.totalCny,'1613.90');assert.deepEqual(result.body.summary.pending,{CNY:'0.00',TWD:'1200.00',USD:'90.00'});assert.equal((await finance.json('/api/order-records/demo-order-1')).status,403);assert.equal((await finance.json('/api/admin/users')).status,403);
+test('finance preview separates customer credit from settlement and reads order costs for commission',async()=>{
+ const finance=environment('finance'),result=await finance.json('/api/finance');assert.equal(result.status,200);assert.equal(result.body.summary.totalCny,'1613.90');assert.deepEqual(result.body.summary.pending,{CNY:'0.00',TWD:'1200.00',USD:'90.00'});assert.equal((await finance.json('/api/order-records/demo-order-1')).status,200);assert.equal((await finance.json('/api/orders')).status,200);assert.equal((await finance.json('/api/admin/users')).status,403);
  const boss=environment('boss'),d=(await boss.json('/api/order-records/demo-order-3')).body;assert.equal(d.balance,'0.00');assert.equal(d.payments[0].pendingAmount,'90.00');assert.equal((await environment('cs_supervisor').json('/api/order-records/demo-order-3')).status,404);assert.equal(finance.network(),0);
 });
 test('fictional CSV export honors the selected group and account without a server',async()=>{
@@ -231,8 +428,8 @@ test('BOSS business home counts a prior-day order charge and shipping on their o
  assert.equal(d.totals.newSalesCny,'1770.50');assert.equal(d.totals.additionalCny,'300.00');assert.equal(d.totals.performanceCny,'1770.50');assert.equal(d.totals.expenseCny,'1415.00');assert.equal(d.totals.supplierPaidCny,'600.00');assert.equal(d.totals.newOrderCount,2);
  assert.equal(d.totals.excludedSourceCny,'180.00');assert.equal(d.totals.companyReceivedCny,'1613.90');assert.deepEqual(d.totals.customerReceipts,{CNY:'1290.50',TWD:'1200.00',USD:'140.00'});
  assert.equal(d.ads.spendUsd,'29.20');assert.equal(d.legacyCost.count,1);
- const prior=d.rooms.find(r=>r.roomCode==='DEMO-LIVE-02');assert.equal(prior.totals.performanceCny,'0.00');assert.equal(prior.totals.expenseCny,'15.00');assert.equal(prior.totals.newOrderCount,0);
- assert.equal(d.rooms.find(r=>r.roomCode==='DEMO-LIVE-01').personas.length,1);
+ const prior=d.rooms.find(r=>r.key==='DEMO-LIVE-02');assert.equal(prior.totals.performanceCny,'0.00');assert.equal(prior.totals.expenseCny,'15.00');assert.equal(prior.totals.newOrderCount,0);
+ assert.equal(d.rooms.find(r=>r.key==='DEMO-LIVE-01').personas.length,1);
  const sum=key=>d.rooms.reduce((n,r)=>n+Math.round(Number(r.totals[key])*100),0);assert.equal(sum('performanceCny'),177050);assert.equal(sum('expenseCny'),141500);
  assert.equal(e.network(),0);
 });
@@ -240,7 +437,7 @@ test('直播间毛利优先开单卡料本、缺省回退供货款；跑单料�
  const e=environment('boss'),d=(await e.json('/api/dashboard/live-business')).body;
  assert.equal(d.profitMethod,'turnover_minus_material_and_entered_staff_costs');
  assert.equal(d.totals.performanceCny,'1770.50');assert.equal(d.totals.expenseCny,'1415.00');
- const a=d.rooms.find(r=>r.roomCode==='DEMO-LIVE-01'),b=d.rooms.find(r=>r.roomCode==='DEMO-LIVE-02');
+ const a=d.rooms.find(r=>r.key==='DEMO-LIVE-01'),b=d.rooms.find(r=>r.key==='DEMO-LIVE-02');
  assert.equal(a.totals.performanceCny,'1770.50');
  assert.equal(a.profit.materialCostCny,'1300.00');
  assert.equal(a.profit.materialCostSources.orderCardCny,'900.00');
@@ -274,7 +471,7 @@ test('直播间毛利优先开单卡料本、缺省回退供货款；跑单料�
  assert.equal(cancelled.order.material_lot_no,'D218-07');
  const date=(await e.json('/api/auth/me')).body.today,prior=new Date(Date.parse(date+'T00:00:00Z')-86400000).toISOString().slice(0,10);
  const y=(await e.json('/api/dashboard/live-business?from='+prior+'&to='+prior)).body;
- const y1=y.rooms.find(r=>r.roomCode==='DEMO-LIVE-01');
+ const y1=y.rooms.find(r=>r.key==='DEMO-LIVE-01');
  assert.equal(y1.profit.materialCostCny,'0.00');
  assert.equal(y1.profit.materialCostSources.excludedCancelledCny,'200.00');
  const overview=(await e.json('/api/demo/boss-overview')).body;
@@ -283,7 +480,7 @@ test('直播间毛利优先开单卡料本、缺省回退供货款；跑单料�
  assert.equal(e.network(),0);
 });
 test('live-room filters leave company advertising scoped to the same dates; other roles cannot read the home endpoint',async()=>{
- const e=environment('boss'),r=(await e.json('/api/dashboard/live-business?room=DEMO-LIVE-02&host='+encodeURIComponent('演示主播乙'))).body;
+ const e=environment('boss'),r=(await e.json('/api/dashboard/live-business?room=DEMO-LIVE-02&host='+encodeURIComponent('文强'))).body;
  assert.equal(r.totals.performanceCny,'0.00');assert.equal(r.totals.expenseCny,'15.00');assert.equal(r.ads.spendUsd,'29.20');assert.equal(r.rooms.length,1);
  const date=(await e.json('/api/auth/me')).body.today,prior=new Date(Date.parse(date+'T00:00:00Z')-86400000).toISOString().slice(0,10);
  const p=(await e.json('/api/dashboard/live-business?from='+prior+'&to='+prior+'&room=DEMO-LIVE-02')).body;assert.equal(p.totals.performanceCny,'850.00');assert.equal(p.totals.expenseCny,'630.00');assert.equal(p.ads.spendUsd,'30.00');
@@ -299,14 +496,14 @@ test('拍剪填报演示只选择预置拍剪师，拒绝读取和保存管理�
  const e=environment('editor');
  const me=await e.json('/api/auth/me');
  assert.equal(me.body.user.role,'editor');
- assert.equal(me.body.user.displayName,'演示拍剪填报');
+ assert.equal(me.body.user.displayName,'演示·沈川');
  for(const path of ['/api/editor-reports','/api/orders','/api/admin/users','/api/salaries'])assert.equal((await e.json(path)).status,403);
  assert.equal((await e.json('/api/editor-reports','PUT',{editorName:'demo'})).status,403);
  assert.equal(e.network(),0);
 });
 
 test('客服工作台与入场直链自动选用客服演示身份，且不开放写入',async()=>{
- for(const pathname of ['/fill','/fill/','/fill/attendance','/fill/attendance/']){
+ for(const pathname of ['/fill','/fill/','/fill/cs','/fill/cs/','/fill/attendance','/fill/attendance/']){
   const e=environment(null,pathname);
   assert.equal((await e.json('/api/auth/me')).body.user.role,'cs');
   assert.equal((await e.json('/api/cs-accounts')).status,200);
@@ -316,13 +513,15 @@ test('客服工作台与入场直链自动选用客服演示身份，且不开�
  }
  const editor=environment(null,'/fill/editor');
  assert.equal((await editor.json('/api/auth/me')).body.user.role,'editor');
+ const ops=environment(null,'/fill/ops');
+ assert.equal((await ops.json('/api/auth/me')).body.user.role,'ops');
 });
 
 
 test('运营演示入口读取本人投放和广告台账，拒绝其他业务与所有写入',async()=>{
  const e=environment('ops');
  const me=await e.json('/api/auth/me');
- assert.equal(me.body.user.role,'ops');assert.equal(me.body.user.displayName,'演示运营');
+ assert.equal(me.body.user.role,'ops');assert.equal(me.body.user.displayName,'子恒');
  const reports=await e.json('/api/ops-reports');assert.equal(reports.status,200);
  assert.ok(reports.body.reports.length>0);assert.ok(reports.body.reports.every(r=>r.userId===me.body.user.id));
  const analysis=await e.json('/api/demo/ops-analysis');assert.equal(analysis.status,200);
@@ -362,6 +561,8 @@ test("assessment foundation is scoped by role and keeps sealed staff", async () 
   assert.equal(boss.body.leads.filter((row) => row.employeeId === "demo-staff-yi" && row.contact === "replied").length, 3);
   assert.equal(boss.body.orders.some((row) => row.employeeId === "demo-staff-jia"), true);
   assert.equal(boss.body.orders.some((row) => row.accountId === "demo-wechat-2"), true);
+  assert.deepEqual(boss.body.teams.map((row) => row.name).sort(), ["演示一组", "演示二组"]);
+  assert.deepEqual(review.body.teams.map((row) => row.name), ["演示一组"]);
   const admin = await environment("admin").json("/api/assessment/foundation");
   assert.equal(admin.body.view, "directory");
   assert.equal(admin.body.leads, undefined);
@@ -370,7 +571,10 @@ test("assessment foundation is scoped by role and keeps sealed staff", async () 
   const ops = await environment("ops").json("/api/assessment/foundation");
   assert.equal(ops.body.view, "invalid");
   assert.equal(ops.body.employees, undefined);
-  assert.equal(ops.body.invalid.some((row) => row.no_chinese === 1 && row.received === 4), true);
+  assert.deepEqual(ops.body.invalid, []);
+  assert.deepEqual(ops.body.sourceAds, []);
+  assert.equal(ops.body.sourceAds.length, 0);
+  assert.equal(ops.body.sourceAds.some((row) => row.adAccountId === "9001"), false);
   const capture = await environment("cs").json("/api/assessment/foundation");
   assert.equal(capture.status, 200);
   assert.equal(capture.body.view, "capture");
@@ -378,4 +582,65 @@ test("assessment foundation is scoped by role and keeps sealed staff", async () 
   assert.equal((await environment("cs").json("/api/orders")).status, 403);
   for (const role of ["finance", "editor"]) assert.equal((await environment(role).json("/api/assessment/foundation")).status, 403);
   assert.equal((await environment("boss").json("/api/assessment/foundation", "POST", { employeeId: "x" })).status, 403);
+});
+
+test('客服四类历史只返回所选账号；主管限本组；其他岗位与写入均拒绝',async()=>{
+ const cs=environment('cs'),supervisor=environment('cs_supervisor');
+ assert.equal((await cs.json('/api/demo/report-history')).status,400);
+ for(const kind of ['fans','orders','after-sales','attendance']){
+  const result=await cs.json('/api/demo/report-history?kind='+kind+'&accountId=demo-wechat-1');
+  assert.equal(result.status,200,kind);
+  assert.equal(result.body.canPreviewCorrections,false);
+  assert.ok(result.body.records.length>0,kind);
+  assert.ok(result.body.records.every(row=>row.accountId==='demo-wechat-1'&&row.kind===kind));
+  const group=await supervisor.json('/api/demo/report-history?kind='+kind);
+  assert.equal(group.body.canPreviewCorrections,true);
+  assert.ok(group.body.records.every(row=>row.accountId!=='demo-wechat-2'));
+  for(const row of result.body.records){
+   assert.equal(row.fields.some(field=>/settled|pending|fee_percent|net_cny|material_cost|supplier/i.test(field.key)),false);
+  }
+ }
+ assert.equal((await supervisor.json('/api/demo/report-history?accountId=demo-wechat-2')).status,404);
+ assert.equal((await cs.json('/api/demo/report-history?accountId=unknown')).status,404);
+ for(const role of ['admin','boss','finance','ops','editor'])assert.equal((await environment(role).json('/api/demo/report-history?accountId=demo-wechat-1')).status,403);
+ for(const role of ['cs','cs_supervisor'])for(const method of ['POST','PATCH','DELETE'])assert.equal((await environment(role).json('/api/demo/report-history',method,{enteredCount:999})).status,403);
+ assert.equal(cs.network(),0);assert.equal(supervisor.network(),0);
+});
+
+test('历史按业务日期筛选；未填报为空，交接前后归属不同员工',async()=>{
+ const supervisor=environment('cs_supervisor');
+ const all=await supervisor.json('/api/demo/report-history?kind=attendance&accountId=demo-wechat-3');
+ const former=all.body.records.find(row=>row.employeeCode==='CS-DEMO-00');
+ const current=all.body.records.find(row=>row.employeeCode==='CS-DEMO-03');
+ assert.ok(former);assert.ok(current);
+ const day=await supervisor.json('/api/demo/report-history?kind=attendance&accountId=demo-wechat-3&from='+former.businessDate+'&to='+former.businessDate);
+ assert.equal(day.body.records.length,1);assert.equal(day.body.records[0].employeeCode,'CS-DEMO-00');
+ const empty=await supervisor.json('/api/demo/report-history?kind=orders&accountId=demo-wechat-3');
+ assert.deepEqual(empty.body.records,[]);
+ for(const query of ['kind=unknown','from=2026-02-30','from=2026-11-10&to=2026-10-01','from=2020-01-01'])assert.equal((await supervisor.json('/api/demo/report-history?'+query)).status,400);
+});
+
+test('登记名册仅供客服、主管和管理员；真实登记账号没有虚构历史或考核',async()=>{
+ const account={id:'registered-whatsapp-1',holderName:'虚构名册客服',wechatId:'WhatsApp · +999000000011',teamName:'秋菊组'};
+ const directory={enabled:true,version:'service-directory/v1',team:{id:'registered-team-qiuju',name:'秋菊组'},accounts:[account],people:[{id:'registered-person',name:'虚构名册客服'}]};
+ for(const role of ['cs','cs_supervisor','admin']){
+  const result=await environment(role,'',directory).json('/api/demo/service-directory');
+  assert.equal(result.status,200);assert.equal(result.body.accounts.length,1);
+  const listed=await environment(role,'',directory).json('/api/cs-accounts');assert.equal(listed.body.accounts[0].id,account.id);
+  const groups=await environment(role,'',directory).json('/api/cs-accounts/teams');if(role==='cs')assert.equal(groups.status,403);else assert.equal(groups.body.teams[0].name,'秋菊组');
+ }
+ for(const role of ['boss','finance','ops','editor'])assert.equal((await environment(role,'',directory).json('/api/demo/service-directory')).status,403);
+ for(const role of ['cs','cs_supervisor']){
+  const env=environment(role,'',directory);
+  for(const kind of ['fans','orders','after-sales','attendance']){
+   const history=await env.json('/api/demo/report-history?kind='+kind+'&accountId='+account.id);
+   assert.equal(history.status,200);assert.deepEqual(history.body.records,[]);
+  }
+  const foundation=await env.json('/api/assessment/foundation');
+  assert.equal((foundation.body.leads||[]).some(row=>row.accountId===account.id),false);
+  assert.equal((foundation.body.attendance||[]).some(row=>row.accountId===account.id),false);
+  assert.equal((await env.json('/api/demo/service-directory','POST',directory)).status,403);
+  assert.equal(env.network(),0);
+ }
+ assert.deepEqual((await environment('cs').json('/api/demo/service-directory')).body,{enabled:false});
 });

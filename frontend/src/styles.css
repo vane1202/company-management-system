@@ -183,13 +183,24 @@ th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--lin
 .badge.missing { background: #f8d7da; }
 h1, h2, h3 { margin: 0 0 12px; }
 .bottom-nav {
-  position: fixed; left: 0; right: 0; bottom: 0;
-  background: rgba(255,253,248,0.96);
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+  display: flex; gap: 4px;
+  padding: 6px 8px max(6px, env(safe-area-inset-bottom));
+  background: #fcfdf9f7;
   border-top: 1px solid var(--line);
-  display: flex; padding: 8px;
+  box-shadow: 0 -8px 18px #14332e0c;
 }
-.bottom-nav button { flex: 1; background: transparent; color: var(--ink); padding: 10px 4px; font-size: 13px; }
-.bottom-nav button.active { color: var(--jade); font-weight: 700; }
+.bottom-nav button {
+  flex: 1 1 0; min-width: 0; min-height: 48px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  padding: 5px 2px 4px; border-radius: 10px;
+  background: transparent; color: #6d7c72;
+  font-size: 10px; line-height: 1.15; font-weight: 550;
+}
+.bottom-nav button span { max-width: 100%; white-space: nowrap; }
+.bottom-nav button .dashboard-icon { width: 16px; height: 16px; }
+.bottom-nav button.active { background: #e5efe6; color: #1f6f64; font-weight: 650; }
+.bottom-nav button:focus-visible { outline: 2px solid var(--jade); outline-offset: 2px; }
 @media (min-width: 800px) { .bottom-nav { display: none; } }
 
 .status-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
@@ -343,7 +354,7 @@ progress::-moz-progress-bar { background: #4c7954; border-radius: 1rem; }
   .production-metrics { grid-template-columns: repeat(3,minmax(0,1fr)); row-gap: 1.5rem; }
 }
 @media (max-width: 799px) {
-  .app-shell { grid-template-columns: minmax(0,1fr); padding-bottom: 5.5rem; }
+  .app-shell { grid-template-columns: minmax(0,1fr); padding-bottom: calc(4.85rem + env(safe-area-inset-bottom)); }
   .app-sidebar { position: static; min-height: 0; padding: 1rem 1rem .35rem; border-right: 0; border-bottom: 1px solid var(--line); }
   .sidebar-brand { padding: 0 .2rem 1rem; }
   .sidebar-brand small, .sidebar-footer, .nav-section-label { display: none; }
@@ -374,7 +385,7 @@ progress::-moz-progress-bar { background: #4c7954; border-radius: 1rem; }
   .panel-heading { gap: .6rem; }
   .panel-heading h2 { font-size: .95rem; }
   .text-action { font-size: .66rem; }
-  .bottom-nav { z-index: 3; padding-bottom: max(.5rem,env(safe-area-inset-bottom)); background: #fcfdf9f5; }
+  .bottom-nav { background: #fcfdf9f7; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
 :root { font-variant-numeric: tabular-nums; }
@@ -543,7 +554,7 @@ progress::-moz-progress-bar { background: #4c7954; border-radius: 1rem; }
   .role-home .role-home-scope { font-size: 11px; }
   .role-detail-grid { gap: 10px; }
   .role-order-preview { padding-top: 15px; padding-bottom: 15px; }
-  .management-shell .bottom-nav button { font-size: 12px; min-height: 44px; }
+  .management-shell .bottom-nav button { min-height: 48px; }
 }
 /* 月度工资单（财务录入 / BOSS 只读），手机 360px 优先 */
 .success { color: var(--ok); margin: 8px 0 0; }
@@ -863,3 +874,4 @@ label.row small.hint,label.row>small{display:block;margin-top:4px;color:var(--mu
 }
 
 .item-photo{display:grid;gap:8px;min-width:0}.item-photo input[type=file]{max-width:100%;font-size:16px}.item-photo img{width:100%;max-height:220px;object-fit:contain;background:#f4f1ea;border-radius:8px}
+.mobile-identity{display:none}.toolbar-account .identity-name,.mobile-identity .identity-name{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;max-width:100%;padding:8px 10px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--ink);font-size:13px;box-shadow:none;touch-action:manipulation}.identity-name span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px}.identity-name svg{width:17px;height:17px;flex-shrink:0;color:var(--muted)}.identity-name:hover{background:var(--card);border-color:var(--line)}.identity-name:active{background:var(--line)}.identity-name:focus-visible{outline:2px solid var(--jade);outline-offset:2px}.toolbar-account{gap:8px}@media(max-width:799px){.management-shell .mobile-identity{display:flex;min-width:0;margin-left:auto}.management-shell .sidebar-brand-row{gap:4px}.management-shell .sidebar-brand{flex-shrink:0}.management-shell .sidebar-brand b{font-size:12px}.mobile-identity .identity-name{padding:6px;gap:5px;font-size:12px}.mobile-identity .identity-name span{max-width:110px}.management-shell .mobile-menu-toggle{padding:8px 4px;flex-shrink:0}}

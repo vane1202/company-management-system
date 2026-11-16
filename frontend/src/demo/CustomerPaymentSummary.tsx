@@ -6,10 +6,10 @@ import "./customer-payment-summary.css";
 import { useReferenceQuotes } from "./useReferenceQuotes";
 
 type Totals = Record<"CNY" | "TWD" | "USD", string | null>;
-type Props = { records: CustomerPaymentRow[]; totals?: Totals; loading: boolean; onOpen: () => void; detailLabel: string; compact?: boolean; interactive?:boolean };
+type Props = { records: CustomerPaymentRow[]; totals?: Totals; loading: boolean; onOpen: () => void; detailLabel: string; compact?: boolean; interactive?:boolean; inline?:boolean };
 
 /** The same payment-day conversion and hierarchy on both BOSS cards. Raw ledgers stay unchanged. */
-export function CustomerPaymentSummary({ records, totals, loading, onOpen, detailLabel, compact=false,interactive=true }: Props) {
+export function CustomerPaymentSummary({ records, totals, loading, onOpen, detailLabel, compact=false,interactive=true,inline=false }: Props) {
   const revision = useReferenceQuotes();
   const inputKey = JSON.stringify({ records, totals, revision });
   const [result, setResult] = useState<{ key: string; value: CustomerPaymentFx } | null>(null);
@@ -33,6 +33,7 @@ export function CustomerPaymentSummary({ records, totals, loading, onOpen, detai
   const rates = fx?.quotes.map(q => `${q.date}：1 ${q.currency} = ${Number(q.rate)} CNY；行情时间 ${new Date(q.updatedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })}（UTC+8）${q.sourceDate !== q.date ? `；沿用 ${q.sourceDate} 已发布汇率` : ""}${q.delayed ? "；行情约延迟15分钟" : ""}${q.stale ? "；更新延迟" : ""}`).join("。") ?? "";
   const tip = `按付款日汇总所选区间有效客户付款，包含定金、尾款、售后及历史订单付款。人民币按原额计入，台币和美元按付款日参考汇率折算后合计。今日每小时检查最新行情，历史使用对应日期参考汇率。客户付给公司或第三方均计入，不扣第三方费用或汇差，不代表公司已到账，也不改动客户原币付款及欠款。${rates ? ` ${rates}。` : ""}${fx?.missingDates.length ? ` 缺少汇率：${fx.missingDates.join("、")}。` : ""}${fx?.incomplete ? " 付款明细待核对，暂不汇总折算。" : ""}`;
   const value=pending ? "…" : !fx ? "—" : fx.cny === null ? "待折算" : `${fx.hasForeign ? "约 " : ""}¥${formatCashValue(fx.cny)}`;
+  if(inline) return <><button type="button" className="payment-inline-button" title={tip} aria-label="查看客户付款明细" disabled={!totals||pending} onClick={onOpen}><span>客户已付款</span><strong>{value}</strong><span aria-hidden="true">›</span></button></>;
   return <>
     <header><h2>客户已付款</h2><InfoTip scrollable label="客户已付款口径" text={tip} /></header>
     {interactive?<button type="button" className="payment-cny-value" aria-label="查看客户付款明细" disabled={!totals || pending} onClick={onOpen}>{value}</button>:<strong className="payment-cny-value">{value}</strong>}

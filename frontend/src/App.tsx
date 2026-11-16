@@ -1,3 +1,5 @@
+import WarehouseWorkspace from "./demo/WarehouseWorkspace";
+import FinanceHome from "./demo/FinanceHome";
 import { isServiceAccount } from './serviceAccounts';
 import { AdAccountsWorkspace } from "./AdAccountsWorkspace";
 import { SalaryWorkspace } from "./SalaryWorkspace";
@@ -9,6 +11,7 @@ import { FinanceDesk } from "./FinanceDesk";
 import { FinanceWorkspace } from "./FinanceWorkspace";
 import { DailyForm } from "./DailyForms";
 import { LeadWorkspace } from "./LeadWorkspace";
+import type { CashView } from "./cashNavigation";
 import { detailLines } from "./dailyDetail";
 import { ModuleSettings } from "./ModuleSettings";
 import { SystemSettings } from "./SystemSettings";
@@ -16,6 +19,7 @@ import { DashboardHome } from "./DashboardHome";
 import { AdminHome, SupervisorHome } from "./RoleHomes";
 import {AdminWorkbench,SupervisorWorkbench} from "./demo/RoleWorkbenches";
 import { DashboardIcon } from "./DashboardIcon";
+import { IdentityName, identityLabel, useIdentityPrivacy } from "./IdentityName";
 import { CsDeviceRegistration } from "./CsDeviceRegistration";
 import { CsAccountsPage } from "./CsAccountsPage";
 import { fillEntries, fillEntryFromPath, canUseFillEntry } from "./fillEntries";
@@ -45,18 +49,23 @@ import {
 } from "./api";
 
 if (import.meta.env.MODE === 'demo') void import('./demo/dashboard-phase1.css');
+const DemoOpsFeedback = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/OpsFeedback')) : null;
 const DemoOpsAnalysis = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/OpsAnalysis')) : null;
 const DemoEstimateBoard = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/BossEstimateBoard')) : null;
+const DemoCustomerReview = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/CustomerInvalidReview')) : null;
 const DemoCustomerFill = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/CustomerFillWorkspace')) : null;
 const DemoSupervisorPerformance = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/SupervisorPerformance')) : null;
-const DemoEditorFill = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/EditorFillWorkspace')) : null;
+const DemoEditorFill = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/EditorHistoryWorkspace')) : null;
 const DemoEditorOverview = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/EditorOverview')) : null;
 const DemoStaffAssessment = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/StaffAssessment')) : null;
+const DemoReportHistory = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/ReportHistory')) : null;
+const DemoRegisteredAccounts = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/RegisteredAccountsPage')) : null;
 
 export function App() {
   const [modules, setModules] = useState<Record<string, boolean> | null>(null);
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState<User | null>(null);
+  const identityPrivacy = useIdentityPrivacy(user?.id);
   const navigation = useWorkspaceNavigation(user?.id, user?.role);
   const page = navigation.route.page;
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -121,28 +130,29 @@ export function App() {
     return <section className="page"><div className="card"><h2>{fillEntries[entry].title}</h2>
       <p>此入口用于客服本人填报。当前登录身份为{roleLabel[user.role]}，请使用相应的客服账号。</p>
       <a className="btn secondary" href="/">返回管理首页</a>
-      <button type="button" onClick={async () => { await api.logout(); setUser(null); setModules(null); }}>退出并切换账号</button>
+      <button type="button" onClick={async () => { await api.logout(); identityPrivacy.reset(); setUser(null); setModules(null); }}>退出并切换账号</button>
     </div></section>;
   }
   if (entry && !modules) return <div className="page"><p>正在确认填报入口…</p>{error && <p className="error">{error}</p>}<button type="button" onClick={() => api.modules().then((data) => { setModules(data.modules); setError(""); }).catch((err) => setError(toErrorMessage(err)))}>重新加载</button></div>;
   if (entry && modules?.[entry] === false) return <section className="page"><div className="card"><h2>{fillEntries[entry].title}已停用</h2><p>请联系管理员重新启用，历史数据仍保留。</p><a className="btn secondary" href="/">返回首页</a></div></section>;
 
-  const managementRole = ["boss", "admin", "cs_supervisor", "finance"].includes(user.role) || (import.meta.env.MODE === "demo" && user.role === "ops");
+  const managementRole = ["boss", "admin", "cs_supervisor", "finance"].includes(user.role) || (import.meta.env.MODE === "demo" && ["ops","warehouse"].includes(user.role));
   const demoBoss = import.meta.env.MODE === "demo" && user.role === "boss";
   const linkedPages = demoBoss ? bossLinkedPages() : [];
   const items = navItems(user.role).filter((item) => managementRole || !["fans", "orders", "ops", "editor"].includes(item.id) || modules?.[item.id] === true);
-  const sidebarItems = user.role === "finance" ? [] : items;
+  const sidebarItems = user.role === "finance" ? (import.meta.env.MODE==='demo'?items.filter(item=>item.id!=='salaries'):[]) : user.role === "cs_supervisor" ? items.filter((item) => !["summary", "orders", "reportHistory"].includes(item.id)) : items;
+  const bottomItems = user.role === "cs_supervisor" && import.meta.env.MODE === "demo" ? sidebarItems : sidebarItems.slice(0, 5);
   const rootPage: Page = demoBoss ? "dashboard" : "home";
   const activePage = items.some((item) => item.id === page) || linkedPages.includes(page) ? page : rootPage;
-  const navCurrent = linkedPages.includes(activePage) ? rootPage : activePage;
+  const navCurrent = linkedPages.includes(activePage) || (user.role === "cs_supervisor" && ["summary", "orders", "reportHistory"].includes(activePage)) ? rootPage : activePage;
   const bossBusiness=user.role==='boss'&&activePage==='orders';
   const businessContext=navigation.views.orders?.live??defaultLiveView();
   const currentBusiness=navigation.route.live??defaultLiveView();
   const businessBackLabel=bossBusiness?(navigation.route.orderId?(navigation.route.orderList?'订单列表':liveViewLabel(currentBusiness)):navigation.route.orderList?'直播间经营':currentBusiness.view!=='rooms'?'直播间列表':undefined):undefined;
-  function goTo(next: Page) {
+  function goTo(next: Page, cash?: CashView) {
     setError("");
     setMobileNavOpen(false);
-    navigation.navigate({ page: next });
+    navigation.navigate({ page: next, ...(demoBoss && next === 'finance' && cash ? { cash } : {}) });
   }
   const pageError = (id: Page) => (value: string) => setPageErrors(current => ({ ...current, [id]: value }));
   function pagePanel(id: Page, children: ReactNode) {
@@ -154,26 +164,27 @@ export function App() {
   }
   async function logout() {
     await api.logout();
+    identityPrivacy.reset();
     await api.loadCsrf();
     toast.clear();
     setError(""); setMobileNavOpen(false); setUser(null); setModules(null);
   }
   return (
-    <div className={`page app-shell ${managementRole ? "management-shell" : ""} ${user.role === "boss" ? "boss-shell" : ""}`}>
+    <div className={`page app-shell ${managementRole ? "management-shell" : ""} ${user.role === "boss" ? "boss-shell" : ""} ${sidebarItems.length > 1 ? "has-bottom-nav" : "no-bottom-nav"}`}>
       <a className="skip-link" href="#main-content">跳到主要内容</a>
       <aside className={`app-sidebar ${mobileNavOpen ? "mobile-nav-open" : ""}`}>
-        <div className="sidebar-brand-row"><button type="button" onClick={() => navigation.up({ page: rootPage })} className="sidebar-brand" aria-label="返回工作台首页"><span className="sidebar-brand-mark"><DashboardIcon name="home" /></span><span><b>内部管理系统</b><small>公司日常工作台</small></span></button>{managementRole && <button type="button" className="mobile-menu-toggle secondary" aria-expanded={mobileNavOpen} aria-controls="workspace-navigation" onClick={() => setMobileNavOpen(open => !open)}>{mobileNavOpen ? "收起菜单" : "全部菜单"}</button>}</div>
+        <div className="sidebar-brand-row"><button type="button" onClick={() => navigation.up({ page: rootPage })} className="sidebar-brand" aria-label="返回工作台首页"><span className="sidebar-brand-mark"><DashboardIcon name="home" /></span><span><b>翠管家</b><small>公司日常工作台</small></span></button>{managementRole && <div className="mobile-identity"><IdentityName name={user.displayName} hidden={identityPrivacy.hidden} onToggle={identityPrivacy.toggle} /></div>}{managementRole && (bottomItems.length >= sidebarItems.length ? <button type="button" className="mobile-menu-toggle secondary" onClick={logout}>{user.role === "cs_supervisor" ? "退出登录" : "退出"}</button> : <button type="button" className="mobile-menu-toggle secondary" aria-expanded={mobileNavOpen} aria-controls="workspace-navigation" onClick={() => setMobileNavOpen(open => !open)}>{mobileNavOpen ? "收起菜单" : "全部菜单"}</button>)}</div>
         {sidebarItems.length > 0 && <span className="nav-section-label">工作空间</span>}
         {sidebarItems.length > 0 && <nav id="workspace-navigation" className="nav" aria-label="主要导航">
           {sidebarItems.map((item) => <button key={item.id} aria-current={navCurrent === item.id ? "page" : undefined} className={navCurrent === item.id ? "active" : ""} onClick={() => goTo(item.id)}><DashboardIcon name={item.id} /><span>{item.label}</span></button>)}
           {managementRole && <button type="button" className="mobile-menu-logout" onClick={logout}>退出登录</button>}
         </nav>}
-        <div className="sidebar-footer"><span className="sidebar-avatar">{user.displayName.slice(0, 1)}</span><span><strong>{user.displayName}</strong><small>{roleLabel[user.role]} · 数据按权限展示</small></span></div>
+        <div className="sidebar-footer"><span className="sidebar-avatar">{identityPrivacy.hidden ? Array.from(user.displayName).at(-1) : user.displayName.slice(0, 1)}</span><span><strong>{identityLabel(user.displayName, identityPrivacy.hidden)}</strong><small>{roleLabel[user.role]} · 数据按权限展示</small></span></div>
       </aside>
       <div className="app-main">
       <header className="topbar app-toolbar">
         <div className="toolbar-breadcrumb">工作台 <span>/</span> <strong>{pageLabel(user.role, activePage)}</strong></div>
-        <div className="toolbar-account"><span>{user.displayName}</span>
+        <div className="toolbar-account"><IdentityName name={user.displayName} hidden={identityPrivacy.hidden} onToggle={identityPrivacy.toggle} />
         <button
           className="secondary"
           onClick={logout}
@@ -186,26 +197,31 @@ export function App() {
       {activePage !== rootPage && <WorkspaceBackbar page={activePage} detail={activePage === "orders" && !!navigation.route.orderId} homeLabel={items[0].label} pageLabel={bossBusiness?(navigation.route.orderList?'订单档案':liveViewLabel(currentBusiness)):pageLabel(user.role, activePage)} backLabel={businessBackLabel} onUp={() => { const route = navigation.route; const insideOrders = route.page === "orders" && !!(route.orderId || route.orderList || route.live && route.live.view !== "rooms"); navigation.up(demoBoss && !insideOrders ? { page: "dashboard" } : undefined); }} onHome={() => navigation.up({ page: rootPage })} />}
       {error && <p className="error">{error}</p>}
       {isServiceAccount(user.accountKind) && <p className="notice">当前填报接待账号：<strong>{user.serviceAccountLabel??user.wechatId}</strong>{user.phoneLabel ? `（${user.phoneLabel}）` : ""}。加粉与订单长期归属于此接待账号；退出后需管理员重新发码。</p>}
-      {pagePanel("home", <Home user={user} today={today} backfillDays={backfillDays} disclaimer={disclaimer} onNavigate={goTo} onOpenBusiness={live=>navigation.navigate({page:'orders',live})} />)}
+      {pagePanel("home", <Home user={user} today={today} backfillDays={backfillDays} disclaimer={disclaimer} onNavigate={goTo} active={activePage==='home'} onOpenBusiness={live=>navigation.navigate({page:'orders',live})} />)}
       {pagePanel("fans", <FanForm today={today} onError={pageError("fans")} platform={user.servicePlatform}/>)}
       {pagePanel("summary", <FanSummaryPage today={today} onError={pageError("summary")} supervisor={user.role === "cs_supervisor"} onNavigate={goTo} />)}
       {pagePanel("assessment", DemoStaffAssessment ? <Suspense fallback={<p role="status">正在读取客服考核…</p>}><DemoStaffAssessment today={today} scope={user.role === "cs_supervisor" ? "本组" : "全部"} /></Suspense> : <p className="notice">客服考核目前只在独立演示提供。</p>)}
+      {pagePanel("customerReview", DemoCustomerReview && user.role === "cs_supervisor" ? <Suspense fallback={<p role="status">正在打开无效客资复核…</p>}><DemoCustomerReview today={today} /></Suspense> : null)}
+      {pagePanel("reportHistory", DemoReportHistory && user.role === "cs_supervisor" ? <Suspense fallback={<p role="status">正在读取填报历史…</p>}><DemoReportHistory today={today} supervisor /></Suspense> : null)}
       {pagePanel("orders", DemoSupervisorPerformance && user.role === 'cs_supervisor' ? <Suspense fallback={<p role="status">正在读取本组业绩…</p>}><DemoSupervisorPerformance today={today} user={user} selectedId={navigation.views.orders?.orderId ?? ''} onSelectOrder={id => navigation.navigate({page:'orders',orderId:id})} /></Suspense> : user.role==='boss'?<><div hidden={!!navigation.views.orders?.orderId||!!navigation.views.orders?.orderList}><LiveBusinessOverview today={today} context={businessContext} onOpenBusiness={live=>navigation.navigate({page:'orders',live})} onOpenOrder={id=>navigation.navigate({page:'orders',live:businessContext,orderId:id})} onOpenOrders={()=>navigation.navigate({page:'orders',live:businessContext,orderList:true})}/></div>{(navigation.views.orders?.orderId||navigation.views.orders?.orderList)&&<OrderWorkspace today={today} user={user} selectedId={navigation.views.orders.orderId??''} onSelectOrder={id=>navigation.navigate({...navigation.views.orders!,orderId:id})}/>}</>:<OrderWorkspace today={today} user={user} selectedId={navigation.views.orders?.orderId ?? ""} onSelectOrder={id => navigation.navigate({ page: "orders", orderId: id })} />)}
-      {pagePanel("ops", DemoOpsAnalysis&&user.role==='boss'?<Suspense fallback={<p role="status">正在读取投放分析…</p>}><DemoOpsAnalysis today={today}/></Suspense>:<OpsPage today={today} onError={pageError("ops")} readOnly={user.role === "boss"} />)}
+      {user.role === "ops" && DemoOpsFeedback && pagePanel("opsFeedback", <Suspense fallback={<p role="status">Loading...</p>}><DemoOpsFeedback today={today}/></Suspense>)}
+      {pagePanel("ops", DemoOpsAnalysis&&user.role==='boss'?<Suspense fallback={<p role="status">正在读取投放分析…</p>}><DemoOpsAnalysis today={today} context={navigation.views.ops?.ops}/></Suspense>:<OpsPage today={today} onError={pageError("ops")} readOnly={user.role === "boss"} />)}
       {pagePanel("editor", DemoEditorOverview && user.role==='boss'?<Suspense fallback={<p role="status">正在读取拍剪汇总…</p>}><DemoEditorOverview today={today}/></Suspense>:<EditorPage today={today} onError={pageError("editor")} readOnly={user.role === "boss"} />)}
-      {pagePanel("dashboard", DemoEstimateBoard ? <Suspense fallback={<p role="status">正在读取经营估算…</p>}><DemoEstimateBoard today={today} onError={pageError("dashboard")} onOpen={goTo} /></Suspense> : <DashboardPage onError={pageError("dashboard")} />)}
+      {pagePanel("dashboard", DemoEstimateBoard ? <Suspense fallback={<p role="status">正在读取经营总览…</p>}><DemoEstimateBoard today={today} onError={pageError("dashboard")} onOpen={goTo} onDrill={route=>{setMobileNavOpen(false);setError("");navigation.navigate(route);}} /></Suspense> : <DashboardPage onError={pageError("dashboard")} />)}
       {pagePanel("modules", <><ModuleSettings onError={pageError("modules")} onChange={setModules} /><SystemSettings defaultDays={backfillDays} /></>)}
       {pagePanel("people", <PeoplePage today={today} onError={pageError("people")} />)}
-      {pagePanel("csAccounts", <CsAccountsPage supervisor={user.role === "cs_supervisor"} />)}
-      {pagePanel("finance", <FinanceWorkspace today={today} readOnly />)}
+      {pagePanel("csAccounts", DemoRegisteredAccounts ? <Suspense fallback={<p role="status">正在读取账号名册…</p>}><DemoRegisteredAccounts supervisor={user.role === "cs_supervisor"} /></Suspense> : <CsAccountsPage supervisor={user.role === "cs_supervisor"} />)}
+      {pagePanel("finance", import.meta.env.MODE==='demo'&&user.role==='finance'?<FinanceDesk today={today} section="finance" active={activePage==='finance'} onOpenSalary={()=>goTo('salaries')}/>:<FinanceWorkspace today={today} readOnly cashView={navigation.views.finance?.cash} />)}
+      {pagePanel("financeOut", <FinanceDesk today={today} section="financeOut" active={activePage==='financeOut'} onOpenSalary={()=>goTo('salaries')}/>)}
       {pagePanel("salaries", <SalaryWorkspace today={today} readOnly={user.role !== "finance"} />)}
 
       </main>
       </div>
-      {sidebarItems.length > 0 && <nav className="bottom-nav" aria-label="底部导航">
-        {sidebarItems.slice(0, 5).map((item) => (
-          <button key={item.id} aria-current={navCurrent === item.id ? "page" : undefined} className={navCurrent === item.id ? "active" : ""} onClick={() => goTo(item.id)}>
-            {item.label}
+      {sidebarItems.length > 1 && <nav className="bottom-nav" aria-label="底部导航">
+        {bottomItems.map((item) => (
+          <button key={item.id} type="button" aria-current={navCurrent === item.id ? "page" : undefined} className={navCurrent === item.id ? "active" : ""} onClick={() => goTo(item.id)}>
+            <DashboardIcon name={item.id} />
+            <span>{item.label}</span>
           </button>
         ))}
       </nav>}
@@ -309,6 +325,7 @@ function Home({
   today,
   backfillDays,
   disclaimer,
+  active,
   onNavigate,
   onOpenBusiness
 }: {
@@ -316,11 +333,13 @@ function Home({
   today: string;
   backfillDays: number;
   disclaimer: string;
+  active: boolean;
   onNavigate: (page: Page) => void;
   onOpenBusiness:(view:LiveView)=>void;
 }) {
-  if (DemoOpsAnalysis && user.role === "ops") return <Suspense fallback={<p role="status">正在读取运营工作台…</p>}><DemoOpsAnalysis today={today} onOpenReports={()=>onNavigate("ops")}/></Suspense>;
-  if (user.role === "finance") return <FinanceDesk today={today} onOpenSalary={() => onNavigate("salaries")} />;
+  if (DemoOpsAnalysis && user.role === "ops") return <Suspense fallback={<p role="status">正在读取运营工作台…</p>}><DemoOpsAnalysis today={today} onOpenReports={()=>onNavigate("ops")} onOpenFeedback={account=>{try{sessionStorage.setItem("cms-demo-ops-feedback-context",account||"");}catch{}onNavigate("opsFeedback");}}/></Suspense>;
+  if (import.meta.env.MODE === "demo" && user.role === "warehouse") return <WarehouseWorkspace today={today}/>;
+  if (user.role === "finance") return import.meta.env.MODE==='demo'?<FinanceHome today={today} active={active} onOpen={(section,task)=>{if(task)sessionStorage.setItem('cms-demo-finance-task',task);onNavigate(section);}}/>:<FinanceDesk today={today} onOpenSalary={() => onNavigate("salaries")} />;
   if (user.role === "boss") return <DashboardHome today={today} onNavigate={onNavigate} onOpenBusiness={onOpenBusiness} />;
   if (user.role === "admin") return import.meta.env.MODE === "demo" ? <AdminWorkbench onNavigate={onNavigate}/> : <AdminHome onNavigate={onNavigate} />;
   if (user.role === "cs_supervisor") return import.meta.env.MODE === "demo" ? <SupervisorWorkbench today={today} onNavigate={onNavigate}/> : <SupervisorHome today={today} onNavigate={onNavigate} />;
@@ -381,7 +400,7 @@ function FanSummaryPage({ today, onError, supervisor = false, onNavigate }: { to
     <><LeadWorkspace today={today} layered={import.meta.env.MODE==='demo'} supervisor={supervisor}/><details className="card" aria-busy={loading}><summary>原始加粉日报与当日沟通汇报</summary><section>
 
       <h2>加粉日报汇总</h2>
-      <p className="notice">当日沟通情况可包含往日客户；月进粉仅作累计汇报。初步转化请看上方客户明细考核。</p>
+      <p className="notice">当日沟通情况可包含往日客户；月进粉仅作累计汇报。{import.meta.env.MODE==='demo'?'承接需求转化请看上方线索概况；员工开口转化请看客服考核。':'初步转化请看上方客户明细考核。'}</p>
       <div className="actions" style={{ marginBottom: 12 }}>
         <input aria-label="汇总业务日" type="date" value={date} onChange={(e) => { setDate(e.target.value); setAccountId(""); }} />
         <select aria-label="按客服接待账号筛选加粉" value={accountId} onChange={(e) => setAccountId(e.target.value)}><option value="">全部客服接待账号及原员工账号</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.wechatId}{account.phoneLabel ? ` · ${account.phoneLabel}` : ""}</option>)}</select>
@@ -399,7 +418,7 @@ function FanSummaryPage({ today, onError, supervisor = false, onNavigate }: { to
       {(empty || noReports) && <div className="empty-state" role="status">
         <strong>{loadedDate} 还没有加粉记录</strong>
         <p>{supervisor ? "可切换上方日期查看其他业务日；如果本组客服还没出现在这里，请去“本组客服微信”确认微信已登记。" : "可切换上方日期查看其他业务日。"}</p>
-        {supervisor && <button type="button" className="secondary" onClick={() => onNavigate("csAccounts")}>去本组客服账号管理</button>}
+        {supervisor && <button type="button" className="secondary" onClick={() => onNavigate("csAccounts")}>去客服账号管理</button>}
       </div>}
       {!empty && teams.map((team) => (
         <div key={team.teamId} className="card">
@@ -505,7 +524,7 @@ function PeoplePage({ today, onError }: { today: string; onError: (value: string
   }, []);
 
   return (
-    <section className="grid two">
+    <section className="grid two admin-people">
       <div className="card">
         <div className="commerce-line"><h2>小组</h2><button type="button" className="secondary" onClick={() => refresh().then(() => onError("")).catch((err) => onError(toErrorMessage(err)))}>刷新</button></div>
         <form
@@ -584,11 +603,11 @@ function PeoplePage({ today, onError }: { today: string; onError: (value: string
             <tbody>
               {users.map((item) => (
                 <tr key={item.id}>
-                  <td>{item.displayName}</td>
-                  <td>{item.username}</td>
-                  <td><select aria-label={`${item.username}角色`} disabled={savingUser === item.id} value={item.role} onChange={async (e) => { const role = e.target.value; setSavingUser(item.id); try { await api.updateUser(item.id, { role }); } catch (err) { fail(`${item.displayName} 角色未修改`, err); setSavingUser(""); return; } setSavingUser(""); onError(""); toast.success(`已将 ${item.displayName} 的角色改为${roleLabel[role as keyof typeof roleLabel] ?? role}`); await refreshAfterSave(); }}>{Object.entries(roleLabel).filter(([key]) => key !== "assistant" || item.role === "assistant").map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></td>
-                  <td>{item.role === "cs_supervisor" ? <><p>{(item.managedTeamIds ?? []).map((id) => teams.find((team) => team.id === id)?.name || id).join("、") || "暂未分配小组"}</p><button className="secondary" type="button" onClick={() => { setScopeUser(item); setScopeIds(item.managedTeamIds ?? []); }}>设置负责小组</button></> : item.currentTeam?.name ?? "—"}</td>
-                  <td><button className="secondary" type="button" disabled={savingUser === item.id} onClick={async () => { setSavingUser(item.id); try { await api.updateUser(item.id, { isActive: !item.isActive }); } catch (err) { fail(`${item.displayName} ${item.isActive ? "停用" : "启用"}失败`, err); setSavingUser(""); return; } setSavingUser(""); onError(""); toast.success(`已${item.isActive ? "停用" : "启用"}账号：${item.displayName}`); await refreshAfterSave(); }}>{savingUser === item.id ? "保存中…" : item.isActive ? "停用账号" : "启用账号"}</button></td>
+                  <td data-label="姓名">{item.displayName}</td>
+                  <td data-label="登录名">{item.username}</td>
+                  <td data-label="角色"><select aria-label={`${item.username}角色`} disabled={savingUser === item.id} value={item.role} onChange={async (e) => { const role = e.target.value; setSavingUser(item.id); try { await api.updateUser(item.id, { role }); } catch (err) { fail(`${item.displayName} 角色未修改`, err); setSavingUser(""); return; } setSavingUser(""); onError(""); toast.success(`已将 ${item.displayName} 的角色改为${roleLabel[role as keyof typeof roleLabel] ?? role}`); await refreshAfterSave(); }}>{Object.entries(roleLabel).filter(([key]) => key !== "assistant" || item.role === "assistant").map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></td>
+                  <td data-label="小组 / 管理范围">{item.role === "cs_supervisor" ? <><p>{(item.managedTeamIds ?? []).map((id) => teams.find((team) => team.id === id)?.name || id).join("、") || "暂未分配小组"}</p><button className="secondary" type="button" onClick={() => { setScopeUser(item); setScopeIds(item.managedTeamIds ?? []); }}>设置负责小组</button></> : item.currentTeam?.name ?? "—"}</td>
+                  <td data-label="状态"><button className="secondary" type="button" disabled={savingUser === item.id} onClick={async () => { setSavingUser(item.id); try { await api.updateUser(item.id, { isActive: !item.isActive }); } catch (err) { fail(`${item.displayName} ${item.isActive ? "停用" : "启用"}失败`, err); setSavingUser(""); return; } setSavingUser(""); onError(""); toast.success(`已${item.isActive ? "停用" : "启用"}账号：${item.displayName}`); await refreshAfterSave(); }}>{savingUser === item.id ? "保存中…" : item.isActive ? "停用账号" : "启用账号"}</button></td>
                 </tr>
               ))}
             </tbody>

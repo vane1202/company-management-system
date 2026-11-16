@@ -1,6 +1,11 @@
 import {leadCoverage,leadStats,type Lead,type LeadReport} from '../leadApi';
 import {daysIn,shift,type TrendSeries,type TrendPoint} from './bossTrendData';
 
+export type LeadSelection = {account:string;team:string;page:string;persona:string;operator:string;channel:string;adAccount:string};
+export function selectAnalysisLeads(leads:Lead[],filters?:LeadSelection){
+  return !filters?leads:leads.filter(lead=>(!filters.account||lead.accountId===filters.account)&&(!filters.team||lead.teamName===filters.team)&&(!filters.page||lead.pageName===filters.page)&&(!filters.persona||lead.personaCode===filters.persona)&&(!filters.operator||lead.operatorName===filters.operator)&&(!filters.channel||lead.channel===filters.channel)&&(!filters.adAccount||(filters.adAccount==='__missing__'?!String(lead.sourceAdAccountId||'').trim():String(lead.sourceAdAccountId||'').trim()===filters.adAccount)));
+}
+
 /** Trends are registered customer cohorts, never the monthly incoming snapshot. */
 export function leadAnalysis(leads:Lead[],reports:LeadReport[],range:{from:string;to:string},today:string,by:'team'|'account',coverageLeads=leads){
   const active=leads.filter(l=>!l.voidedAt);

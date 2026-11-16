@@ -1,0 +1,142 @@
+/* Mobile adaptation & polish for small screens (360px - 799px) */
+
+/* Prevent bottom navigation bar from overlapping page content on mobile */
+@media (max-width: 799px) {
+  .app-shell.has-bottom-nav .app-main {
+    padding-bottom: max(76px, calc(64px + env(safe-area-inset-bottom)));
+  }
+
+  /* Touch targets minimum size */
+  .overview-segments button,
+  .payment-inline-button,
+  .be-main-value,
+  .lr-summary button,
+  .lr-summary-value,
+  details > summary,
+  .text-action {
+    min-height: 40px;
+  }
+
+  .text-action {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 8px;
+  }
+}
+
+/* OpsScopeBar header & field layout */
+.ops-scope-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.ops-scope-head span {
+  font-weight: 500;
+  color: var(--ink);
+}
+.ops-scope-head .ops-scope-reset {
+  min-height: 32px;
+  padding: 4px 10px;
+  font-size: 12px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+}
+@media (max-width: 799px) {
+  .ops-scope-fields {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+    gap: 8px !important;
+  }
+  .ops-scope-bar {
+    padding: 12px !important;
+  }
+  .ops-scope-head .ops-scope-reset {
+    min-height: 32px;
+    padding: 4px 10px;
+    font-size: 12px;
+  }
+}
+
+/* Live business room select in period toolbar */
+.live-workspace-period .live-room-select {
+  min-height: 40px;
+  padding: 6px 28px 6px 10px;
+  font-size: 13px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background-color: var(--card);
+  color: var(--ink);
+}
+@media (max-width: 799px) {
+  .live-workspace-period .live-room-select {
+    width: 100%;
+    min-height: 42px;
+  }
+}
+
+/* Prevent popup forms from overflowing viewport horizontally */
+@media (max-width: 799px) {
+  .bp-custom-date {
+    position: static;
+  }
+  .bp-custom-date form {
+    position: fixed;
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+    padding: 16px 16px max(16px, env(safe-area-inset-bottom));
+    background: var(--card);
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.2);
+    z-index: 120;
+  }
+
+  /* Admin people management responsive table on small screens */
+  .admin-people table,
+  .admin-people thead,
+  .admin-people tbody,
+  .admin-people th,
+  .admin-people td,
+  .admin-people tr {
+    display: block;
+  }
+  .admin-people thead tr {
+    position: absolute;
+    top: -9999px;
+    left: -9999px;
+  }
+  .admin-people tr {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px;
+    margin-bottom: 10px;
+    background: var(--card);
+  }
+  .admin-people td {
+    border: none;
+    padding: 6px 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+  }
+  .admin-people td[data-label]::before {
+    content: attr(data-label);
+    font-weight: 500;
+    color: var(--muted);
+    font-size: 12px;
+    margin-right: 12px;
+  }
+  .admin-people td select,
+  .admin-people td button {
+    min-height: 38px;
+  }
+}

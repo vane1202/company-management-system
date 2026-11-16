@@ -104,3 +104,8 @@
   .p0-reference summary{min-height:32px}
   .p0-followup{padding:0 0 2px}
 }
+
+.p0-private{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 12px;padding:10px 12px;border:1px solid var(--line);border-radius:12px}
+.p0-private>span{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
+.p0-private strong{font-size:18px;white-space:nowrap}.p0-private small{color:var(--muted);font-weight:500}
+@media(max-width:799px){.p0-private{align-items:flex-start;flex-wrap:wrap}.p0-private strong{font-size:17px}}

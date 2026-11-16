@@ -50,6 +50,17 @@ export function periodRate(days: DayRate[], empty: string): PeriodRate {
 }
 
 export type PersonRate = PeriodRate & { employeeId: string };
+
+/** A high percentage on a tiny or incomplete sample is not a formal rank. */
+export function assessmentComparison(rows: PersonRate[], minimumSample = 5) {
+  const minimum = Number.isInteger(minimumSample) && minimumSample >= 1 && minimumSample <= 1000 ? minimumSample : 5;
+  const eligible = (row: PersonRate) => row.value !== null && row.whole >= minimum && row.unlinked === 0;
+  return {
+    ranked: rows.filter(eligible).sort((a, b) => Number(b.value) - Number(a.value) || b.whole - a.whole || a.employeeId.localeCompare(b.employeeId)),
+    observing: rows.filter(row => !eligible(row)).sort((a, b) => b.whole - a.whole || a.employeeId.localeCompare(b.employeeId))
+  };
+}
+
 export function peopleRates(employeeIds: string[], leads: AssessmentLead[], attendance: AssessmentAttendance[], days: string[], kind: "opening" | "order"): PersonRate[] {
   return employeeIds.map((employeeId) => {
     const series = kind === "opening" ? openingDays(leads, days, employeeId) : orderDays(attendance, days, employeeId);

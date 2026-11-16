@@ -39,7 +39,8 @@ export function dateIn(value: string, today: string): string | null {
 }
 
 /** Deterministic local parsing. Text is data, never code or instructions, and is never sent over a network. */
-export function parseOrderText(text: string, today: string): ParsedOrderText {
+export function parseOrderText(text: string, today: string, options: { channel?: "live" | "private" } = {}): ParsedOrderText {
+  const privateDeal = options.channel === "private";
   const result: ParsedOrderText = { fields: {}, fieldHints: {}, items: [], payment: null, itemTotal: null, statedTotal: null, derivedDue: false, warnings: [], errors: [], unknownLines: [] };
   if (!text.trim()) { result.errors.push("请先粘贴开单汇报文字。"); return result; }
   if (text.length > 12000) { result.errors.push("文字超过12000字，请按单个客户的一笔订单分别识别。"); return result; }
@@ -92,7 +93,7 @@ export function parseOrderText(text: string, today: string): ParsedOrderText {
   const roomRemark = result.fields.note?.trim();
   const hostMatch = roomRemark && /^([\p{Script=Han}A-Za-z0-9·•_\- ]{1,64})直播[间間]$/u.exec(roomRemark);
   const noteHost = hostMatch?.[1].trim();
-  if (noteHost && !/(?:来自|转自|客户|不是|并非|疑似|可能|待确认|或者|以及)/.test(noteHost)) {
+  if (!privateDeal && noteHost && !/(?:来自|转自|客户|不是|并非|疑似|可能|待确认|或者|以及)/.test(noteHost)) {
     if (raw.has("hostName") || ambiguous.has("hostName")) {
       if (result.fields.hostName && result.fields.hostName !== noteHost) result.warnings.push(`备注中的主播「${noteHost}」与明确填写的主播「${result.fields.hostName}」不同，保留明确字段，请核对。`);
     } else {
@@ -106,10 +107,17 @@ export function parseOrderText(text: string, today: string): ParsedOrderText {
     seenLabels.add(row.label);
     const parts = row.value.split(/[+＋]/);
     const price = amountIn(parts[0]), explicitFee = parts.length === 2 ? amountIn(parts[1]) : null;
+    const kind = row.label.includes("成品") ? "finished" : "material";
+    if (privateDeal) {
+      if (parts.length !== 1 || !price || (price.currency && price.currency !== "CNY")) {
+        result.errors.push(`${row.label}请只写人民币料价。私推不收代购费，不要写成「料价+代购费」。`); continue;
+      }
+      result.items.push({ kind, label: row.label, materialRef: "", priceCny: price.amount, buyingFeeCny: "0.00", feeManual: false });
+      continue;
+    }
     if (parts.length > 2 || !price || price.currency && price.currency !== "CNY" || parts.length === 2 && (!explicitFee || explicitFee.currency && explicitFee.currency !== "CNY")) {
       result.errors.push(`${row.label}金额无法识别，请使用「料价+代购费」，金额为人民币。`); continue;
     }
-    const kind = row.label.includes("成品") ? "finished" : "material";
     const automatic = defaultBuyingFee(price.amount, kind)!;
     const fee = explicitFee?.amount ?? automatic;
     if (kind === "finished" && fee !== "0.00") { result.errors.push(`${row.label}为成品但填写了服务费，请核对商品类别。`); continue; }
@@ -164,11 +172,16 @@ export function parseOrderText(text: string, today: string): ParsedOrderText {
   if (explicitDue && payment?.amount && payment.currency === result.fields.customerCurrency && payment.remaining && payment.remainingCurrency === payment.currency && cents(explicitDue.amount) !== cents(payment.amount)! + cents(payment.remaining)!) result.errors.push("约定总应收不等于已收与尾款之和，请核对。");
   if (result.fields.customerCurrency === "CNY" && result.fields.customerDue && result.itemTotal && result.fields.customerDue !== result.itemTotal) result.errors.push("人民币约定总应收与商品明细合计不同，请核对是否混入了其他订单或追加收费。");
   if (!result.fields.businessDate) result.warnings.push("开单日期待补全。");
-  if (!result.items.length) result.warnings.push("未识别出商品明细；只填写合计金额不能代替逐件料价和代购费。");
+  if (!result.items.length) result.warnings.push(privateDeal ? "未识别出商品明细；请逐件填写料价，私推不写代购费。" : "未识别出商品明细；只填写合计金额不能代替逐件料价和代购费。");
   if (!result.fields.customerCode) result.warnings.push("客户ID未提供，请补填；单独填写的客户称呼不代替客户ID。");
-  if (!result.fields.personaCode || !result.fields.liveRoomCode) result.warnings.push("人设ID、直播间编号需明确提供，不根据人设或主播名称猜测关联。");
-  if (!result.fields.hostName) result.warnings.push("主播未明确填写，备注也不符合「某某直播间」格式，请补填主播。");
-  if (!result.fields.orderRef) result.warnings.push("订单编号未提供，请补填。");
+  if (privateDeal) {
+    if (result.fields.hostName || result.fields.liveRoomCode || (result.fields.source && /直播/.test(result.fields.source))) result.errors.push("私推成交不能填写主播或直播间。请改用直播间开单，或删去直播间信息后重新识别。");
+    if (result.fields.note && /直播间|直播間/.test(result.fields.note)) result.errors.push("备注里写了直播间。私推不归入直播间；如果这是直播间开单，请切换成交渠道。");
+  } else {
+    if (!result.fields.personaCode || !result.fields.liveRoomCode) result.warnings.push("人设ID、直播间编号需明确提供，不根据人设或主播名称猜测关联。");
+    if (!result.fields.hostName) result.warnings.push("主播未明确填写，备注也不符合「某某直播间」格式，请补填主播。");
+    if (!result.fields.orderRef) result.warnings.push("订单编号未提供，请补填。");
+  }
   if (result.unknownLines.length) result.warnings.push(`另有${result.unknownLines.length}行未识别，请查看并手动补充。`);
   return result;
 }

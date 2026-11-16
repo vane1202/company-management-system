@@ -6,6 +6,47 @@ const row=(extra={})=>({id:'fictional-ops-'+(++sequence),businessDate:clock.toda
 const dataset=(rows,extra={})=>({rows,rates:[{currency:'USD',cnyPerUnit:'7.200000',effectiveFrom:'2026-01-01'}],...extra});
 const run=(d,q={})=>build(d,q,clock);
 
+test('按运营分类与人员筛选不重复累计，全年趋势覆盖查询期，缺报仍为空',()=>{
+ const source=dataset([row({operatorName:'子恒',spendUsd:'10.00'}),row({operatorName:'子恒',spendUsd:'20.00',businessDate:'2026-11-10'}),row({operatorName:'小蒲',spendUsd:'5.00'})]);
+ const all=run(source,{from:'2026-01-01',to:clock.today,dimension:'operator',trendScope:'period'});
+ assert.equal(all.summary.spendUsd,'35.00');assert.equal(all.groups.reduce((n,r)=>n+Number(r.spendUsd),0),35);
+ assert.equal(all.trend.days[0].date,'2026-01-01');assert.equal(all.trend.days[0].spendUsd,null);
+ assert.equal(all.trend.days.at(-1).date,clock.today);
+ const one=run(source,{from:'2026-01-01',to:clock.today,operator:'子恒',dimension:'operator',trendScope:'period'});
+ assert.equal(one.summary.spendUsd,'30.00');assert.ok(one.records.every(r=>r.operatorName==='子恒'));assert.ok(one.trend.records.every(r=>r.operatorName==='子恒'));
+ assert.deepEqual(one.options.operator,['子恒','小蒲']);
+});
+
+test('无当期日报仍显示结束日前账户快照，人设不拆分余额，未来快照不计入',()=>{
+ const data=dataset([
+  row({businessDate:'2026-11-09',personaName:'A',balanceUsd:'90.00',updatedAt:'2026-11-09T03:00:00Z'}),
+  row({businessDate:'2026-11-10',personaName:'B',balanceUsd:'100.00',updatedAt:'2026-11-10T03:00:00Z'}),
+  row({businessDate:'2026-11-12',personaName:'A',balanceUsd:'200.00',updatedAt:'2026-11-12T03:00:00Z'})
+ ]);
+ const current=run(data,{persona:'A'});
+ assert.equal(current.summary.recordCount,0);
+ assert.equal(current.balances.accounts[0].amountUsd,'100.00');
+ assert.equal(current.balances.accounts[0].date,'2026-11-10');
+ const earlier=run(data,{from:'2026-11-09',to:'2026-11-09',persona:'A'});
+ assert.equal(earlier.balances.accounts[0].amountUsd,'90.00');
+ const missing=run(data,{from:'2026-11-08',to:'2026-11-08'});
+ assert.equal(missing.balances.accounts[0].amountUsd,null);
+ assert.equal(missing.balances.accounts[0].status,'missing');
+});
+
+test('首页账户与人设筛选统一约束卡片、历史、趋势、分类和原始记录',()=>{
+ const data=dataset([row({adAccountRef:'a',personaName:'shared'}),row({adAccountRef:'b',personaName:'shared',spendUsd:'20.00'}),row({adAccountRef:'b',personaName:'other',spendUsd:'30.00'}),row({adAccountRef:'a',personaName:'shared',businessDate:'2026-11-10',spendUsd:'4.00'})]);
+ const selected=run(data,{account:'a',persona:'shared'});
+ assert.equal(selected.summary.spendUsd,'10.00');
+ assert.equal(selected.comparison.totals.spendUsd,'4.00');
+ assert.deepEqual(selected.scopeAccounts,['a']);
+ assert.ok(selected.trend.records.every(r=>r.adAccountRef==='a'&&r.personaName==='shared'));
+ assert.ok(selected.records.every(r=>r.adAccountRef==='a'&&r.personaName==='shared'));
+ assert.equal(selected.groups.reduce((n,g)=>n+Number(g.spendUsd),0),10);
+ const byPersona=run(data,{persona:'shared'});assert.equal(byPersona.summary.spendUsd,'30.00');assert.deepEqual(byPersona.scopeAccounts,['a','b']);
+ const empty=run(data,{account:'a',persona:'other'});assert.equal(empty.summary.recordCount,0);assert.equal(empty.summary.spendUsd,null);assert.deepEqual(empty.trend.records,[]);
+});
+
 test('咨询成本以总消耗除总咨询；保留独立上报值，不平均成本',()=>{
  const rows=[row({spendUsd:'100.00',consultCount:1,consultCostUsd:'99.00'}),row({spendUsd:'10.00',consultCount:10,consultCostUsd:'1.20'})];
  const d=run(dataset(rows));assert.equal(d.summary.spendUsd,'110.00');assert.equal(d.summary.consultCount,11);assert.equal(d.summary.consultationCostUsd,'10.00');assert.equal(d.summary.spendCny,'792.00');assert.equal(d.records[0].consultCostUsd,'99.00');

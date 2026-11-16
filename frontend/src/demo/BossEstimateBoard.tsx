@@ -1,24 +1,35 @@
+import BossPriority from "./BossPriority";
 import { useEffect, useRef, useState } from "react";
 import { api, type LiveBusinessData } from "../api";
 import { InfoTip } from "../InfoTip";
 import type { Page } from "../access";
+import type { CashView } from "../cashNavigation";
 import { yuan } from "../dashboardDisplay";
 import { createRequestGate } from "../requestGate";
 import { toErrorMessage } from "../errors";
 import { buildEstimateView, type EstimateSources } from "./estimateBoardData";
 import { convertAdSpend, referenceFxClient, FX_REFRESH_MS, type AdFxView } from "./adExchangeRates";
 import { CustomerPaymentSummary } from "./CustomerPaymentSummary";
-import BossTrends from "./BossTrends";
+import BossHomeTrend from "./BossHomeTrend";
 import "./boss-estimate-board.css";
 import { useReferenceQuotes } from "./useReferenceQuotes";
+import { dashboardPresetRange } from "../dates";
+import { buildTrend, previousRange, type TrendKey } from "./bossTrendData";
+import { defaultLiveView } from "../liveBusinessNavigation";
+import type { WorkspaceRoute } from "../workspaceHistory";
 
 const filters = { room: "", host: "", persona: "", operator: "" };
 const presets = [["day", "今日"], ["week", "本周"], ["month", "本月"]] as const;
-const turnoverTip = "料价加代购费，按开单日统计。未付款也计入。跑单从原开单日扣回。追加收费、客户收款和公司支出都不从这里扣减。";
-const spendTip = "业务费用是已登记的供货、加工、配货和发货等人民币支出，按发生日统计。广告消耗按消耗日汇率参考折算为人民币，原美元金额保留。今日每小时检查最新行情（免费行情约延迟15分钟），历史日期使用当日参考汇率，跨日逐日折算后汇总。不代表实际扣款或结汇金额。";
+const spendTip = "售后费用是已登记的供货、加工、接待和发货等人民币支出，按发生日统计。广告消耗按消耗日汇率参考折算为人民币，原美元金额保留。今日每小时检查最新行情（免费行情约延迟15分钟），历史日期使用当日参考汇率，跨日逐日折算后汇总。不代表实际扣款或结汇金额。";
+const presetKey = "cms-demo-boss-estimate-period";
 
-export default function BossEstimateBoard({ today, onError, onOpen }: { today: string; onError: (value: string) => void; onOpen?: (page: Page) => void }) {
-  const [preset, setPreset] = useState<(typeof presets)[number][0]>("day");
+export default function BossEstimateBoard({ today, onError, onOpen, onDrill }: { today: string; onError: (value: string) => void; onOpen?: (page: Page, cash?: CashView) => void; onDrill?: (route: WorkspaceRoute) => void }) {
+  const [preset, setPreset] = useState<(typeof presets)[number][0]>(() => {
+    try { const saved = sessionStorage.getItem(presetKey); return saved === "week" || saved === "month" ? saved : "day"; } catch { return "day"; }
+  });
+  const [custom,setCustom]=useState<{from:string;to:string}>();
+  const [dateDraft,setDateDraft]=useState({from:today,to:today});
+  const [dateError,setDateError]=useState("");
   const [live, setLive] = useState<LiveBusinessData | null>(null);
   const [legacy, setLegacy] = useState<EstimateSources | null>(null);
   const [loading, setLoading] = useState(true);
@@ -30,8 +41,20 @@ export default function BossEstimateBoard({ today, onError, onOpen }: { today: s
   const [adFx, setAdFx] = useState<AdFxView | null>(null);
   const [fxLoading, setFxLoading] = useState(false);
   const [trendTick, setTrendTick] = useState(0);
+  const [baseline, setBaseline] = useState<Partial<Record<TrendKey, string | null>>>({});
+  const [baselineLoading, setBaselineLoading] = useState(true);
   const revision=useReferenceQuotes();
   const view = buildEstimateView(live, legacy);
+  const period = custom || dashboardPresetRange(today, preset);
+  function drill(kind: "income" | "expenses" | "ads") {
+    if (kind === "ads") onDrill?.({ page: "ops", ops: { ...period } });
+    else onDrill?.({ page: "orders", live: { ...defaultLiveView(), preset, range: { ...period }, view: kind } });
+  }
+  const benchmark = (key: TrendKey) => <span className="be-baseline"><span>{preset === "day" ? "昨日已登记" : "上期已登记"}</span><b>{baselineLoading ? "…" : baseline[key] == null ? "—" : `${key === "receipts" || key === "ads" ? "约 " : ""}${yuan(baseline[key]!)}`}</b></span>;
+  function pickPreset(next: (typeof presets)[number][0]) {
+    setPreset(next);setCustom(undefined);
+    try { sessionStorage.setItem(presetKey, next); } catch { /* The in-memory selection still works when storage is disabled. */ }
+  }
 
   async function load(next = preset) {
     const ticket = gate.next();
@@ -41,9 +64,16 @@ export default function BossEstimateBoard({ today, onError, onOpen }: { today: s
     setLegacy(null);
     setAdFx(null);
     setFxLoading(true);
+    setBaseline({}); setBaselineLoading(true);
+    const range = custom || dashboardPresetRange(today, next), previous = previousRange(range.from, range.to);
+    void api.liveBusiness("custom", { from: previous.from, to: range.to }, filters)
+      .then(source => buildTrend(source, range))
+      .then(result => { if (ticket.isCurrent()) setBaseline(result.previous); })
+      .catch(() => { if (ticket.isCurrent()) setBaseline({}); })
+      .finally(() => { if (ticket.isCurrent()) setBaselineLoading(false); });
     const [liveResult, legacyResult] = await Promise.allSettled([
-      api.liveBusiness(next, undefined, filters),
-      api.dashboard(next)
+      api.liveBusiness(custom?"custom":next, custom, filters),
+      api.dashboard(custom?"custom":next,custom)
     ]);
     if (!ticket.isCurrent()) return;
     setLive(liveResult.status === "fulfilled" ? liveResult.value : null);
@@ -67,53 +97,36 @@ export default function BossEstimateBoard({ today, onError, onOpen }: { today: s
     const resume = () => { if (!document.hidden && Date.now() - checked.current >= FX_REFRESH_MS) void load(preset); };
     document.addEventListener("visibilitychange", resume);
     return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", resume); gate.next(); };
-  }, [preset]);
+  }, [preset,custom?.from,custom?.to]);
   const money = (value: string | null) => loading ? "…" : yuan(value);
   const fxInfo = adFx?.quotes.map(q => `${q.date}：1 USD = ${Number(q.rate)} CNY；行情时间 ${new Date(q.updatedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })}（UTC+8）；${q.delayed ? "行情约延迟15分钟" : "当日参考汇率"}${q.sourceDate !== q.date ? `；沿用 ${q.sourceDate} 已发布汇率` : ""}${q.stale ? "；更新延迟，使用最近成功数据" : ""}`).join("。") ?? "";
 
-  return <section className="be-board" aria-label="经营估算" aria-busy={loading}>
+  const pendingOrders = live?.operations?.orders.filter(order => order.status === "unpaid" || order.status === "partial").length ?? 0;
+  const uncertainOrders = live?.operations?.orders.filter(order => order.status === "unknown").length ?? 0;
+  return <section className="be-board" aria-label="经营总览" aria-busy={loading}>
     <header className="be-heading">
       <div>
-        <h1>经营估算 <InfoTip label="首页统计口径" text="开单按开单日、客户付款按付款日、业务费用按发生日、广告按消耗日统计。外币使用共享参考汇率，不代表实际结汇。四项不合成公司利润；工资、提成、代收手续费和汇差另行核算。"/></h1>
+        <h1>经营总览 <InfoTip label="首页统计口径" text="开单按开单日、客户付款按付款日、售后费用按发生日、广告按消耗日统计。上期为紧邻的同等天数，今日未结束时只并列已登记金额，不作整日涨跌判断。外币为参考折算；各项不合成利润。待收款包括历史订单，未登记约定付款日时不判断逾期。"/></h1>
       </div>
       <button type="button" className="secondary" onClick={() => load()}>刷新</button>
     </header>
     <div className="be-toolbar">
-      <div className="overview-segments" role="group" aria-label="估算区间">{presets.map(([key, label]) => <button key={key} type="button" className={preset === key ? "selected" : ""} aria-pressed={preset === key} onClick={() => setPreset(key)}>{label}</button>)}</div>
-      {view && <span>关键数据 · {view.period.from} 至 {view.period.to}</span>}
+      <div className="overview-segments" role="group" aria-label="估算区间">{presets.map(([key, label]) => <button key={key} type="button" className={!custom && preset === key ? "selected" : ""} aria-pressed={!custom && preset === key} onClick={() => pickPreset(key)}>{label}</button>)}</div>
+      <details className="bp-custom-date"><summary>自定义</summary><form onSubmit={e=>{e.preventDefault();if(!dateDraft.from||!dateDraft.to||dateDraft.from>dateDraft.to||dateDraft.to>today){setDateError("请选择有效日期，结束日不能晚于今天");return;}setDateError("");setCustom({...dateDraft});e.currentTarget.closest('details')?.removeAttribute('open');}}><label>开始日期<input required type="date" max={today} value={dateDraft.from} onChange={e=>setDateDraft({...dateDraft,from:e.target.value})}/></label><label>结束日期<input required type="date" min={dateDraft.from} max={today} value={dateDraft.to} onChange={e=>setDateDraft({...dateDraft,to:e.target.value})}/></label><button type="submit">查询</button></form></details>
+      {view && <span>全公司 · {view.period.from} 至 {view.period.to} · 今日未结束</span>}
     </div>
+    {dateError&&<p className="error" role="alert">{dateError}</p>}
+    <BossPriority from={period.from} to={period.to} tick={trendTick} onSalary={()=>onOpen?.("salaries")} receipts={<CustomerPaymentSummary inline compact loading={loading} records={live?.events.filter(event=>event.kind==="receipt")??[]} totals={live?.totals.customerReceipts} onOpen={()=>view&&onOpen?.("finance",{...view.period,metric:"receipts",scope:"company"})} detailLabel="查看收款"/>}/>
     <div className="be-kpis">
-      <article aria-label="开单营业额">
-        <header><h2>开单营业额</h2><InfoTip label="开单营业额口径" text={turnoverTip} /></header>
-        <strong>{money(view?.turnover ?? null)}</strong>
-      </article>
-      <article aria-label="客户已付款"><CustomerPaymentSummary compact loading={loading} records={live?.events.filter(event => event.kind === "receipt") ?? []} totals={live?.totals.customerReceipts} onOpen={() => onOpen?.("finance")} detailLabel="收款与到账 →" /></article>
-      <article aria-label="业务费用">
-        <header><h2>业务费用</h2><InfoTip label="业务费用口径" text="已登记供货、加工、配货和发货等业务费用，按费用发生日统计。不是财务实际付款，不包含全部公司成本，不从这里直接推算净利润。"/></header>
-        <strong>{money(view?.expenseCny??null)}</strong><small>按费用发生日 · 人民币</small>
-      </article>
       <article aria-label="广告消耗">
-        <header><h2>广告消耗</h2><InfoTip scrollable label="广告消耗口径" text={`${spendTip}${fxInfo ? ` ${fxInfo}。` : ""}${adFx?.missingDates.length ? ` 缺少汇率：${adFx.missingDates.join("、")}。` : ""}${adFx?.incomplete ? " 消耗明细不完整，暂不折算。" : ""}`} /></header>
-        <strong>{loading||fxLoading?'…':adFx?.cny!=null?`约 ${yuan(adFx.cny)}`:'待折算'}</strong>
+        <header><h2>投流数据</h2><InfoTip scrollable label="广告消耗口径" text={`${spendTip}${fxInfo ? ` ${fxInfo}。` : ""}${adFx?.missingDates.length ? ` 缺少汇率：${adFx.missingDates.join("、")}。` : ""}${adFx?.incomplete ? " 消耗明细不完整，暂不折算。" : ""}`} /></header>
+        <button type="button" className="be-main-value" aria-label="查看广告消耗明细" disabled={loading || !view} onClick={() => drill("ads")}>{loading?'…':fxLoading?<span className="fx-pending">折算中…</span>:adFx?.cny!=null?`约 ${yuan(adFx.cny)}`:'待折算'}</button>
         <small>原币 {loading?'…':view?.adUsd??'—'} USD{adFx?.stale?' · 行情延迟':''}</small>
+        {benchmark("ads")}
       </article>
     </div>
-    {liveFailed && <p className="notice">开单、收款和业务费用暂不可用。</p>}
-    <BossTrends today={today} tick={trendTick} onOpen={onOpen} />
-    <details className="be-reference"><summary>参考汇率与统计说明</summary><p>{spendTip} {fxInfo}</p><a href="https://exchangerate.dev" target="_blank" rel="noreferrer">Rates by Exchangerate.dev</a></details>
-    <section className="be-links" aria-label="继续查看">
-      <article><div><h2>业务费用</h2><p>供货、加工、配货和发货，按发生日看明细。</p></div>{onOpen && <button type="button" className="text-action" onClick={() => onOpen("orders")}>直播间经营 →</button>}</article>
-      <article><div><h2>广告消耗</h2><p>全公司消耗按日参考折算，保留美元原额。</p></div>{onOpen && <button type="button" className="text-action" onClick={() => onOpen("ops")}>推广汇总 →</button>}</article>
-      <article><div><h2>人员成本</h2><p>{loading ? "读取中…" : view?.salary ? `期间底薪分摊 ${yuan(view.salary)}。` : "期间底薪分摊待读取。"}不从开单营业额里扣除。</p></div>{onOpen && <button type="button" className="text-action" onClick={() => onOpen("salaries")}>工资汇总 →</button>}</article>
-    </section>
-    <details className="be-legacy">
-      <summary>原估算明细</summary>
-      {legacyFailed && <p className="notice">原口径暂不可用。</p>}
-      {!!view?.legacy.length && <div className="be-legacy-grid">{view.legacy.map((line) => <div key={line.key}><b>{line.value}</b><span>{line.label}</span></div>)}</div>}
-      {view?.formula && <p>{view.formula}</p>}
-      {view?.salaryNote && <p>{view.salaryNote}</p>}
-      <p>旧口径余额保留核对，不是公司利润。加粉和拍剪分别在各自汇总页查看。</p>
-      {view?.disclaimer && <p>{view.disclaimer}</p>}
-    </details>
+    {liveFailed && <p className="notice">开单、收款和售后费用暂不可用。</p>}
+    <BossHomeTrend today={today} from={period.from} to={period.to} tick={trendTick} live={live}/>
+    {live&&(pendingOrders>0||uncertainOrders>0||live.legacyCost.count>0)&&<section className="bh-attention" aria-label="经营待关注"><span>待关注</span>{pendingOrders>0&&<button type="button" onClick={()=>onDrill?.({page:"orders",live:{...defaultLiveView(),preset,range:{...period}}})}>待收款 <b>{pendingOrders}</b>笔 ›</button>}{uncertainOrders>0&&<button type="button" onClick={()=>onDrill?.({page:"orders",live:{...defaultLiveView(),preset,range:{...period}}})}>付款待核对 <b>{uncertainOrders}</b>笔 ›</button>}{live.legacyCost.count>0&&<button type="button" onClick={()=>drill("expenses")}>费用待核对 <b>{live.legacyCost.count}</b>笔 ›</button>}</section>}
   </section>;
 }

@@ -1,9 +1,9 @@
 import { parseOrderText, type OrderTextFields, type ParsedOrderText } from "./orderTextParser";
 
-// Fictional bindings only; production relationships will come from managed master data.
+// Confirmed room/host names; internal demo keys remain stable to preserve sample links.
 export const demoOrderRooms = [
-  { code: "DEMO-LIVE-01", name: "演示一线", host: "演示主播甲" },
-  { code: "DEMO-LIVE-02", name: "演示二线", host: "演示主播乙" }
+  { code: "DEMO-LIVE-01", name: "海外一线", host: "甜甜" },
+  { code: "DEMO-LIVE-02", name: "海外二线", host: "文强" }
 ] as const;
 export function personaDisplay(name = "", code = "") { return code ? `${name}（${code}）` : name; }
 export function splitPersona(value: string): { personaName: string; personaCode: string } {
@@ -18,8 +18,8 @@ export function roomDisplay(fields: OrderTextFields) {
   return room ? `${room.host} · ${room.name}（${room.code}）` : [fields.hostName, fields.liveRoomCode].filter(Boolean).join(" · ");
 }
 /** Customer-facing order form convention: 客户 means customer name, IDs remain optional metadata. */
-export function parseSimpleOrderText(text: string, today: string): ParsedOrderText {
-  const result = parseOrderText(text.replace(/^(\s*)客户\s*[:：]/gm, "$1客户名："), today);
+export function parseSimpleOrderText(text: string, today: string, channel: "live" | "private" = "live"): ParsedOrderText {
+  const result = parseOrderText(text.replace(/^(\s*)客户\s*[:：]/gm, "$1客户名："), today, { channel });
   result.warnings = result.warnings.filter(w => !/客户ID未提供|人设ID、直播间编号需明确提供|订单编号未提供|主播未明确填写/.test(w));
   const fields = result.fields;
   if (fields.customerLabel && !fields.customerCode) fields.customerCode = "";
@@ -36,6 +36,10 @@ export function parseSimpleOrderText(text: string, today: string): ParsedOrderTe
     result.warnings.push("汇报只提供客户ID，请核对客户名；未按同名自动关联历史订单。");
   }
   delete result.fieldHints.customerLabel;
+  if (channel === "private") {
+    if (!fields.customerLabel) result.warnings.push("客户名未提供，请补填。");
+    return result;
+  }
   if (!fields.hostName && !fields.liveRoomCode && fields.source) {
     const sourceRoom = demoOrderRooms.find(r => [r.name, r.host, r.code, `${r.host}直播间`].includes(fields.source!));
     if (sourceRoom) { fields.hostName = sourceRoom.host; fields.liveRoomCode = sourceRoom.code; }

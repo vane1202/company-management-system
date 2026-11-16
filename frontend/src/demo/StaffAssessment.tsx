@@ -6,7 +6,7 @@ import { Skeleton } from "../Skeleton";
 import { toErrorMessage } from "../errors";
 import { AnalysisPlot, ChartStyleControl, Ranking, useChartStyle } from "./AnalysisChart";
 import { shiftDate, type AssessmentFoundation, type EmployeeRecord } from "./assessmentFoundation";
-import { openingDays, orderDays, peopleRates, periodRate, type DayRate } from "./assessmentView";
+import { assessmentComparison, openingDays, orderDays, peopleRates, periodRate, type DayRate } from "./assessmentView";
 import { daysIn } from "./bossTrendData";
 import type { TrendSeries } from "./bossTrendData";
 import "./ops-analysis.css";
@@ -36,6 +36,14 @@ export default function StaffAssessment({ today, scope }: { today: string; scope
   const [preset, setPreset] = useState<Preset>("week7");
   const [kind, setKind] = useState<Kind>("opening");
   const [person, setPerson] = useState("");
+  const [team, setTeam] = useState("");
+  const [customRange, setCustomRange] = useState<{from:string;to:string}|null>(null);
+  const [draftRange, setDraftRange] = useState({from:shiftDate(today,-6),to:today});
+  const [dateError, setDateError] = useState("");
+  const [employment, setEmployment] = useState<"active" | "left">("active");
+  const [minimumSample, setMinimumSample] = useState(5);
+  const [sampleDraft, setSampleDraft] = useState("5");
+  const [sampleError, setSampleError] = useState("");
   const [selected, setSelected] = useState(today);
   const [style, setStyle] = useChartStyle();
   const [data, setData] = useState<AssessmentFoundation | null>(null);
@@ -49,23 +57,31 @@ export default function StaffAssessment({ today, scope }: { today: string; scope
     api.assessmentFoundation().then((value) => { if (!controller.signal.aborted) setData(value); }).catch((cause) => { if (!controller.signal.aborted) setError(toErrorMessage(cause)); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [tick]);
-  const range = bounds(today, preset);
+  const range = customRange ?? bounds(today, preset);
   let days: string[] = [];
   let rangeError = "";
   try { days = daysIn(range.from, range.to); } catch (cause) { rangeError = toErrorMessage(cause); }
-  const leads = data?.leads ?? [];
-  const attendance = data?.attendance ?? [];
-  const employees = data?.employees ?? [];
+  const teams = data?.teams ?? [...new Set(data?.employees?.map(employee=>employee.teamId)??[])].map(id=>({id,name:id}));
+  const employees = (data?.employees ?? []).filter(employee => employee.status === employment && (!team || employee.teamId === team));
+  const employeeIds = new Set(employees.map(employee => employee.id));
+  const leads = (data?.leads ?? []).filter(lead => employeeIds.has(lead.employeeId));
+  const attendance = (data?.attendance ?? []).filter(row => employeeIds.has(row.employeeId));
   const nameOf = (id: string) => employees.find((item) => item.id === id);
   const labelOf = (employee: EmployeeRecord | undefined, id: string) => employee ? employee.name + (employee.status === "left" ? " · 已离任" : "") : id;
   const opening = days.length ? openingDays(leads, days, person) : [];
   const ordering = days.length ? orderDays(attendance, days, person) : [];
+  const hasAttendance = attendance.some(row => days.includes(row.businessDate) && (!person || row.employeeId === person));
   const openingTotal = periodRate(opening, "正常沟通为0");
   const orderTotal = periodRate(ordering, "未报");
   const active = kind === "opening" ? opening : ordering;
-  const people = peopleRates(employees.map((item) => item.id), leads, attendance, days, kind).sort((a, b) => (b.value === null ? -1 : Number(b.value)) - (a.value === null ? -1 : Number(a.value)) || b.whole - a.whole);
+  const people = peopleRates(employees.map((item) => item.id), leads, attendance, days, kind);
+  const comparison = assessmentComparison(people, minimumSample);
   let openingBaseline = "—";
   let orderBaseline = "—";
+  const privateSales = (data?.privateSales ?? []).filter(row => !row.cancelled && days.includes(row.businessDate) && (!person || nameOf(person)?.name === row.operatorName));
+  const privateCents = privateSales.reduce((sum, row) => sum + Math.round(Number(row.amount) * 100), 0);
+  const privateAmount = (privateCents / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const privatePeople = [...privateSales.reduce((map, row) => { const current = map.get(row.operatorName) ?? { count: 0, cents: 0 }; current.count += 1; current.cents += Math.round(Number(row.amount) * 100); map.set(row.operatorName, current); return map; }, new Map<string, { count: number; cents: number }>())];
   try {
     const previousDays = prior(range.from, range.to);
     openingBaseline = periodRate(openingDays(leads, previousDays, person), "未报").percent;
@@ -74,25 +90,37 @@ export default function StaffAssessment({ today, scope }: { today: string; scope
   const chart: TrendSeries[] = days.length ? [seriesOf(active, person ? labelOf(nameOf(person), person) : "全部")] : [];
   const selectedDay = active.find((day) => day.date === selected) ?? active.at(-1);
   const dayPeople = selectedDay ? peopleRates(employees.map((item) => item.id), leads, attendance, [selectedDay.date], kind) : [];
+  function applyMinimum() {
+    const value = Number(sampleDraft);
+    if (!/^\d+$/.test(sampleDraft) || !Number.isInteger(value) || value < 1 || value > 1000) { setSampleError("请填写 1 至 1000 的整数"); return; }
+    setMinimumSample(value); setSampleError("");
+  }
   if (!loading && data && data.view !== "review") return <section className="ops-analysis staff-assessment" aria-label="客服考核"><h1>客服考核</h1><p className="notice">{data.note}</p></section>;
   return <section className="ops-analysis staff-assessment" aria-label="客服考核" aria-busy={loading}>
     <header className="oa-heading"><div><span className="oa-eyebrow">{scope} · 按使用人</span><h1>客服考核</h1></div><button className="secondary" type="button" disabled={loading} onClick={() => setTick((value) => value + 1)}>刷新</button></header>
-    <div className="oa-toolbar"><div className="overview-segments">{presets.map(([key, label]) => <button type="button" key={key} className={preset === key ? "selected" : ""} aria-pressed={preset === key} onClick={() => { setPreset(key); setSelected(today); }}>{label}</button>)}</div>
-      <label className="oa-sort">客服<select aria-label="考核客服筛选" value={person} onChange={(event) => setPerson(event.target.value)}><option value="">全部</option>{employees.map((item) => <option key={item.id} value={item.id}>{labelOf(item, item.id)}</option>)}</select></label></div>
-    <p className="oa-period"><span>{range.from} 至 {range.to}{range.to === today ? " · 今日未结束" : ""}</span><span>按人数合计</span></p>
+    <div className="oa-toolbar sa-toolbar"><div className="overview-segments" role="group" aria-label="考核日期范围">{presets.map(([key, label]) => <button type="button" key={key} className={!customRange && preset === key ? "selected" : ""} aria-pressed={!customRange && preset === key} onClick={() => { setPreset(key); setCustomRange(null); setDraftRange(bounds(today,key)); setDateError(""); setSelected(today); }}>{label}</button>)}</div>
+      <div className="sa-person-filters"><label className="oa-sort">人员范围<select aria-label="考核人员范围" value={employment} onChange={event => { setEmployment(event.target.value as typeof employment); setPerson(""); }}><option value="active">在职客服</option><option value="left">历史人员（已离任）</option></select></label>
+      <label className="oa-sort">客服<select aria-label="考核客服筛选" value={person} onChange={(event) => setPerson(event.target.value)}><option value="">{employment === "active" ? "全部在职客服" : "全部离任人员"}</option>{employees.map((item) => <option key={item.id} value={item.id}>{labelOf(item, item.id)}</option>)}</select></label></div></div>
+    <p className="oa-period"><span>{range.from} 至 {range.to}{range.to === today ? " · 今日未结束" : ""}</span><span>{employment === "active" ? "在职客服" : "已离任人员"} · 按人数合计</span></p>
+    <details className="sa-extended"><summary>小组与日期筛选{team||customRange?" · 已设置":""}</summary><label>小组<select aria-label="考核小组筛选" value={team} onChange={event=>{setTeam(event.target.value);setPerson("");}}><option value="">全部小组</option>{teams.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label><form onSubmit={event=>{event.preventDefault();try{daysIn(draftRange.from,draftRange.to);if(draftRange.to>today)throw Error("结束日期不能晚于今天");setCustomRange({...draftRange});setSelected(draftRange.to);setDateError("");}catch(cause){setDateError(toErrorMessage(cause));}}}><label>开始日期<input aria-label="考核开始日期" type="date" required max={draftRange.to||today} value={draftRange.from} onChange={event=>setDraftRange({...draftRange,from:event.target.value})}/></label><label>结束日期<input aria-label="考核结束日期" type="date" required min={draftRange.from} max={today} value={draftRange.to} onChange={event=>setDraftRange({...draftRange,to:event.target.value})}/></label><button type="submit" className="secondary">查询日期</button><small>最多31天</small></form>{dateError&&<p className="error" role="alert">{dateError}</p>}</details>
+    {team&&<p className="oa-period">当前小组：{teams.find(item=>item.id===team)?.name??team}</p>}
     {error && <div className="overview-error" role="alert"><strong>{error}</strong><button type="button" onClick={() => setTick((value) => value + 1)}>重试</button></div>}
     {rangeError && <p className="error" role="alert">{rangeError}</p>}
     <div className="oa-kpis">
-      <article aria-label="开口转化率"><h2>开口转化率 <InfoTip label="开口转化率口径" text="已明确具体需求的人数 ÷ 已正常沟通的人数。按所选范围的人数合计，不平均每天或每个客服的百分比。已读不回、未读、无效粉不进分母。正常沟通为 0 时不计算。"/></h2><strong>{loading ? <Skeleton width="3em" height=".8em" /> : openingTotal.percent}<small>{openingTotal.fraction}</small></strong><span className="oa-benchmark"><span>上期</span><b>{openingBaseline}</b></span></article>
-      <article aria-label="开单率"><h2>开单率 <InfoTip label="开单率口径" text="已关联的开单客户人数 ÷ 已关联的入场人数。同一客户同一天只算 1 人。尚未关联显示 —，不作 0%。跑单不计入开单人数。"/></h2><strong>{loading ? <Skeleton width="3em" height=".8em" /> : orderTotal.percent}<small>{orderTotal.fraction}</small></strong><span className="oa-benchmark"><span>上期</span><b>{orderBaseline}</b></span></article>
-      <article className={orderTotal.unlinked ? "is-attention" : ""} aria-label="待关联入场"><h2>待关联入场 <InfoTip label="待关联入场口径" text="入场人数已经登记，但还没有和开单客户关联。这部分不能计算开单率。"/></h2><strong>{loading ? <Skeleton width="2em" height=".8em" /> : orderTotal.unlinked}<small>人</small></strong><span className="oa-secondary-value">{orderTotal.unlinked ? "开单率暂不计算" : "没有待关联"}</span></article>
+      <article aria-label="开口转化率"><h2>开口转化率 <InfoTip label="开口转化率口径" text="已明确具体需求的人数 ÷ 已正常沟通的人数。按所选范围的人数合计，不平均每天或每个客服的百分比。已读不回、未读、无效粉不进分母。正常沟通为 0 时不计算。与加粉概况按全部承接人数计算的承接需求转化率不同。"/></h2><strong>{loading ? <Skeleton width="3em" height=".8em" /> : openingTotal.percent}<small>{loading ? "—" : openingTotal.fraction}</small></strong><span className="sa-rate-basis">明确需求 / 正常沟通</span><span className="oa-benchmark"><span>上期</span><b>{openingBaseline}</b></span></article>
+      <article aria-label="开单率"><h2>开单率</h2><strong>暂停统计</strong><span className="sa-rate-basis">直播间后台暂不能准确统计入场人数</span></article>
     </div>
+    <p className="notice">入场登记已取消。开单率暂停展示，不把缺少的入场人数当成零。开口转化率仍按已明确需求的人数除以正常沟通人数计算。</p>
+    <section className="oa-panel" aria-label="客服私推"><div className="oa-panel-heading"><h2>客服私推</h2><span>不计入开单率</span></div><p className="oa-muted">{loading ? "正在读取私推业绩…" : `本期 ¥${privateAmount} · ${privateSales.length} 笔。只计料价，不收代购费，不改变开口转化率。开单率现已暂停。记在经办客服名下，主管提成尚未计算。`}</p>{!loading && privatePeople.map(([name, row]) => <article className="oa-group-row" key={name}><div className="oa-group-name"><strong>{name || "待确认归属"}</strong></div><div><span>私推营业额</span><b>¥{(row.cents / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b></div><div><span>笔数</span><b>{row.count}</b></div></article>)}</section>
     <section className="oa-panel oa-trend"><div className="analysis-toolbar"><h2>{kind === "opening" ? "开口转化率" : "开单率"} <InfoTip label="考核趋势口径" text="每个点是当天的人数合计。没有记录的日期断开，不补 0。今日未结束。"/></h2><ChartStyleControl style={style} onChange={setStyle} /></div>
-      <nav className="analysis-tabs oa-trend-tabs" aria-label="考核指标">{([["opening", "开口转化率"], ["order", "开单率"]] as const).map(([key, label]) => <button type="button" key={key} aria-pressed={kind === key} onClick={() => setKind(key)}>{label}</button>)}</nav>
+      <nav className="analysis-tabs oa-trend-tabs" aria-label="考核指标">{([["opening", "开口转化率"]] as const).map(([key, label]) => <button type="button" key={key} aria-pressed={kind === key} onClick={() => setKind(key)}>{label}</button>)}</nav>
       {chart.length > 0 && <AnalysisPlot series={chart} style={style} today={today} selected={selected} onSelect={setSelected} label={kind === "opening" ? "开口转化率" : "开单率"} unit="rate" />}
     </section>
-    <section className="oa-panel" aria-label="客服排名"><div className="oa-panel-heading"><h2>客服</h2>{person && <button type="button" className="secondary" onClick={() => setPerson("")}>查看全部</button>}</div>
-      <Ranking label="客服考核排名" rows={people.map((row) => { const employee = nameOf(row.employeeId); return { key: row.employeeId, label: labelOf(employee, row.employeeId), value: row.value === null ? null : Number(row.value), display: row.percent, note: row.unlinked > 0 && row.whole === 0 ? "待关联" : row.whole > 0 && row.whole < 5 ? row.fraction + " · 样本少" : row.fraction }; })} onOpen={setPerson} />
+    <section className="oa-panel sa-comparison" aria-label="客服排名"><div className="oa-panel-heading"><h2>{employment === "active" ? "在职客服排名" : "历史人员排名"}</h2>{person && <button type="button" className="secondary" onClick={() => setPerson("")}>查看全部</button>}</div>
+      <details className="sa-ranking-settings"><summary>排名设置 · 样本至少 {minimumSample} 人</summary><form onSubmit={event => { event.preventDefault(); applyMinimum(); }}><label>入榜样本至少<input aria-label="入榜最小样本人数" type="number" min="1" max="1000" step="1" required value={sampleDraft} onChange={event => setSampleDraft(event.target.value)}/>人</label><button className="secondary" type="button" onClick={applyMinimum}>应用门槛</button></form><p className="oa-muted">按所选指标的分母人数判断；待关联数据进入观察中。</p>{sampleError && <p className="error" role="alert">{sampleError}</p>}</details>
+      {comparison.ranked.length > 0 && <Ranking label="客服考核排名" rows={comparison.ranked.map((row) => ({ key: row.employeeId, label: labelOf(nameOf(row.employeeId), row.employeeId), value: Number(row.value), display: row.percent, note: row.fraction }))} onOpen={setPerson} />}
+      {!comparison.ranked.length && <p className="oa-muted">尚无达到入榜条件的客服。</p>}
+      {comparison.observing.length > 0 && <section className="sa-observing" aria-label="考核观察中"><h3>观察中 · 不参与排名</h3>{comparison.observing.map(row => <button type="button" className="sa-observation-row" key={row.employeeId} onClick={() => setPerson(row.employeeId)}><span><strong>{labelOf(nameOf(row.employeeId), row.employeeId)}</strong><small>{row.fraction} · {row.unlinked > 0 ? `另有 ${row.unlinked} 人待关联` : row.whole < minimumSample ? `样本未满 ${minimumSample} 人` : "数据待补"}</small></span><b>{row.percent}</b></button>)}</section>}
     </section>
     {selectedDay && <section className="oa-panel" aria-label="所选日期"><div className="oa-panel-heading"><h2>{selectedDay.date}</h2><span>{selectedDay.value === null ? selectedDay.reason : selectedDay.part + "/" + selectedDay.whole + "人"}</span></div>
       {dayPeople.map((row) => <article className="oa-group-row" key={row.employeeId}><div className="oa-group-name"><strong>{labelOf(nameOf(row.employeeId), row.employeeId)}</strong></div><div><span>{kind === "opening" ? "开口转化率" : "开单率"}</span><b>{row.percent}</b></div><div><span>人数</span><b>{row.fraction}</b></div></article>)}

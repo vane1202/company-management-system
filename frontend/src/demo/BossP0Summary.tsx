@@ -21,6 +21,7 @@ type Data = {
   receiptSplit?:{currentBookings:Amount;historicalOrders:Amount;unscheduled:Amount};
   collectionGap?:{receipts:string|null;paidPerformance:string|null;difference:string|null;status:string};
   references?:{registeredMaterialCost:Amount&{hintOnly?:boolean};monthToDateAmounts?:{receipts:Amount;advertising:Amount;period:{from:string;to:string}}|null};
+  privatePush?:{amount:string;count:number;definition:string};
 };
 type Props = {preset:string;range?:{from:string;to:string};tick:number;onOpenBusiness:(view:LiveView)=>void};
 const names:Record<string,string>={turnover:'开单营业额',receipts:'客户已收款',visibleCost:'可见成本',estimatedContribution:'毛利（估）',roi:'收款与广告花费'};
@@ -134,6 +135,7 @@ export default function BossP0Summary({preset,range,tick,onOpenBusiness}:Props){
           <div className="p0-final"><span>实际毛利 <InfoTip label="实际毛利口径" text="实际毛利＝毛利（估）－财务专项录入的料成本、提成、代收手续费。每个统计日的三项均须由财务明确录入，0为有效录入；缺项或缺日显示待财务核算，不从费用账猜测、不以毛利（估）代替。财务真实录入格式仍待复核，本页只有虚构只读结果。账内已登记料成本仅作参考提示，不替代本项。"/></span><strong>{loading?'读取中':final?.status==='pending_finance'?'待财务核算':final?.value!=null?`${format(final.value)} CNY`:messages[final?.status??'']??'数据待补'}</strong></div>
         </article>
       </div>
+      {data?.privatePush && <div className="p0-private" aria-label="客服私推"><span>客服私推<InfoTip label="客服私推口径" text={data.privatePush.definition}/></span><strong>{yen(data.privatePush.amount)} <small>{data.privatePush.count} 笔</small></strong><small>只计料价，不计入直播间开单</small></div>}
       {data?.fx.missing.length? <p className="p0-warning" role="status">参考汇率缺失：{data.fx.missing.join('；')}</p>:null}
       <details className="p0-reference"><summary>参考汇率与数据更新 <span>ⓘ</span></summary><div>{data?.fx.ratesUsed.map(r=><p key={r.currency+r.effectiveFrom}>1 {r.currency} = {rateFormat(r.cnyPerUnit)} CNY <small>生效 {r.effectiveFrom}</small></p>)}<p className="p0-reference-note">{fxDisclaimer}。同期对比截至 {data?.period.cutoff??'—'}，按当前已知记录重算。示例汇率为虚构参考配置。</p>{data?.sources.map(s=><p className="p0-source" key={s.name}><span>{s.name}</span><time>{s.updatedAt?new Date(s.updatedAt).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false}):'待接入'}</time></p>)}</div></details>
       <div className="p0-followup"><div><span>财务核定已付款业绩 <InfoTip label="财务核定业绩口径" text="财务按开单日、直播间和主播专项核定的业绩，不等于客户已收款，系统不计算主播提成，不参与毛利（估）、实际毛利与 ROI 计算。"/></span><strong>{data?.paidPerformance.length?format((data.paidPerformance.reduce((n,r)=>n+Math.round(Number(r.amount)*100),0)/100).toFixed(2)):'—'} <small>CNY</small></strong></div><button className="text-action" type="button" onClick={openBusiness}>直播间经营明细 →</button></div>

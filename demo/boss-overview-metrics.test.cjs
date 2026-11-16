@@ -65,6 +65,8 @@ test('月初、短月、周一、自定义范围及非法日期边界',()=>{
  const p=periodOf({preset:'month'},'2026-03-31');assert.equal(comparisonPeriods(p)[0].to,'2026-02-28');
  assert.equal(comparisonPeriods(periodOf({preset:'month'},'2026-01-01'))[0].from,'2025-12-01');
  assert.equal(comparisonPeriods(periodOf({from:'2026-11-05',to:'2026-11-07'},clock.today))[0].from,'2026-11-02');
+ assert.equal(periodOf({preset:'custom',from:'2026-11-09',to:'2026-11-14'},'2026-11-14').from,'2026-11-09');
+ assert.throws(()=>periodOf({preset:'custom'},'2026-11-14'));
  for(const query of [{from:'2026-11-01'},{from:'2026-11-12',to:'2026-11-12'},{from:'2026-02-30',to:'2026-11-11'},{from:'2026-11-11',to:'2026-11-10'},{preset:'bad'},{from:'2024-01-01',to:clock.today}])assert.throws(()=>run(fixture(),query));
 });
 test('数据覆盖不完整、当日缺发生时刻，合计和对比均不伪造0',()=>{

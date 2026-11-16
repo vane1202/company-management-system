@@ -3,9 +3,11 @@ import type { Role } from "./api";
 export type Page =
   | "home"
   | "finance"
+  | "financeOut"
   | "fans"
   | "summary"
   | "orders"
+  | "opsFeedback"
   | "ops"
   | "editor"
   | "dashboard"
@@ -13,9 +15,12 @@ export type Page =
   | "csAccounts"
   | "salaries"
   | "modules"
-  | "assessment";
+  | "assessment"
+  | "reportHistory"
+  | "customerReview";
 
 export const roleLabel: Record<Role, string> = {
+  warehouse: "库房",
   boss: "BOSS",
   admin: "后台管理员",
   finance: "财务",
@@ -27,7 +32,8 @@ export const roleLabel: Record<Role, string> = {
 };
 
 export function navItems(role: Role): { id: Page; label: string }[] {
-  if (role === "finance") return [{id:"home",label:"财务工作台"},{id:"salaries",label:"工资核算"}];
+  if (role === "warehouse") return [{id:"home",label:"库房工作台"}];
+  if (role === "finance") return import.meta.env.MODE === "demo" ? [{id:"home",label:"财务首页"},{id:"finance",label:"收款与结算"},{id:"financeOut",label:"付款与工资"},{id:"salaries",label:"工资核算"}] : [{id:"home",label:"财务工作台"},{id:"salaries",label:"工资核算"}];
   if (role === "admin") return [{ id: "home", label: "系统管理" }, { id: "people", label: "账号与小组" }, { id: "csAccounts", label: "客服接待账号" }, { id: "modules", label: "模块管理" }];
   if (role === "boss") return import.meta.env.MODE === "demo" ? bossDemoNav() : [
     { id: "home", label: "管理总览" },
@@ -39,10 +45,10 @@ export function navItems(role: Role): { id: Page; label: string }[] {
     { id: "summary", label: "加粉汇总" },
     { id: "editor", label: "拍剪汇总" }
   ];
-  if (role === "cs_supervisor") { const items: { id: Page; label: string }[] = [{ id: "home", label: "本组工作台" }, { id: "summary", label: "本组加粉" }, { id: "orders", label: "本组消费业绩" }, { id: "csAccounts", label: "本组客服账号管理" }]; if (import.meta.env.MODE === "demo") items.splice(2, 0, { id: "assessment", label: "客服考核" }); return items; }
+  if (role === "cs_supervisor") { const items: { id: Page; label: string }[] = [{ id: "home", label: "工作台首页" }, { id: "summary", label: "本组加粉" }, { id: "orders", label: "本组业绩" }]; if (import.meta.env.MODE === "demo") items.push({ id: "assessment", label: "客服考核" }, { id: "customerReview", label: "无效客资复核" }); items.push({ id: "csAccounts", label: "客服账号管理" }); if (import.meta.env.MODE === "demo") items.push({ id: "reportHistory", label: "填报历史管理" }); return items; }
   const items: { id: Page; label: string }[] = [{ id: "home", label: "首页" }];
   if (role === "cs") items.push({ id: "fans", label: "加粉填报" }, { id: "orders", label: "订单填报" });
-  if (role === "ops") return import.meta.env.MODE === "demo" ? [{id:"home",label:"运营工作台"},{id:"ops",label:"投放填报与台账"}] : [...items, { id: "ops", label: "推广" }];
+  if (role === "ops") return import.meta.env.MODE === "demo" ? [{id:"home",label:"运营工作台"},{id:"ops",label:"投放填报"},{id:"opsFeedback",label:"反馈与建议"}] : [...items, { id: "ops", label: "推广" }];
   if (role === "editor") items.push({ id: "editor", label: "拍剪" });
   return items;
 }
@@ -61,11 +67,9 @@ export function canReviewDaily(role: Role): boolean {
 
 export function bossDemoNav(): { id: Page; label: string }[] {
   return [
-    { id: "dashboard", label: "经营估算" },
+    { id: "dashboard", label: "经营总览" },
     { id: "orders", label: "直播间经营" },
-    { id: "summary", label: "加粉汇总" },
-    { id: "assessment", label: "客服考核" },
-    { id: "editor", label: "拍剪汇总" }
+    { id: "editor", label: "拍剪数据" }
   ];
 }
 
@@ -75,5 +79,5 @@ export function bossLinkedPages(): Page[] {
 
 export function pageLabel(role: Role, page: Page): string {
   return navItems(role).find((item) => item.id === page)?.label
-    ?? (page === "finance" ? "收款与到账" : page === "ops" ? "推广汇总" : page === "salaries" ? "工资汇总" : "");
+    ?? (page === "finance" ? "收款与到账" : page === "ops" ? "投流数据" : page === "salaries" ? "工资汇总" : "");
 }

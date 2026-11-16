@@ -11,6 +11,9 @@ export function amount(value: string): bigint {
 }
 export const money = (value: bigint) => `${value / 100n}.${String(value % 100n).padStart(2, "0")}`;
 export const operatorOf = (s: Source) => s.record.details?.operatorName.trim() || s.identity.operatorName?.trim() || UNKNOWN;
+export function channelOf(s: Source): "live" | "private" {
+  return s.record.details?.dealChannel === "private" || s.identity.dealChannel === "private" ? "private" : "live";
+}
 export const inRange = (date: string, from: string, to: string) => date >= from && date <= to;
 export function shiftDay(date: string, n: number) {
   const clock = new Date(`${date}T00:00:00Z`); clock.setUTCDate(clock.getUTCDate() + n);
@@ -36,7 +39,7 @@ export function pendingFor(s: Source, to: string): Pending[] {
 function calculatePending(s: Source, to: string): Pending[] {
   const o = s.record.order, d = s.record.details;
   if (o.business_date > to || !activeOrder(s)) return [];
-  const missing = [operatorOf(s) === UNKNOWN && "经办客服", !o.customer_label && "客户姓名", !d?.liveRoomCode && "直播间"].filter(Boolean).join("、");
+  const missing = [operatorOf(s) === UNKNOWN && "经办客服", !o.customer_label && "客户姓名", channelOf(s) !== "private" && !d?.liveRoomCode && "直播间"].filter(Boolean).join("、");
   const rows: Pending[] = missing ? [{source: s, kind: "资料待补", currency: null, balance: null, missing}] : [];
   if (!d || s.record.legacy || d.baseCustomerDue == null) return [...rows, {source: s, kind: "资料待补", currency: null, balance: null, missing: "约定应收／付款归属"}];
   const payments = (s.record.payments || []).filter(p => !p.voided_at && p.payment_date <= to);
@@ -84,15 +87,19 @@ export function aggregate(sources: Source[], f: Selection, accounts: CsAccount[]
   const names = new Set(scoped.map(operatorOf));
   // Current holders can have zero business; they never replace the order's historical operator.
   if (!f.persona && !f.room) for (const a of accounts) if ((!f.account || a.id === f.account) && a.holderName && (!f.operator || a.holderName === f.operator)) names.add(a.holderName);
+  const sumBooking = (rows: Source[]) => rows.reduce((n,s)=>n+(booking(s)||0n),0n);
   const contributions = [...names].filter(name => !f.operator || name === f.operator).map(name => {
     const records = scoped.filter(s => operatorOf(s) === name);
     const stats = valid.filter(s => operatorOf(s) === name);
-    return {name, sources:records, count:stats.length, turnover:stats.reduce((n,s)=>n+(booking(s)||0n),0n), unknown:stats.some(s=>booking(s)===null),
+    const live = stats.filter(s => channelOf(s) !== "private"), pushed = stats.filter(s => channelOf(s) === "private");
+    return {name, sources:records, count:stats.length, turnover:sumBooking(stats), liveTurnover:sumBooking(live), privateTurnover:sumBooking(pushed), privateCount:pushed.length, unknown:stats.some(s=>booking(s)===null),
       accounts:[...new Set(records.map(s=>s.record.order.wechat_id || s.identity.wechatId || "原账号"))],
       pending:pending.filter(p=>operatorOf(p.source)===name)};
   });
   const customers = new Set(valid.map(s => `${s.identity.userId}:${s.identity.customerCode || s.record.order.customer_label || s.identity.id}`)).size;
-  return {scoped, bookings, valid, turnover, unknownBookings, cancelled, pending, contributions, customers,teamTurnover,teamUnknownBookings};
+  const liveValid = valid.filter(s => channelOf(s) !== "private"), privateValid = valid.filter(s => channelOf(s) === "private");
+  const liveTurnover = liveValid.reduce((n,s)=>n+(booking(s)||0n),0n), privateTurnover = privateValid.reduce((n,s)=>n+(booking(s)||0n),0n);
+  return {scoped, bookings, valid, turnover, liveTurnover, privateTurnover, privateCount: privateValid.length, unknownLive: liveValid.filter(s=>booking(s)===null).length, unknownBookings, cancelled, pending, contributions, customers,teamTurnover,teamUnknownBookings};
 }
 export function teamShare(turnover:bigint,teamTurnover:bigint,unknown:number):number|null {
   return unknown||teamTurnover<=0n?null:Number(turnover*10000n/teamTurnover)/100;

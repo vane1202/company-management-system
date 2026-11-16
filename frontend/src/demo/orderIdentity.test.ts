@@ -23,20 +23,20 @@ describe("精简开单信息", () => {
     expect(parseSimpleOrderText("人设：演示甲（P001）\n人设ID：P002", today).errors.length).toBeGreaterThan(0);
   });
   it("主播或直播间可分别识别，按登记绑定带出另一项", () => {
-    for (const text of ["主播：演示主播甲", "直播间编号：DEMO-LIVE-01", "备注：演示主播甲直播间", "直播间：演示一线"]) {
+    for (const text of ["主播：甜甜", "直播间编号：DEMO-LIVE-01", "备注：甜甜直播间", "直播间：海外一线"]) {
       const r = parseSimpleOrderText(text, today);
-      expect(r.fields).toMatchObject({ hostName: "演示主播甲", liveRoomCode: "DEMO-LIVE-01" });
-      expect(roomDisplay(r.fields)).toBe("演示主播甲 · 演示一线（DEMO-LIVE-01）");
+      expect(r.fields).toMatchObject({ hostName: "甜甜", liveRoomCode: "DEMO-LIVE-01" });
+      expect(roomDisplay(r.fields)).toBe("甜甜 · 海外一线（DEMO-LIVE-01）");
     }
   });
   it("冲突绑定阻止填入，未知主播或仅有人设不猜关联", () => {
-    const r = parseSimpleOrderText("主播：演示主播甲\n直播间编号：DEMO-LIVE-02", today);
+    const r = parseSimpleOrderText("主播：甜甜\n直播间编号：DEMO-LIVE-02", today);
     expect(r.errors.join()).toContain("绑定关系"); expect(boundRoom(r.fields)).toBeUndefined();
     expect(parseSimpleOrderText("主播：未知主播", today).fields.liveRoomCode).toBeUndefined();
     expect(parseSimpleOrderText("人设：演示甲", today).fields.liveRoomCode).toBeUndefined();
   });
   it("不要求用户补填系统编号或隐藏的重复字段，保留原汇报单号", () => {
-    const r = parseSimpleOrderText("客户：演示客户\n人设：演示甲\n主播：演示主播甲", today);
+    const r = parseSimpleOrderText("客户：演示客户\n人设：演示甲\n主播：甜甜", today);
     expect(r.warnings.join()).not.toMatch(/订单编号未提供|人设ID、直播间编号需明确提供|客户ID未提供/);
     expect(r.fields.orderRef).toBeUndefined();
     expect(parseSimpleOrderText("订单号：OLD-001", today).fields.orderRef).toBe("OLD-001");
@@ -45,5 +45,15 @@ describe("精简开单信息", () => {
     expect(parseSimpleOrderText("客户：甲\n客户名：乙", today).errors.length).toBeGreaterThan(0);
     expect(parseSimpleOrderText("客户：" + "字".repeat(65), today).errors.length).toBeGreaterThan(0);
     expect(parseSimpleOrderText("第一块料子：100+10\n合计金额：120元", today).errors.length).toBeGreaterThan(0);
+  });
+  it("私推只识别料价，不收代购费，也不匹配直播间", () => {
+    const r = parseSimpleOrderText("日期：26.11.8\n客服：荣慧\n客户：全義\n第一块料子：980\n第二块料子：1800\n合计金额：人民币2780元\n备注：私推", today, "private");
+    expect(r.errors).toEqual([]);
+    expect(r.items.map(item => [item.priceCny, item.buyingFeeCny])).toEqual([["980.00", "0.00"], ["1800.00", "0.00"]]);
+    expect(r.itemTotal).toBe("2780.00");
+    expect(r.fields.liveRoomCode).toBeUndefined();
+    expect(r.fields.hostName).toBeUndefined();
+    expect(parseSimpleOrderText("第一块料子：980+98\n备注：私推", today, "private").errors.join()).toContain("不收代购费");
+    expect(parseSimpleOrderText("客户：全義\n第一块料子：980\n备注：甜甜直播间", today, "private").errors.join()).toContain("直播间");
   });
 });

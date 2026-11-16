@@ -25,7 +25,7 @@
       { id: "demo-tenure-bing", accountId: "demo-wechat-3", employeeId: "demo-staff-bing", startDate: bingStart, endDate: null }
     ];
     const oldDay = shift(today, -4);
-    const lead = (id, date, employeeId, contact, qualified, invalidReason) => ({ id, accountId: "demo-wechat-3", businessDate: date, employeeId, pageName: "\u6f14\u793a\u4e3b\u9875 C", channel: "ms", contact, qualified, invalidReason });
+    const lead = (id, date, employeeId, contact, qualified, invalidReason) => ({ id, accountId: "demo-wechat-3", businessDate: date, employeeId, pageName: "\u6f14\u793a\u4e3b\u9875 C", sourceAdAccountId: "", channel: "ms", contact, qualified, invalidReason });
     const leads = [
       lead("seal-lead-1", oldDay, "demo-staff-former", "replied", true, ""),
       lead("seal-lead-2", oldDay, "demo-staff-former", "replied", false, ""),
@@ -39,7 +39,7 @@
       { id: "seal-attendance-bing", accountId: "demo-wechat-3", businessDate: bingStart, employeeId: "demo-staff-bing", roomCode: "DEMO-LIVE-01", roomName: "\u6f14\u793a\u4e00\u7ebf", enteredCount: 4, orderedCustomerIds: [], orderLink: "linked", source: "\u865a\u6784\u76f4\u64ad\u95f4\u540e\u53f0\u8bb0\u5f55" },
       { id: "seal-attendance-jia", accountId: "demo-wechat-1", businessDate: today, employeeId: "demo-staff-jia", roomCode: "DEMO-LIVE-01", roomName: "\u6f14\u793a\u4e00\u7ebf", enteredCount: 12, orderedCustomerIds: [], orderLink: "unlinked", source: "\u865a\u6784\u76f4\u64ad\u95f4\u540e\u53f0\u8bb0\u5f55" }
     ];
-    const addLead = (id, accountId, date, employeeId, contact, qualified) => leads.push({ id, accountId, businessDate: date, employeeId, pageName: accountId === "demo-wechat-2" ? "演示主页乙" : "演示主页甲", channel: "ms", contact, qualified, invalidReason: "" });
+    const addLead = (id, accountId, date, employeeId, contact, qualified) => leads.push({ id, accountId, businessDate: date, employeeId, pageName: accountId === "demo-wechat-2" ? "演示主页乙" : "演示主页甲", sourceAdAccountId: accountId === "demo-wechat-2" ? "9002" : "09001", channel: "ms", contact, qualified, invalidReason: "" });
     const wave = (prefix, accountId, employeeId, date, qualified, plain) => {
       for (let index = 0; index < qualified; index += 1) addLead(prefix + "-q" + index, accountId, date, employeeId, "replied", true);
       for (let index = 0; index < plain; index += 1) addLead(prefix + "-p" + index, accountId, date, employeeId, "replied", false);
@@ -67,16 +67,32 @@
     }
     return { employees, tenures, leads, attendance };
   }
+  function sourceOf(lead) { return String(lead.sourceAdAccountId || "").trim(); }
   function invalidFacts(leads) {
     const grouped = new Map();
     for (const lead of leads) {
       const key = lead.businessDate + "|" + lead.pageName;
-      const row = grouped.get(key) || { businessDate: lead.businessDate, pageName: lead.pageName, received: 0, no_chinese: 0, misclick: 0, obscene: 0, unspecified: 0 };
+      const source = sourceOf(lead);
+      const row = grouped.get(key) || { businessDate: lead.businessDate, pageName: lead.pageName, sourceAdAccountId: source, received: 0, no_chinese: 0, misclick: 0, obscene: 0, unspecified: 0 };
+      if (row.sourceAdAccountId !== source) row.sourceAdAccountId = "";
       row.received += 1;
       if (lead.contact === "invalid") row[lead.invalidReason] !== undefined ? row[lead.invalidReason] += 1 : row.unspecified += 1;
       grouped.set(key, row);
     }
     return [...grouped.values()].sort((a, b) => a.businessDate.localeCompare(b.businessDate) || a.pageName.localeCompare(b.pageName));
+  }
+  function sourceAdIntake(leads) {
+    const grouped = new Map();
+    for (const lead of leads) {
+      const adAccountId = sourceOf(lead);
+      const row = grouped.get(adAccountId) || { adAccountId, received: 0, replied: 0, qualified: 0, no_chinese: 0, misclick: 0, obscene: 0, unspecified: 0 };
+      row.received += 1;
+      if (lead.contact === "replied") row.replied += 1;
+      if (lead.contact === "replied" && lead.qualified) row.qualified += 1;
+      if (lead.contact === "invalid") row[lead.invalidReason] !== undefined ? row[lead.invalidReason] += 1 : row.unspecified += 1;
+      grouped.set(adAccountId, row);
+    }
+    return [...grouped.values()].sort((a, b) => b.received - a.received || a.adAccountId.localeCompare(b.adAccountId));
   }
   const notes = {
     directory: "\u5458\u5de5\u7f16\u53f7\u548c\u8d26\u53f7\u4f7f\u7528\u671f\u95f4\u4f9b\u7ba1\u7406\u6838\u5bf9\u3002\u8fd9\u91cc\u4e0d\u63d0\u4f9b\u8fdb\u7c89\u3001\u5165\u573a\u548c\u5f00\u5355\u6570\u636e\u3002",
@@ -100,14 +116,15 @@
     });
     const base = { version: "assessment-foundation/v1", demo: true, today };
     if (role === "admin") return { ...base, view: "directory", employees, tenures, holderCheck, note: notes.directory };
-    if (role === "ops") return { ...base, view: "invalid", invalid: invalidFacts(model.leads), note: notes.invalid };
+    if (role === "ops") return { ...base, view: "invalid", invalid: invalidFacts(model.leads), sourceAds: sourceAdIntake(model.leads), note: notes.invalid };
     if (role === "cs") return { ...base, view: "capture", employees, tenures, attendance, holderCheck, note: notes.capture };
     if (role === "boss" || role === "cs_supervisor") {
       const attributed = orders.filter((order) => visible.has(order.accountId)).map((order) => {
         const tenure = cover(model.tenures, order.accountId, order.businessDate);
         return { id: order.id, accountId: order.accountId, businessDate: order.businessDate, customerLabel: order.customerLabel || "", employeeId: tenure ? tenure.employeeId : null, countsAsOrder: !order.cancelled && order.status !== "refunded" };
       });
-      return { ...base, view: "review", employees, tenures, leads, attendance, orders: attributed, holderCheck, note: notes.review };
+      const teams = [...new Map(accounts.filter(account => employees.some(employee => employee.teamId === account.teamId)).map(account => [account.teamId, { id: account.teamId, name: account.teamName || account.teamId }])).values()];
+      return { ...base, view: "review", teams, employees, tenures, leads, attendance, orders: attributed, holderCheck, note: notes.review };
     }
     return null;
   }

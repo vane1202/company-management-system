@@ -1,6 +1,6 @@
 import type { AssessmentFoundation } from "./demo/assessmentFoundation";
 import { httpErrorMessage, networkErrorMessage } from "./errors";
-export type Role = "boss" | "admin" | "finance" | "assistant" | "ops" | "editor" | "cs" | "cs_supervisor";
+export type Role = "warehouse" | "boss" | "admin" | "finance" | "assistant" | "ops" | "editor" | "cs" | "cs_supervisor";
 
 export type User = {
   id: string;
@@ -253,7 +253,7 @@ export type Order = {
   bookingAmount?:string;
   id: string;
   workflowEnabled?: boolean;
-  personaCode?:string;personaName?:string;liveRoomCode?:string;hostName?:string;customerCode?:string;operatorName?:string;
+  dealChannel?:"live"|"private";personaCode?:string;personaName?:string;liveRoomCode?:string;hostName?:string;customerCode?:string;operatorName?:string;
   userId?: string;
   displayName?: string;
   wechatId?: string | null;
@@ -298,7 +298,7 @@ export type OrderRecord = {
   legacy:boolean;
   order:{id:string;order_ref:string;customer_label:string;business_date:string;amount:string;status:string;cancelled?:boolean;wechat_id?:string;display_name:string;note?:string;custom_product_cost:string;labor_cost:string;shipping_cost:string;material_cost_cny?:string|null;material_lot_no?:string|null};
   cancellations?:{id:string;booked_on:string;base_amount_cny:string;reason:string;created_at:string;created_by_name:string|null;voided_at:string|null;void_reason:string|null;voided_by_name:string|null}[];
-  details?:{personaName:string;personaCode?:string;liveRoomCode?:string;hostName?:string;customerCode?:string;operatorName:string;source:string;customerCurrency:Currency;customerDue:string;baseCustomerDue?:string;shippedOn:string|null;version:number};
+  details?:{dealChannel?:"live"|"private";personaName:string;personaCode?:string;liveRoomCode?:string;hostName?:string;customerCode?:string;operatorName:string;source:string;customerCurrency:Currency;customerDue:string;baseCustomerDue?:string;shippedOn:string|null;version:number};
   items?:{id:string;label:string;material_ref:string;kind:string;price_cny:string;buying_fee_cny:string}[];
   payments?:PaymentRecord[]; expenses?:ExpenseRecord[]; charges?:ChargeRecord[];
   attachments?:{id:string;item_id:string|null;filename:string;mime_type:string}[];
