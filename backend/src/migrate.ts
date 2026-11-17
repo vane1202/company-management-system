@@ -12,34 +12,36 @@ export function migrationsDir(): string {
 }
 
 export async function migrate(pool: Pool): Promise<string[]> {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS schema_migrations (
-      id TEXT PRIMARY KEY,
-      applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `);
-
-  const dir = migrationsDir();
-  const files = fs.readdirSync(dir).filter((name) => name.endsWith(".sql")).sort();
-  const applied: string[] = [];
-
-  for (const file of files) {
-    const exists = await pool.query("SELECT 1 FROM schema_migrations WHERE id = $1", [file]);
-    if (exists.rowCount) continue;
-    const sql = fs.readFileSync(path.join(dir, file), "utf8");
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-      await client.query(sql);
-      await client.query("INSERT INTO schema_migrations (id) VALUES ($1)", [file]);
-      await client.query("COMMIT");
-      applied.push(file);
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally {
-      client.release();
+  const client = await pool.connect();
+  try {
+    await client.query("SELECT pg_advisory_lock(13080, 17)");
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        id TEXT PRIMARY KEY,
+        applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `);
+    const dir = migrationsDir();
+    const files = fs.readdirSync(dir).filter((name) => name.endsWith(".sql")).sort();
+    const applied: string[] = [];
+    for (const file of files) {
+      const exists = await client.query("SELECT 1 FROM schema_migrations WHERE id = $1", [file]);
+      if (exists.rowCount) continue;
+      const sql = fs.readFileSync(path.join(dir, file), "utf8");
+      try {
+        await client.query("BEGIN");
+        await client.query(sql);
+        await client.query("INSERT INTO schema_migrations (id) VALUES ($1)", [file]);
+        await client.query("COMMIT");
+        applied.push(file);
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      }
     }
+    return applied;
+  } finally {
+    try { await client.query("SELECT pg_advisory_unlock(13080, 17)"); }
+    finally { client.release(); }
   }
-  return applied;
 }

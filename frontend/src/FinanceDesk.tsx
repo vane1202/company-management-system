@@ -38,7 +38,7 @@ export function FinanceDesk({ today, onOpenSalary, section, active:isActive=true
   const balances = active.filter(payment => !payment.after_sale_charge_id && payment.purpose === "balance");
   const later = active.filter(payment => !!payment.after_sale_charge_id);
   if (demo && work === "reimbursement") return <ReimbursementWorkspace today={today} onBack={()=>setWork("home")}/>;
-  if (demo && work === "warehouse") return <WarehouseWorkspace today={today} finance onBack={()=>setWork("home")}/>;
+  if (work === "warehouse") return <WarehouseWorkspace today={today} finance onBack={()=>setWork("home")}/>;
   if (work === "settlement") return <WorkFrame title="第三方结算" onBack={() => setWork("home")}><FinanceLedgerWorkspace today={today} heading="第三方结算" hideCompanions /></WorkFrame>;
   if (work === "material") return <WorkFrame title="料子货款结算" onBack={() => setWork("home")}><p className="notice">此处查看料子供货成本与原付款台账；新结账单由库房提交，在「库房结账」中审核和登记付款。客户已付款不在这里抵扣。</p><CompanyPayments today={today} readOnly={demo} categories={["goods", "sourcing"]} heading="翡翠料子货款" /></WorkFrame>;
   if (demo && work === "ads") return <WorkFrame title="广告充值" onBack={() => setWork("home")}><AdAccountsWorkspace today={today} readOnly={false} /></WorkFrame>;
@@ -68,6 +68,7 @@ export function FinanceDesk({ today, onOpenSalary, section, active:isActive=true
       <button type="button" className="role-home-action" onClick={() => setWork("receipts")}><span><strong>订单收款</strong><small>实时收款 {payments ? immediate.length : "—"} 笔 · 尾款 {payments ? balances.length : "—"} 笔。登记定金、全款和尾款。</small></span><DashboardIcon name="arrow" /></button>
       <button type="button" className="role-home-action" onClick={() => setWork("settlement")}><span><strong>第三方结算</strong><small>核对代收货款，登记扣点、结汇和人民币到账。</small></span><DashboardIcon name="arrow" /></button>
       <button type="button" className="role-home-action" onClick={() => setWork("later")}><span><strong>后续费用收款</strong><small>已登记 {payments ? later.length : "—"} 笔。收取设计、雕刻、配货等后续费用。</small></span><DashboardIcon name="arrow" /></button>
+      <button type="button" className="role-home-action" onClick={() => setWork("warehouse")}><span><strong>库房结账</strong><small>审核库房账单，登记分次付款与结清。</small></span><DashboardIcon name="arrow" /></button>
       <button type="button" className="role-home-action" onClick={() => setWork("material")}><span><strong>料子货款结算</strong><small>核对直播间售出翡翠的供货款，登记付给供货方的付款。</small></span><DashboardIcon name="arrow" /></button>
       <button type="button" className="role-home-action" onClick={() => setWork("other")}><span><strong>其他财务事项</strong><small>加工、证书、包装、运费，以及广告预存和提成核定。</small></span><DashboardIcon name="arrow" /></button>
     </div></section>

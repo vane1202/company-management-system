@@ -136,7 +136,7 @@ export function App() {
   if (entry && !modules) return <div className="page"><p>正在确认填报入口…</p>{error && <p className="error">{error}</p>}<button type="button" onClick={() => api.modules().then((data) => { setModules(data.modules); setError(""); }).catch((err) => setError(toErrorMessage(err)))}>重新加载</button></div>;
   if (entry && modules?.[entry] === false) return <section className="page"><div className="card"><h2>{fillEntries[entry].title}已停用</h2><p>请联系管理员重新启用，历史数据仍保留。</p><a className="btn secondary" href="/">返回首页</a></div></section>;
 
-  const managementRole = ["boss", "admin", "cs_supervisor", "finance"].includes(user.role) || (import.meta.env.MODE === "demo" && ["ops","warehouse"].includes(user.role));
+  const managementRole = ["boss", "admin", "cs_supervisor", "finance", "warehouse"].includes(user.role) || (import.meta.env.MODE === "demo" && user.role === "ops");
   const demoBoss = import.meta.env.MODE === "demo" && user.role === "boss";
   const linkedPages = demoBoss ? bossLinkedPages() : [];
   const items = navItems(user.role).filter((item) => managementRole || !["fans", "orders", "ops", "editor"].includes(item.id) || modules?.[item.id] === true);
@@ -338,7 +338,7 @@ function Home({
   onOpenBusiness:(view:LiveView)=>void;
 }) {
   if (DemoOpsAnalysis && user.role === "ops") return <Suspense fallback={<p role="status">正在读取运营工作台…</p>}><DemoOpsAnalysis today={today} onOpenReports={()=>onNavigate("ops")} onOpenFeedback={account=>{try{sessionStorage.setItem("cms-demo-ops-feedback-context",account||"");}catch{}onNavigate("opsFeedback");}}/></Suspense>;
-  if (import.meta.env.MODE === "demo" && user.role === "warehouse") return <WarehouseWorkspace today={today}/>;
+  if (user.role === "warehouse") return <WarehouseWorkspace today={today} userId={user.id}/>;
   if (user.role === "finance") return import.meta.env.MODE==='demo'?<FinanceHome today={today} active={active} onOpen={(section,task)=>{if(task)sessionStorage.setItem('cms-demo-finance-task',task);onNavigate(section);}}/>:<FinanceDesk today={today} onOpenSalary={() => onNavigate("salaries")} />;
   if (user.role === "boss") return <DashboardHome today={today} onNavigate={onNavigate} onOpenBusiness={onOpenBusiness} />;
   if (user.role === "admin") return import.meta.env.MODE === "demo" ? <AdminWorkbench onNavigate={onNavigate}/> : <AdminHome onNavigate={onNavigate} />;
@@ -489,6 +489,8 @@ function PeoplePage({ today, onError }: { today: string; onError: (value: string
   const [userPending, setUserPending] = useState(false);
   const [userError, setUserError] = useState("");
   const [scopeUser, setScopeUser] = useState<AdminUser | null>(null);
+  const [editingUser, setEditingUser] = useState<{ id: string; username: string; displayName: string } | null>(null);
+  const [editError, setEditError] = useState("");
   const [scopeIds, setScopeIds] = useState<string[]>([]);
   const [savingUser, setSavingUser] = useState("");
   const [form, setForm] = useState({
@@ -597,9 +599,29 @@ function PeoplePage({ today, onError }: { today: string; onError: (value: string
           <button type="submit" disabled={userPending}>{userPending ? "保存中…" : "开通账号"}</button>
           {userError && <p className="action-error" role="alert">{userError}</p>}
         </form>
+        {editingUser && <form className="review-card" onSubmit={async event => {
+          event.preventDefault();
+          const target = editingUser;
+          setSavingUser(target.id); setEditError("");
+          try {
+            await api.updateUser(target.id, { username: target.username, displayName: target.displayName });
+          } catch (error) {
+            fail("账号信息未保存", error, setEditError); setSavingUser(""); return;
+          }
+          setSavingUser(""); setEditingUser(null); onError("");
+          toast.success("账号信息已更新，下次登录请使用新登录名");
+          await refreshAfterSave();
+        }}>
+          <h3>修改账号信息</h3>
+          <label>姓名<input required maxLength={64} value={editingUser.displayName} disabled={!!savingUser} onChange={event => setEditingUser({ ...editingUser, displayName: event.target.value })} /></label>
+          <label>登录名<input required minLength={3} maxLength={32} pattern="[a-z0-9][a-z0-9_-]{2,31}" value={editingUser.username} disabled={!!savingUser} autoCapitalize="none" autoCorrect="off" onChange={event => setEditingUser({ ...editingUser, username: event.target.value.toLowerCase() })} /></label>
+          <p className="notice">修改后密码、小组归属和历史记录保持关联，下次登录使用新登录名。</p>
+          {editError && <p className="action-error" role="alert">{editError}</p>}
+          <div className="actions"><button disabled={!!savingUser}>{savingUser ? "保存中…" : "保存修改"}</button><button className="secondary" type="button" disabled={!!savingUser} onClick={() => setEditingUser(null)}>取消</button></div>
+        </form>}
         <div className="table-wrap">
           <table>
-            <thead><tr><th>姓名</th><th>登录名</th><th>角色</th><th>小组 / 管理范围</th><th>状态</th></tr></thead>
+            <thead><tr><th>姓名</th><th>登录名</th><th>角色</th><th>小组 / 管理范围</th><th>状态</th><th>操作</th></tr></thead>
             <tbody>
               {users.map((item) => (
                 <tr key={item.id}>
@@ -608,6 +630,7 @@ function PeoplePage({ today, onError }: { today: string; onError: (value: string
                   <td data-label="角色"><select aria-label={`${item.username}角色`} disabled={savingUser === item.id} value={item.role} onChange={async (e) => { const role = e.target.value; setSavingUser(item.id); try { await api.updateUser(item.id, { role }); } catch (err) { fail(`${item.displayName} 角色未修改`, err); setSavingUser(""); return; } setSavingUser(""); onError(""); toast.success(`已将 ${item.displayName} 的角色改为${roleLabel[role as keyof typeof roleLabel] ?? role}`); await refreshAfterSave(); }}>{Object.entries(roleLabel).filter(([key]) => key !== "assistant" || item.role === "assistant").map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></td>
                   <td data-label="小组 / 管理范围">{item.role === "cs_supervisor" ? <><p>{(item.managedTeamIds ?? []).map((id) => teams.find((team) => team.id === id)?.name || id).join("、") || "暂未分配小组"}</p><button className="secondary" type="button" onClick={() => { setScopeUser(item); setScopeIds(item.managedTeamIds ?? []); }}>设置负责小组</button></> : item.currentTeam?.name ?? "—"}</td>
                   <td data-label="状态"><button className="secondary" type="button" disabled={savingUser === item.id} onClick={async () => { setSavingUser(item.id); try { await api.updateUser(item.id, { isActive: !item.isActive }); } catch (err) { fail(`${item.displayName} ${item.isActive ? "停用" : "启用"}失败`, err); setSavingUser(""); return; } setSavingUser(""); onError(""); toast.success(`已${item.isActive ? "停用" : "启用"}账号：${item.displayName}`); await refreshAfterSave(); }}>{savingUser === item.id ? "保存中…" : item.isActive ? "停用账号" : "启用账号"}</button></td>
+                  <td data-label="操作"><button className="secondary" type="button" disabled={!!savingUser} onClick={() => { setEditingUser({ id: item.id, username: item.username, displayName: item.displayName }); setEditError(""); }}>修改信息</button></td>
                 </tr>
               ))}
             </tbody>

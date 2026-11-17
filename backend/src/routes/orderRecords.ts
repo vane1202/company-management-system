@@ -143,6 +143,7 @@ export function createOrderRecordsRouter(db: Pool, config: AppConfig) {
     const row=(await c.query("SELECT id,voided_at,after_sale_charge_id FROM order_expenses WHERE id=$1 AND order_id=$2 FOR UPDATE",[uuid(req.params.expenseId),id])).rows[0];
     if(!row)throw new HttpError(404,"费用不存在");if(row.voided_at)return {id:row.id};
     if((await c.query("SELECT 1 FROM supplier_payments WHERE expense_id=$1 AND voided_at IS NULL",[row.id])).rowCount)throw new HttpError(409,"已有实际付款，请财务先纠正关联付款");
+    if ((await c.query("SELECT 1 FROM warehouse_bills WHERE expense_id=$1 AND status<>'rejected'", [row.id])).rowCount) throw new HttpError(409, "成本已关联库房结账单，不能直接作废");
     await c.query("UPDATE order_expenses SET voided_at=now(),void_reason=$2 WHERE id=$1",[row.id,reason]);if(row.after_sale_charge_id)await c.query('UPDATE order_charges SET costs_completed_at=NULL WHERE id=$1',[row.after_sale_charge_id]);await syncCosts(c,id);await audit(c,req,"order_expense_void",id,{id:row.id,reason});return {id:row.id};
   }));
   router.post("/:id/shipping",mutate(async(c,req)=>{

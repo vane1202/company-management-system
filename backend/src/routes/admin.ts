@@ -7,7 +7,7 @@ import { hashPassword, validatePassword } from "../lib/password.js";
 import { HttpError, type UserRole } from "../types.js";
 import { isBossOrAdmin } from "../users.js";
 
-const ROLES: UserRole[] = ["boss", "admin", "finance", "assistant", "ops", "editor", "cs", "cs_supervisor"];
+const ROLES: UserRole[] = ["boss", "admin", "finance", "assistant", "ops", "editor", "cs", "cs_supervisor", "warehouse"];
 
 export function createAdminRouter(db: Pool): Router {
   const router = Router();
@@ -207,18 +207,24 @@ export function createAdminRouter(db: Pool): Router {
       await client.query("BEGIN");
       // Serialize employee role/status changes so the last active admin is preserved.
       await client.query("SELECT pg_advisory_xact_lock(13080, 5)");
-      const user = await queryOne<{ id: string; display_name: string; role: UserRole; is_active: boolean; account_kind: string }>(
+      const user = await queryOne<{ id: string; username: string; display_name: string; role: UserRole; is_active: boolean; account_kind: string }>(
         client,
-        "SELECT id, display_name, role, is_active, account_kind FROM users WHERE id = $1 FOR UPDATE",
+        "SELECT id, username, display_name, role, is_active, account_kind FROM users WHERE id = $1 FOR UPDATE",
         [req.params.id]
       );
       if (!user) throw new HttpError(404, "员工不存在");
       if (["cs_wechat","cs_service"].includes(user.account_kind??"")) throw new HttpError(400, "客服接待账号请在客服接待账号页面管理，不可修改为员工或其他角色");
       const displayName = req.body?.displayName !== undefined ? String(req.body.displayName).trim() : user.display_name;
+      const username = req.body?.username !== undefined ? String(req.body.username).trim().toLowerCase() : user.username;
+      if (!/^[a-z0-9][a-z0-9_-]{2,31}$/.test(username)) throw new HttpError(400, "登录名须为 3-32 位小写字母、数字、下划线或短横线");
+      if (username !== user.username) {
+        const duplicate = await queryOne(client, "SELECT id FROM users WHERE username = $1 AND id <> $2", [username, user.id]);
+        if (duplicate) throw new HttpError(409, "登录名已被使用，请更换");
+      }
       const role = req.body?.role !== undefined ? (String(req.body.role) as UserRole) : user.role;
       if (req.body?.isActive !== undefined && typeof req.body.isActive !== "boolean") throw new HttpError(400, "账号状态无效");
       const isActive = req.body?.isActive !== undefined ? req.body.isActive : user.is_active;
-      if (!displayName) throw new HttpError(400, "姓名无效");
+      if (!displayName || displayName.length > 64) throw new HttpError(400, "姓名须为 1-64 个字符");
       if (!ROLES.includes(role)) throw new HttpError(400, "角色无效");
       if (role === "assistant" && user.role !== "assistant") throw new HttpError(400, "助理审核流程已停用，请选择其他角色");
       if (user.role === "admin" && user.is_active && (role !== "admin" || !isActive)) {
@@ -226,8 +232,8 @@ export function createAdminRouter(db: Pool): Router {
         if (!other) throw new HttpError(400, "至少保留一个启用的后台管理员，不能停用或更改最后一个管理员的角色");
       }
       await client.query(
-        "UPDATE users SET display_name = $1, role = $2, is_active = $3, updated_at = now() WHERE id = $4",
-        [displayName, role, isActive, user.id]
+        "UPDATE users SET display_name = $1, role = $2, is_active = $3, username = $5, updated_at = now() WHERE id = $4",
+        [displayName, role, isActive, user.id, username]
       );
       await writeAudit(client, {
         actorId: req.actor!.id,
@@ -235,7 +241,7 @@ export function createAdminRouter(db: Pool): Router {
         entityType: "user",
         entityId: user.id,
         before: user,
-        after: { displayName, role, isActive },
+        after: { username, displayName, role, isActive },
         ip: req.ip
       });
       await client.query("COMMIT"); res.json({ ok: true });

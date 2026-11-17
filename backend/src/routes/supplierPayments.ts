@@ -35,6 +35,7 @@ export function createSupplierPaymentsRouter(db:Pool,config:AppConfig) {
     const e=(await c.query('SELECT * FROM order_expenses WHERE id=$1 FOR UPDATE',[body.expenseId])).rows[0];if(!e||e.voided_at)throw new HttpError(409,'业务费用不存在或已作废');
     if(!e.payment_tracking_started)throw new HttpError(409,'历史费用付款情况待核对，请先确认纳入付款台账');
     const hash=hashPayload(body),old=await replay(c,'supplier_payments',uuid(b.requestKey),hash);if(old)return{id:old.id,replayed:true};
+    if ((await c.query("SELECT 1 FROM warehouse_bills WHERE expense_id=$1 AND status='approved'", [e.id])).rowCount) throw new HttpError(409, '此成本已关联库房结账单，请在库房结账中登记付款');
     if(body.paidOn<String(e.business_date))throw new HttpError(400,'付款日期不能早于费用日期');
     const paid=(await c.query('SELECT COALESCE(sum(amount_cny),0)::text AS total FROM supplier_payments WHERE expense_id=$1 AND voided_at IS NULL',[e.id])).rows[0].total;
     if(moneyToCents(paid)+moneyToCents(body.amountCny)>moneyToCents(e.amount_cny))throw new HttpError(409,'付款超过该笔剩余应付');

@@ -16,6 +16,7 @@ cd "$(dirname "$0")/../backend"
 
 # test file (without .test.ts)  ->  database it is allowed to wipe
 declare -A SUITES=(
+  [warehouse]=cms_warehouse_test
   [commerce]=cms_commerce_test
   [fanLeads.integration]=cms_commerce_test
   [serviceAccounts]=cms_commerce_test
