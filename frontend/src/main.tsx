@@ -4,6 +4,7 @@ import { App } from "./App";
 import { ToastHost } from "./Toast";
 import "./styles.css";
 import "./mobile-polish.css";
+import "./theme.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
