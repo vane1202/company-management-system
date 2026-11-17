@@ -128,7 +128,7 @@ h1, h2, h3 { letter-spacing: -0.012em; }
 :root label { color: var(--muted); }
 :root .overview-segments { background: #e6ebe8; border: 0; padding: 3px; border-radius: 11px; }
 :root .overview-segments button { border-radius: 8px; color: #55635e; font-weight: 500; }
-:root .overview-segments button.selected {
+:root .overview-segments button.selected, :root .overview-segments button[aria-pressed="true"] {
   background: #fff; color: var(--frame-1); font-weight: 650;
   box-shadow: 0 1px 2px rgba(14, 44, 39, 0.14);
 }
@@ -221,6 +221,8 @@ h1, h2, h3 { letter-spacing: -0.012em; }
 
 /* ---------- charts ---------- */
 :root .analysis-plot svg { max-height: none; }
+:root .analysis-plot .ac-axis { font-size: 12px; }
+:root .analysis-plot .ac-empty { font-size: 13px; }
 :root .ac-axis { fill: #6e7c77; }
 @media (min-width: 800px) { :root .ac-axis { font-size: 11px; } }
 :root .analysis-plot line[stroke="var(--line)"] { stroke: #e6ebe8; }
@@ -301,11 +303,23 @@ h1, h2, h3 { letter-spacing: -0.012em; }
   :root .app-sidebar { padding: 0.9rem 1rem 0.9rem; }
   :root .sidebar-brand-row { margin-bottom: 0; }
   :root .app-toolbar { min-height: 3.2rem; margin-bottom: 1rem; }
+  :root .workspace-backbar .workspace-back { min-height: 44px; }
   :root .bp-primary-grid > article, :root .fh-primary article, :root .be-kpis > article { padding: 16px; }
-  :root :is(.bp-primary-grid, .fh-primary) > article:first-child :is(.bp-main-number, .fh-amount) { font-size: clamp(1.7rem, 8vw, 2.2rem); }
+  :root .bp-primary-grid > article:first-child .bp-main-number { font-size: clamp(20px, 5.8vw, 26px); }
+  :root .fh-primary article { padding: 14px 12px; container-type: inline-size; }
+  :root .fh-primary .fh-amount { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; white-space: nowrap; overflow-wrap: normal; font-size: 22px; line-height: 1.3; }
+  :root .fh-primary > article:first-child .fh-amount { font-size: 22px; }
+  :root .fh-primary .fh-amount-value { display: block; font: inherit; font-weight: 650; white-space: nowrap; }
+  :root .fh-primary header { font-size: 12px; }
   :root .card, :root .bh-trend { padding: 16px; }
   :root .fh-entries button { flex-direction: column; align-items: flex-start; gap: 6px; padding: 16px; }
   :root .fh-entries button > :last-child { text-align: left; }
+}
+
+@supports (font-size: 1cqi) {
+  @media (max-width: 799px) {
+    :root .fh-primary .fh-amount-value { font-size: clamp(14px, calc(180cqi / var(--amount-length, 10)), 24px); }
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
