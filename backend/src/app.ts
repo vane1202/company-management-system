@@ -45,6 +45,7 @@ export function createApp(db: Pool, config: AppConfig) {
 
   app.use(
     helmet({
+       hsts: config.cookieSecure,
       contentSecurityPolicy: {
         useDefaults: true,
         directives: {
@@ -52,7 +53,8 @@ export function createApp(db: Pool, config: AppConfig) {
           "script-src": ["'self'"],
           "style-src": ["'self'", "'unsafe-inline'"],
           "img-src": ["'self'", "data:"],
-          "connect-src": ["'self'", ...config.appOrigins]
+           "connect-src": ["'self'", ...config.appOrigins],
+           ...(config.cookieSecure ? {} : { "upgrade-insecure-requests": null })
         }
       }
     })
