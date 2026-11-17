@@ -38,7 +38,9 @@ it("003 保留已有行和口径，同时允许多主页及多个人设，迁移
   await db.query("INSERT INTO fan_reports (user_id,team_id,business_date,added_count) VALUES ($1,$2,'2026-11-01',15)", [user, team]);
   for (const platform of ["A", "B"]) await db.query("INSERT INTO ops_reports (user_id,business_date,platform,promo_cost,promo_video_count) VALUES ($1,'2026-11-01',$2,8.25,1)", [user, platform]);
   await db.query("INSERT INTO editor_reports (user_id,business_date,shoot_count,finished_count,published_count,inventory_snapshot) VALUES ($1,'2026-11-01',3,4,7,9)", [user]);
-  expect(await migrate(db)).toEqual(["003_daily_detail.sql", "004_cs_wechat_accounts.sql", "005_finance_role.sql", "006_order_workflow.sql", "007_payroll_items.sql", "008_production_cashflow.sql", "009_fan_leads.sql", "010_service_accounts.sql", "011_order_cancellations.sql", "012_paid_performance_after_sales.sql"]);
+  // Everything after the 001/002 baseline applied above; read from disk so new migrations do not stale this test.
+  const pending = fs.readdirSync(new URL("../migrations", import.meta.url)).filter((file) => file.endsWith(".sql") && file >= "003").sort();
+  expect(await migrate(db)).toEqual(pending);
   expect((await db.query("SELECT account_kind,wechat_id FROM users WHERE id=$1", [user])).rows[0]).toEqual({ account_kind: "employee", wechat_id: null });
   expect((await db.query("SELECT added_count,ms_today,ws_today,page_name,review_status FROM fan_reports")).rows).toEqual([{ added_count: 15, ms_today: null, ws_today: null, page_name: "", review_status: "pending" }]);
   expect((await db.query("SELECT platform,persona_name,promo_cost,spend_usd FROM ops_reports ORDER BY platform")).rows).toEqual([
