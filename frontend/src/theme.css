@@ -124,6 +124,8 @@ h1, h2, h3 { letter-spacing: -0.012em; }
   background-repeat: no-repeat !important; background-position: right 12px center !important;
   padding-right: 32px;
 }
+/* table cells shrink selects to the chevron's width otherwise; keep the selected value readable */
+:root td select, :root th select { min-width: 8.5em; }
 :root input[type="checkbox"], :root input[type="radio"] { accent-color: var(--jade); }
 :root label { color: var(--muted); }
 :root .overview-segments { background: #e6ebe8; border: 0; padding: 3px; border-radius: 11px; }
