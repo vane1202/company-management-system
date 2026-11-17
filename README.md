@@ -2,7 +2,7 @@
 
 中文管理系统，使用 TypeScript、Express、PostgreSQL、React 和 Vite，适配电脑和手机。
 
-## 当前功能（2026-11-11）
+## 当前功能（功能清单截至2026-11-11；之后的变更见[最新同步记录](docs/GITHUB_SYNC_20261116.md)）
 
 - 后台管理员管理账号、小组、授权、模块及系统设置，不接触业务数据；BOSS只读查看全局数据；主管查看、维护授权小组的数据与接待账号。
 - BOSS首页优先展示直播间业绩、业务费用与广告消耗，其次展示加粉、拍剪数据；支持日期筛选、明细跳转及返回。
@@ -32,7 +32,8 @@
 
 | 内容 | 文档 |
 | --- | --- |
-| 本次同步与验证 | [SOURCE_SYNC_20261111.md](docs/SOURCE_SYNC_20261111.md)；[上次记录](docs/SOURCE_SYNC_20261110.md) |
+| 最新同步与验证 | [GITHUB_SYNC_20261116.md](docs/GITHUB_SYNC_20261116.md)；较早：[SOURCE_SYNC_20261111.md](docs/SOURCE_SYNC_20261111.md)、[SOURCE_SYNC_20261110.md](docs/SOURCE_SYNC_20261110.md) |
+| 界面主题与样式约定 | [UI_THEME_20261117.md](docs/UI_THEME_20261117.md) |
 | 接待账号 | [SERVICE_ACCOUNTS.md](docs/SERVICE_ACCOUNTS.md) |
 | 线索考核 | [FAN_LEAD_CONVERSION.md](docs/FAN_LEAD_CONVERSION.md) |
 | BOSS首页 | [BOSS_BUSINESS_HOME.md](docs/BOSS_BUSINESS_HOME.md) |
@@ -58,11 +59,12 @@
 4. 前端默认http://127.0.0.1:15173，后端默认http://127.0.0.1:13080。
 5. 生产构建执行npm run build；按部署环境设置SERVE_STATIC=true后，使用npm run start -w backend启动。
 
-升级数据库前先备份再迁移；当前迁移为001–012。本次演示改版没有新增迁移。推送GitHub不会自动更新本机安装副本或公开演示。
+升级数据库前先备份再迁移；当前迁移为001–015（013–015为接待账号持有人及客服、运营个人登录）。界面主题改版没有新增迁移。推送GitHub不会自动更新本机安装副本或公开演示。
 
 ## 验证与边界
 
 - 前端测试：npm test -w frontend；演示测试：node --test demo/readonly-api.test.cjs；构建：npm run build。
+- 后端数据库集成测试：执行`bash scripts/test-backend-db.sh`，脚本在本机16542端口的一次性PostgreSQL上为每个套件建立各自的隔离库（需要`PGUSER`，用法见脚本头部注释）。2026-11-17已在本机一次性实例上全部通过（10个套件、114项）。
 - 后端集成测试会重建隔离测试库，必须使用测试文件允许的独立TEST_DATABASE_URL，不可指向业务库。服务账号测试还限制本机16542端口的cms_commerce_test。
 - 无默认生产密码；凭据、业务数据库、客户凭证、备份和运行产物不提交Git。
 - 公开演示仅使用虚构数据、拒绝写入，不连接真实后台。
