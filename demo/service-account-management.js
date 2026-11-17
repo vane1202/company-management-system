@@ -5,7 +5,7 @@
 })(typeof window !== "undefined" ? window : globalThis, function () {
   const validDate = value => /^\d{4}-\d{2}-\d{2}$/.test(value || "") && !Number.isNaN(Date.parse(value + "T00:00:00Z")) && new Date(value + "T00:00:00Z").toISOString().slice(0, 10) === value;
   function apply(directory, input, context) {
-    if (!["cs_supervisor", "admin"].includes(context.role)) throw Error("仅本组主管或管理员可管理接待账号");
+    if (context.role !== "cs_supervisor") throw Error("接待账号由本组客服主管管理");
     if (!directory?.enabled || input.teamId !== directory.team.id) throw Error("只能管理当前小组的账号");
     const next = JSON.parse(JSON.stringify(directory));
     const date = input.effectiveOn;

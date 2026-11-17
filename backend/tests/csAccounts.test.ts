@@ -21,6 +21,7 @@ describe("客服微信登记与数据归属（独立 PostgreSQL 库）", () => {
   type Client = { agent: ReturnType<typeof request.agent>; token: string };
   let boss: Client;
   let admin: Client;
+  let registrar: Client;
   let device: Client;
   let device2: Client;
   function write(client: Client, method: "post" | "put" | "patch", path: string, body: object) {
@@ -37,7 +38,7 @@ describe("客服微信登记与数据归属（独立 PostgreSQL 库）", () => {
     return client;
   }
   async function code(payload = { teamId: ids.teamA } as { teamId?: string; accountId?: string }) {
-    const result = await write(admin, "post", "/api/cs-accounts/registration-codes", payload).expect(201);
+    const result = await write(registrar, "post", "/api/cs-accounts/registration-codes", payload).expect(201);
     expect(result.headers["cache-control"]).toBe("no-store");
     return result.body.code as string;
   }
@@ -71,12 +72,15 @@ describe("客服微信登记与数据归属（独立 PostgreSQL 库）", () => {
       ids[name] = (await db.query("INSERT INTO users(username,password_hash,display_name,role,must_change_password) VALUES($1,$2,$1,$3,FALSE) RETURNING id", [name, hash, role])).rows[0].id;
     }
     for (const team of ["teamA", "teamB"]) ids[team] = (await db.query("INSERT INTO teams(name) VALUES($1) RETURNING id", [team])).rows[0].id;
+    ids.registrar = (await db.query("INSERT INTO users(username,password_hash,display_name,role,must_change_password) VALUES('registrar',$1,'登记主管','cs_supervisor',FALSE) RETURNING id", [hash])).rows[0].id;
+    for (const team of [ids.teamA, ids.teamB]) await db.query("INSERT INTO supervisor_scopes(supervisor_id,team_id,granted_by) VALUES($1,$2,$3)", [ids.registrar, team, ids.admin]);
     await db.query("INSERT INTO supervisor_scopes(supervisor_id,team_id,granted_by) VALUES($1,$2,$3)", [ids.supervisor, ids.teamA, ids.boss]);
     await db.query("INSERT INTO team_memberships(user_id,team_id,start_date) VALUES($1,$2,$3)", [ids.legacy, ids.teamA, today]);
     await db.query("INSERT INTO fan_reports(user_id,team_id,business_date,added_count) VALUES($1,$2,$3,15)", [ids.legacy, ids.teamA, today]);
     app = createApp(db, config);
     boss = await login("boss");
     admin = await login("admin");
+    registrar = await login("registrar");
   });
   afterAll(async () => { await db?.end(); });
 
@@ -146,11 +150,11 @@ describe("客服微信登记与数据归属（独立 PostgreSQL 库）", () => {
   });
   it("停用后原登录与已发码均失效，启用后必须重新登记", async () => {
     const revoked = await code({ accountId: ids.wxA });
-    await write(admin, "put", `/api/cs-accounts/${ids.wxA}/status`, { isActive: false }).expect(200);
+    await write(registrar, "put", `/api/cs-accounts/${ids.wxA}/status`, { isActive: false }).expect(200);
     const next = await anonymous();
     await write(next, "post", "/api/auth/cs-device", { wechatId: "Fixture_WeChat_A", registrationCode: revoked }).expect(400);
-    await write(admin, "post", "/api/cs-accounts/registration-codes", { accountId: ids.wxA }).expect(400);
-    await write(admin, "put", `/api/cs-accounts/${ids.wxA}/status`, { isActive: true }).expect(200);
+    await write(registrar, "post", "/api/cs-accounts/registration-codes", { accountId: ids.wxA }).expect(400);
+    await write(registrar, "put", `/api/cs-accounts/${ids.wxA}/status`, { isActive: true }).expect(200);
     await device.agent.get("/api/auth/me").expect(401);
     expect(await register(next, "Fixture_WeChat_A", await code({ accountId: ids.wxA }))).toBe(ids.wxA);
     device = next;
@@ -176,7 +180,7 @@ describe("客服微信登记与数据归属（独立 PostgreSQL 库）", () => {
     await write(next, "post", "/api/auth/cs-device", { wechatId: "Fixture_WeChat_A", registrationCode: oldCode }).expect(400);
     const results = await Promise.all([
       write(next, "post", "/api/auth/cs-device", { wechatId: "Fixture_WeChat_A", registrationCode: newCode }),
-      write(admin, "put", `/api/cs-accounts/${ids.wxA}/status`, { isActive: false })
+      write(registrar, "put", `/api/cs-accounts/${ids.wxA}/status`, { isActive: false })
     ]);
     expect([200, 400]).toContain(results[0].status);
     expect(results[1].status).toBe(200);
@@ -193,7 +197,10 @@ describe("客服微信登记与数据归属（独立 PostgreSQL 库）", () => {
     expect(blocked.body.error).toContain("频繁");
   });
   it("后台管理员可配置系统，但不能通过任一业务 API 读写数据", async () => {
-    for (const path of ["/api/admin/users", "/api/admin/teams", "/api/admin/settings", "/api/modules", "/api/cs-accounts"]) await admin.agent.get(path).expect(200);
+    for (const path of ["/api/admin/users", "/api/admin/teams", "/api/admin/settings", "/api/modules"]) await admin.agent.get(path).expect(200);
+    for (const path of ["/api/cs-accounts", "/api/cs-accounts/teams"]) await admin.agent.get(path).expect(403);
+    await write(admin, "post", "/api/cs-accounts/registration-codes", { teamId: ids.teamA }).expect(403);
+    await write(admin, "put", `/api/cs-accounts/${ids.wxA}/status`, { isActive: true }).expect(403);
     for (const path of ["/api/fan-reports/me", "/api/fan-reports/summary", "/api/fan-reports/export", "/api/orders", "/api/orders/export", "/api/ops-reports", "/api/editor-reports", "/api/editor-reports/summary", "/api/dashboard/summary", "/api/reviews", "/api/salaries", "/api/notes"]) await admin.agent.get(path).expect(403);
     for (const path of ["/api/fan-reports", "/api/ops-reports", "/api/editor-reports"]) await write(admin, "put", path, {}).expect(403);
     for (const path of ["/api/orders", "/api/reviews", "/api/salaries", "/api/notes"]) await write(admin, "post", path, {}).expect(403);

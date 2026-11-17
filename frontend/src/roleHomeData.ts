@@ -2,10 +2,10 @@ import { api } from "./api";
 
 // Each home requests only endpoints already allowed to that role.
 export async function loadAdminHome() {
-  const [users, teams, accounts, modules] = await Promise.allSettled([
-    api.users(), api.teams(), api.csAccounts(), api.modules()
+  const [users, teams, modules] = await Promise.allSettled([
+    api.users(), api.teams(), api.modules()
   ]);
-  return { users, teams, accounts, modules };
+  return { users, teams, modules };
 }
 
 export async function loadSupervisorHome(today: string) {

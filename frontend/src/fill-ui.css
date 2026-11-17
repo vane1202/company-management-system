@@ -1,0 +1,236 @@
+/*
+ * 填报端视觉层（客服填报 / 拍剪填报）。在 theme.css 之后加载。
+ * 规则：身份卡是页面唯一的深色墨翠块；表单用分节标题、轻提示和两列数字格，减少长单列滚动。
+ * 所有规则以 :root main.customer-fill 开头，保证压过懒加载的 demo 样式。
+ */
+
+/* ---------- 页面与标题 ---------- */
+:root main.customer-fill { max-width: 880px; margin: 0 auto; padding: 20px 20px 72px; }
+:root main.customer-fill > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 16px; }
+:root main.customer-fill > header > :first-child { min-width: 0; }
+:root main.customer-fill > header:not(.desk-heading) { display: block; }
+:root main.customer-fill > header h1 { margin: 2px 0 0; font-size: 24px; line-height: 1.3; font-weight: 700; color: var(--jade-dark); }
+:root main.customer-fill > header .eyebrow {
+  display: inline-flex; align-items: center; gap: 6px; margin: 0;
+  color: var(--gold-ink); font-size: 12px; font-weight: 600; letter-spacing: 0.08em;
+}
+:root main.customer-fill > header .eyebrow::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--gold); }
+:root main.customer-fill > header .notice { margin: 8px 0 0; font-size: 13px; line-height: 1.65; color: var(--muted); }
+:root main.customer-fill .desk-heading > button.secondary {
+  display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;
+  min-height: 44px; padding: 0 14px 0 10px; border-radius: 999px; font-size: 13px; font-weight: 600;
+  background: #fff; border: 1px solid var(--line-strong); color: var(--jade-dark);
+}
+:root main.customer-fill .desk-heading > button.secondary::before { content: "‹"; font-size: 20px; line-height: 1; margin-top: -2px; color: var(--jade); }
+
+/* ---------- 身份卡：深色墨翠块 ---------- */
+:root main.customer-fill .card.fill-account {
+  --ink: #f3fbf8; --muted: rgba(218, 238, 231, 0.74); --line: rgba(255, 255, 255, 0.16);
+  position: relative; overflow: hidden; margin: 0 0 18px; padding: 16px 18px;
+  color: var(--ink); border-color: transparent;
+  background:
+    radial-gradient(120% 140% at 100% 0%, rgba(78, 201, 170, 0.28) 0%, rgba(78, 201, 170, 0) 58%),
+    linear-gradient(158deg, #15423a 0%, #0b231f 100%);
+  box-shadow: 0 10px 28px rgba(11, 35, 31, 0.2);
+}
+:root main.customer-fill .card.fill-account::after {
+  content: ""; position: absolute; right: -60px; top: -60px; width: 160px; height: 160px; border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 0 0 22px rgba(255, 255, 255, 0.026), 0 0 0 44px rgba(255, 255, 255, 0.018);
+  pointer-events: none;
+}
+:root main.customer-fill .card.fill-account > * { position: relative; z-index: 1; }
+:root main.customer-fill .fill-account label,
+:root main.customer-fill .fill-account .row { color: rgba(218, 238, 231, 0.78); font-size: 13px; font-weight: 500; }
+:root main.customer-fill .fill-account .row { display: grid; grid-template-columns: 72px minmax(0, 1fr); align-items: center; gap: 10px; margin: 0; }
+:root main.customer-fill .fill-account :is(select, input) {
+  height: 46px; min-height: 46px; margin: 0; padding: 8px 12px; width: 100%;
+  background-color: #fff; color: #15211e; border-color: transparent; font-size: 16px;
+}
+:root main.customer-fill .fill-account :is(select, input):focus { box-shadow: 0 0 0 3px rgba(143, 227, 204, 0.45); }
+:root main.customer-fill .fill-account select:disabled { background-color: rgba(255, 255, 255, 0.82); color: #5b6964; }
+:root main.customer-fill .fill-identity-selectors { gap: 10px; }
+:root main.customer-fill .fill-identity-summary { min-height: 44px; }
+:root main.customer-fill .fill-identity-summary > div { display: flex; align-items: center; gap: 12px; min-width: 0; }
+:root main.customer-fill .fill-avatar {
+  display: grid; place-items: center; width: 42px; height: 42px; flex-shrink: 0; border-radius: 50%;
+  background: rgba(143, 227, 204, 0.16); border: 1px solid rgba(143, 227, 204, 0.36);
+  color: #8fe3cc; font-size: 17px; font-weight: 700;
+}
+:root main.customer-fill .fill-identity-text { display: grid; gap: 2px; min-width: 0; }
+:root main.customer-fill .fill-identity-text strong { color: #fff; font-size: 17px; font-weight: 650; line-height: 1.3; }
+:root main.customer-fill .fill-identity-text span { color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+:root main.customer-fill .fill-account button.secondary {
+  min-height: 44px; padding: 0 14px; border-radius: 999px; font-size: 13px; font-weight: 600;
+  background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.24); color: #fff;
+}
+:root main.customer-fill .fill-account button:not(.secondary):not(.text-action) { background: #8fe3cc; color: #0b231f; }
+:root main.customer-fill .fill-account .text-action { color: #8fe3cc; }
+:root main.customer-fill .fill-account .fill-identity-context { margin-top: 10px; color: var(--muted); }
+:root main.customer-fill .fill-account details.fill-login-help {
+  margin-top: 12px; padding: 0 12px; background: rgba(255, 255, 255, 0.05); border: 1px dashed rgba(255, 255, 255, 0.22);
+}
+:root main.customer-fill .fill-account details.fill-login-help > summary { min-height: 40px; padding: 0; color: rgba(243, 251, 248, 0.86); font-size: 12.5px; font-weight: 500; }
+:root main.customer-fill .fill-account details.fill-login-help > summary::before { border-color: rgba(243, 251, 248, 0.7); }
+:root main.customer-fill .fill-account details.fill-login-help[open] > summary { border-bottom-color: rgba(255, 255, 255, 0.14); }
+:root main.customer-fill .fill-account details.fill-login-help p { color: var(--muted); }
+:root main.customer-fill .fill-account :is(p, .notice) { color: var(--muted); }
+:root main.customer-fill .fill-account .error { color: #ffc2b8; }
+:root main.customer-fill .fill-account [role="alert"] { margin-top: 12px; padding: 12px; border-radius: 12px; background: rgba(255, 255, 255, 0.08); }
+:root main.customer-fill .fill-account [role="alert"] p { color: #fff; margin: 0 0 10px; }
+
+/* ---------- 客服首页入口卡 ---------- */
+:root main.customer-fill .fill-home-modules { gap: 12px; }
+:root main.customer-fill.role-desk .fill-module-card {
+  position: relative; min-height: 120px; padding: 18px; gap: 14px;
+  background: #fff; border: 1px solid var(--line); border-radius: var(--r-card); box-shadow: var(--shadow);
+  transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+}
+:root main.customer-fill.role-desk .fill-module-icon { width: 46px; height: 46px; border-radius: 12px; background: var(--jade-light); color: var(--jade); }
+:root main.customer-fill.role-desk .fill-module-card:first-child .fill-module-icon { background: var(--jade); color: #fff; box-shadow: 0 4px 12px rgba(23, 117, 100, 0.28); }
+:root main.customer-fill.role-desk .fill-module-copy strong { font-size: 17px; font-weight: 650; color: var(--ink); }
+:root main.customer-fill.role-desk .fill-module-copy small { margin-top: 4px; font-size: 12.5px; }
+:root main.customer-fill.role-desk .fill-module-arrow {
+  display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%;
+  background: var(--bg); color: var(--muted); font-size: 20px; line-height: 1;
+}
+@media (hover: hover) and (pointer: fine) {
+  :root main.customer-fill.role-desk .fill-module-card:hover { background: #fff; border-color: var(--jade); box-shadow: 0 8px 22px rgba(14, 44, 39, 0.08); }
+  :root main.customer-fill.role-desk .fill-module-card:hover .fill-module-arrow { background: var(--jade-light); color: var(--jade); }
+}
+:root main.customer-fill.role-desk .fill-module-card:active { background: #fff; opacity: 1; transform: scale(0.985); }
+
+/* ---------- 表单分节 ---------- */
+:root main.customer-fill .card > h2:first-child { margin-top: 0; padding-top: 0; border-top: 0; font-size: 18px; color: var(--jade-dark); }
+:root main.customer-fill form h3 {
+  display: flex; align-items: center; gap: 10px; margin: 28px 0 8px; padding-top: 22px;
+  border-top: 1px solid var(--line); font-size: 16px; font-weight: 650; color: var(--ink);
+}
+:root main.customer-fill form h3::before { content: ""; width: 4px; height: 16px; flex-shrink: 0; border-radius: 2px; background: var(--jade); }
+:root main.customer-fill .card p.notice {
+  max-width: none; margin: 6px 0 14px; padding: 10px 12px; border-radius: 10px;
+  background: #f5f8f6; color: var(--muted); font-size: 12.5px; line-height: 1.7;
+}
+:root main.customer-fill .card [role="status"] {
+  margin: 12px 0 0; padding: 10px 12px; border-radius: 10px; background: var(--jade-light); color: var(--jade-dark); font-size: 13px; line-height: 1.6;
+}
+:root main.customer-fill .card .row { margin-bottom: 14px; }
+:root main.customer-fill .grid.two { gap: 14px; margin-bottom: 14px; }
+:root main.customer-fill .grid.two > .row { margin-bottom: 0; }
+:root main.customer-fill .card label { color: #44524d; }
+
+/* 数字两列 */
+:root main.customer-fill .grid.fill-num-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 4px; }
+:root main.customer-fill .fill-num-grid > .row { display: flex; flex-direction: column; justify-content: flex-end; gap: 6px; margin: 0; font-size: 12.5px; line-height: 1.4; }
+:root main.customer-fill .fill-num-grid input { margin: 0; font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+@media (min-width: 800px) {
+  :root main.customer-fill .grid.fill-num-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  :root main.editor-fill .grid.fill-num-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+/* 明细块 */
+:root main.customer-fill fieldset.fill-line {
+  margin: 14px 0; padding: 16px 14px 10px; background: #fbfcfb; border: 1px solid var(--line); border-radius: 12px;
+}
+:root main.customer-fill fieldset.fill-line > legend {
+  padding: 3px 10px; border-radius: 999px; background: var(--jade-light); color: var(--jade); font-size: 12px; font-weight: 650;
+}
+:root main.customer-fill fieldset.fill-line .fill-check { margin: 4px 0 8px; color: var(--ink); font-size: 14px; }
+:root main.customer-fill button.secondary.fill-remove {
+  display: block; min-height: 44px; margin: 4px 0 0 auto; padding: 0 6px;
+  background: transparent; border: 0; color: #a2463a; font-size: 13px; font-weight: 500;
+}
+:root main.customer-fill button.secondary.fill-remove:hover { background: transparent; text-decoration: underline; }
+:root main.customer-fill button.secondary.fill-add {
+  width: 100%; min-height: 48px; margin: 2px 0 6px;
+  background: transparent; border: 1px dashed #b9c6c0; color: var(--jade); font-weight: 600;
+}
+:root main.customer-fill button.secondary.fill-add:hover:not(:disabled) { background: var(--jade-light); border-color: var(--jade); }
+
+/* 合计格 */
+:root main.customer-fill .fill-totals { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 16px 0 6px; padding: 0; }
+:root main.customer-fill .fill-totals span {
+  display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 12px;
+  border-radius: 12px; background: var(--bg); color: var(--muted); font-size: 12px; line-height: 1.35;
+}
+:root main.customer-fill .fill-totals strong {
+  color: var(--jade-dark); font-size: 22px; font-weight: 650; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+
+/* 操作按钮 */
+:root main.customer-fill form .actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-top: 16px; }
+:root main.customer-fill form .actions button { width: 100%; min-height: 48px; }
+:root main.customer-fill form button[type="submit"] { width: 100%; min-height: 50px; margin-top: 16px; font-size: 15px; font-weight: 600; }
+:root main.customer-fill .editor-save-confirm {
+  display: grid; gap: 10px; margin-top: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: #f5f8f6;
+}
+:root main.customer-fill .editor-save-confirm p { margin: 0; color: var(--ink); }
+:root main.customer-fill .editor-save-confirm button { width: 100%; min-height: 48px; }
+
+/* ---------- 筛选与列表 ---------- */
+:root main.customer-fill .grid.fill-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 4px 0 16px; }
+:root main.customer-fill .fill-filter-grid > .row { margin: 0; font-size: 12.5px; }
+:root main.customer-fill .fill-filter-grid > .row :is(input, select) { margin-top: 6px; }
+:root main.customer-fill .fill-filter-grid > .fill-search,
+:root main.editor-fill .fill-filter-grid > .row:last-child { grid-column: 1 / -1; }
+:root main.customer-fill .fill-filter-grid input[type="search"] {
+  padding-left: 40px;
+  background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' fill='none' stroke='%235b6964' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='8' cy='8' r='6'/%3E%3Cpath d='m16 16-3.6-3.6'/%3E%3C/svg%3E") no-repeat 14px center;
+}
+:root main.customer-fill button.secondary.fill-clear { min-height: 44px; margin: -4px 0 4px; padding: 0 12px; font-size: 13px; }
+:root main.customer-fill .crm-list button {
+  padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; color: var(--ink); box-shadow: var(--shadow);
+}
+:root main.customer-fill .crm-list button strong { font-size: 15px; }
+:root main.customer-fill .crm-list button small { margin-top: 4px; font-size: 12.5px; line-height: 1.55; }
+@media (hover: hover) and (pointer: fine) { :root main.customer-fill .crm-list button:hover { border-color: var(--jade); } }
+:root main.customer-fill .crm-metrics article { border-radius: 12px; box-shadow: var(--shadow); }
+:root main.customer-fill .crm-metrics article:first-child { background: var(--jade-light); border-color: transparent; }
+:root main.customer-fill .crm-metrics article:first-child strong { color: var(--jade-dark); }
+:root main.customer-fill .crm-metrics strong { font-weight: 650; letter-spacing: -0.02em; }
+:root main.customer-fill .empty-state { margin: 8px 0 0; padding: 22px 12px; border-radius: 12px; background: #f5f8f6; text-align: center; color: var(--muted); font-size: 13px; }
+
+/* 空状态卡 */
+:root main.customer-fill .card.fill-empty { display: grid; justify-items: center; gap: 4px; padding: 32px 20px; text-align: center; }
+:root main.customer-fill .card.fill-empty::before {
+  content: ""; width: 44px; height: 44px; margin-bottom: 8px; border-radius: 50%;
+  background: var(--jade-light) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='22' fill='none' stroke='%23177564' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='7.5' r='3.5'/%3E%3Cpath d='M4 19c1.2-3.4 4-5 7-5s5.8 1.6 7 5'/%3E%3C/svg%3E") no-repeat center;
+}
+:root main.customer-fill .card.fill-empty strong { color: var(--ink); font-size: 16px; }
+:root main.customer-fill .card.fill-empty p { margin: 0; font-size: 13px; }
+
+/* ---------- 拍剪工作台 ---------- */
+:root main.editor-fill .editor-fill-tabs { gap: 4px; margin: 0 0 16px; padding: 4px; border-radius: 12px; background: #e6ece9; }
+:root main.editor-fill .editor-fill-tabs button { min-height: 44px; border-radius: 9px; color: #55635e; font-weight: 500; }
+:root main.editor-fill .editor-fill-tabs button[aria-pressed="true"] { background: #fff; color: var(--jade-dark); font-weight: 650; box-shadow: 0 1px 3px rgba(14, 44, 39, 0.14); }
+:root main.editor-fill .editor-history-record { margin-top: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+:root main.editor-fill .editor-history-record > header strong { font-size: 16px; color: var(--jade-dark); font-variant-numeric: tabular-nums; }
+:root main.editor-fill .editor-history-record > header button.secondary { min-height: 44px; padding: 0 12px; border-radius: 999px; font-size: 12.5px; }
+:root main.editor-fill .editor-history-line { padding: 10px 0; border-top: 1px dashed var(--line); }
+:root main.editor-fill .editor-history-line strong { color: var(--ink); font-size: 14px; }
+:root main.editor-fill .editor-history-record details { margin-top: 6px; padding: 0 12px; }
+:root main.editor-fill .editor-history-record details > summary { min-height: 40px; font-size: 13px; font-weight: 500; color: var(--muted); }
+
+/* ---------- 手机 ---------- */
+@media (max-width: 799px) {
+  :root main.customer-fill { padding: 14px 14px 88px; }
+  :root main.customer-fill > header h1 { font-size: 22px; }
+  :root main.customer-fill:not(.role-desk) > header .eyebrow { display: none; }
+  :root main.customer-fill.role-desk .fill-module-card { min-height: 84px; padding: 16px 14px; }
+}
+@media (max-width: 599px) {
+  :root main.customer-fill .fill-totals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  :root main.customer-fill .crm-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  :root main.customer-fill .crm-metrics article:first-child { grid-column: 1 / -1; }
+  :root main.customer-fill .card.fill-account { padding: 14px; }
+  :root main.customer-fill .fill-account .row { grid-template-columns: 64px minmax(0, 1fr); }
+  :root main.editor-fill .fill-account .row { grid-template-columns: 78px minmax(0, 1fr); }
+}
+@media (max-width: 359px) {
+  :root main.customer-fill .grid.fill-num-grid { gap: 10px; }
+  :root main.customer-fill .fill-totals strong { font-size: 19px; }
+}
+@media (forced-colors: active) {
+  :root main.customer-fill .card.fill-account { border: 1px solid CanvasText; }
+  :root main.editor-fill .editor-fill-tabs button[aria-pressed="true"] { outline: 2px solid Highlight; }
+}

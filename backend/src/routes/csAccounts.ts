@@ -16,7 +16,7 @@ import type { AppConfig } from "../config.js";
 export function createCsAccountsRouter(db: Pool, config: AppConfig): Router {
   const router = Router();
   router.use((req, _res, next) => {
-    if (!req.actor || (!isBossOrAdmin(req.actor) && req.actor.role !== "cs_supervisor")) return next(new HttpError(403, "无权查看客服接待账号"));
+    if (!req.actor || !["boss", "cs_supervisor"].includes(req.actor.role)) return next(new HttpError(403, "接待账号由本组客服主管管理"));
     next();
   });
   router.get("/teams", async (req, res, next) => {
@@ -40,7 +40,7 @@ export function createCsAccountsRouter(db: Pool, config: AppConfig): Router {
     } catch (error) { next(error); }
   });
   router.post('/',async(req,res,next)=>{try{
-    if(!['admin','cs_supervisor'].includes(req.actor!.role))throw new HttpError(403,'仅管理员或本组主管可维护接待账号');
+    if(req.actor!.role!=='cs_supervisor')throw new HttpError(403,'仅本组主管可维护接待账号');
     const {platform,identifier}=parseServiceIdentity(req.body?.platform,req.body?.accountIdentifier),teamId=parseAccountId(req.body?.teamId),phoneLabel=String(req.body?.phoneLabel??'').trim(),holderName=parseHolderName(req.body?.holderName);if(phoneLabel.length>64)throw new HttpError(400,'设备备注最多64字');
     const c=await db.connect();try{await c.query('BEGIN');await assertTeamScope(c,req.actor!,teamId);const team=await queryOne(c,'SELECT id FROM teams WHERE id=$1 AND is_active=TRUE FOR SHARE',[teamId]);if(!team)throw new HttpError(400,'请选择有效小组');
       const label=serviceLabel(platform,identifier),password=await hashPassword(randomBytes(32).toString('hex'));
@@ -50,7 +50,7 @@ export function createCsAccountsRouter(db: Pool, config: AppConfig): Router {
   }catch(e){next(e);}});
   router.post("/registration-codes", async (req, res, next) => {
     try {
-      if (!["admin", "cs_supervisor"].includes(req.actor!.role)) throw new HttpError(403, "仅后台管理员或本组主管可发放登记码");
+      if (req.actor!.role !== "cs_supervisor") throw new HttpError(403, "仅本组主管可发放登记码");
       const boundUserId = req.body?.accountId ? parseAccountId(req.body.accountId) : null;
       const today = businessToday(new Date(), config.businessTimezone);
       const client = await db.connect();
@@ -81,7 +81,7 @@ export function createCsAccountsRouter(db: Pool, config: AppConfig): Router {
   });
   router.put("/:id/status", async (req, res, next) => {
     try {
-      if (!["admin", "cs_supervisor"].includes(req.actor!.role)) throw new HttpError(403, "仅后台管理员或本组主管可管理客服接待账号");
+      if (req.actor!.role !== "cs_supervisor") throw new HttpError(403, "仅本组主管可管理客服接待账号");
       const id = parseAccountId(req.params.id);
       if (typeof req.body?.isActive !== "boolean") throw new HttpError(400, "状态无效");
       const client = await db.connect();
@@ -100,7 +100,7 @@ export function createCsAccountsRouter(db: Pool, config: AppConfig): Router {
   });
   router.patch("/:id", async (req, res, next) => {
     try {
-      if (!["admin", "cs_supervisor"].includes(req.actor!.role)) throw new HttpError(403, "无权更新客服接待账号");
+      if (req.actor!.role !== "cs_supervisor") throw new HttpError(403, "无权更新客服接待账号");
       const id = parseAccountId(req.params.id);
       const phoneLabel = String(req.body?.phoneLabel ?? "").trim();
       if (phoneLabel.length > 64) throw new HttpError(400, "设备备注最多64字");
@@ -133,7 +133,6 @@ function parseHolderName(value: unknown) {
 }
 
 async function assertAccountScope(db: Parameters<typeof membershipOnDate>[0], actor: Parameters<typeof assertTeamScope>[1], id: string, config: AppConfig) {
-  if (actor.role === "admin") return;
   const membership = await membershipOnDate(db, id, businessToday(new Date(), config.businessTimezone));
   if (!membership) throw new HttpError(403, "无权管理该接待账号");
   await assertTeamScope(db, actor, membership.team_id);

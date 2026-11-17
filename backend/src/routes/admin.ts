@@ -98,6 +98,7 @@ export function createAdminRouter(db: Pool): Router {
                    LIMIT 1
                 ) AS current_team
            FROM users u
+          WHERE u.account_kind = 'employee'
           ORDER BY u.display_name`
       );
       const scopes = await query<{ supervisor_id: string; team_id: string }>(db, "SELECT supervisor_id,team_id FROM supervisor_scopes");

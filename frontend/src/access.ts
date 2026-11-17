@@ -34,7 +34,7 @@ export const roleLabel: Record<Role, string> = {
 export function navItems(role: Role): { id: Page; label: string }[] {
   if (role === "warehouse") return [{id:"home",label:"库房工作台"}];
   if (role === "finance") return import.meta.env.MODE === "demo" ? [{id:"home",label:"财务首页"},{id:"finance",label:"收款与结算"},{id:"financeOut",label:"付款与工资"},{id:"salaries",label:"工资核算"}] : [{id:"home",label:"财务工作台"},{id:"salaries",label:"工资核算"}];
-  if (role === "admin") return [{ id: "home", label: "系统管理" }, { id: "people", label: "账号与小组" }, { id: "csAccounts", label: "客服接待账号" }, { id: "modules", label: "模块管理" }];
+  if (role === "admin") return [{ id: "home", label: "系统管理" }, { id: "people", label: "账号与小组" }, { id: "modules", label: "模块管理" }];
   if (role === "boss") return import.meta.env.MODE === "demo" ? bossDemoNav() : [
     { id: "home", label: "管理总览" },
     { id: "orders", label: "直播间经营" },

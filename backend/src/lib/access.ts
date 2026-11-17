@@ -8,7 +8,7 @@ export function enforceRoleBoundary(req: Request, _res: Response, next: NextFunc
   const role = req.actor.role;
   if (role === "assistant" && !(req.path === "/api/modules" && read)) return next(new HttpError(403, "助理审核流程已停用，请联系管理员调整角色"));
   if (role === "admin") {
-    if (!/^\/api\/(admin|modules|cs-accounts)(\/|$)/.test(req.path)) return next(new HttpError(403, "后台管理员不具有业务数据查看或修改权限"));
+    if (!/^\/api\/(admin|modules)(\/|$)/.test(req.path)) return next(new HttpError(403, "后台管理员仅管理登录账号、小组和系统配置；客服接待账号由本组主管管理"));
   } else if (role === "finance") {
     if (!/^\/api\/(finance|salaries|ad-accounts)(\/|$)/.test(req.path) && !(req.path === "/api/modules" && read)) return next(new HttpError(403, "财务仅可访问收款、第三方结算与工资核算"));
   } else if (role === "boss") {

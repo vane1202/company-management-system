@@ -493,7 +493,7 @@
       return json({records:visible()});
     }
     if(path==='/api/demo/service-directory/manage'&&method==='POST'){
-      if(!['cs_supervisor','admin'].includes(role))return json({error:'仅本组主管或管理员可管理接待账号'},403);
+      if(role!=='cs_supervisor')return json({error:'接待账号由本组客服主管管理'},403);
       try{
         const input=JSON.parse(options.body||'{}');
         if(input.kind==='reset'){window.sessionStorage.setItem(directoryStorageKey,'');return json({directory:currentDirectory(),message:'已清除本次账号管理演练'});}
@@ -577,7 +577,7 @@
       }catch(error){return json({error:error.message||'反馈保存失败'},400);}
     }
     if(!["GET","HEAD"].includes(method))return json({error:"这是公开只读演示，不保存任何修改。请在正式后台操作。"},403);
-    if(path==='/api/demo/service-directory')return ['cs','cs_supervisor','admin'].includes(role)?json(currentDirectory()||{enabled:false}):json({error:'当前身份不能查看接待账号名册'},403);
+    if(path==='/api/demo/service-directory')return ['cs','cs_supervisor'].includes(role)?json(currentDirectory()||{enabled:false}):json({error:'当前身份不能查看接待账号名册'},403);
     if(path==='/api/demo/report-history')return reportHistory(q);
     if(path==="/api/assessment/foundation"){if(!window.CmsAssessmentFoundation)return json({error:"考核数据基础未加载"},503);const view=window.CmsAssessmentFoundation.present({role,today,accounts:visibleAccounts().map((a)=>({id:a.id,holderName:a.holderName,teamId:a.teamId,teamName:a.teamName})),orders:orders.filter((o)=>o.dealChannel!=='private').map((o)=>({id:o.id,accountId:o.userId,businessDate:o.businessDate,customerLabel:o.customerLabel,cancelled:!!o.cancelled,status:o.status}))});if(view&&role==='ops'){view.invalid=[];view.sourceAds=[];view.note="广告户与客资来源的负责关系待补，暂不计算个人范围的无效粉汇总。";}if(view)view.privateSales=orders.filter((o)=>o.dealChannel==='private').map((o)=>({id:o.id,businessDate:o.businessDate,operatorName:o.operatorName||'',customerLabel:o.customerLabel,amount:bookingAmount(o),cancelled:!!o.cancelled}));return view?json(view):json({error:"当前身份不能查看考核数据基础"},403);}
     if(path==="/api/modules")return json({version:1,modules:{fans:true,ops:true,editor:true,orders:true},labels:{fans:"客服加粉",ops:"运营投放",editor:"拍剪",orders:"订单"}});
@@ -599,7 +599,7 @@
       if(path==='/api/ad-accounts')return json(opsPersonId==='demo-ops'?adLedger:{...adLedger,accounts:adLedger.accounts.map(row=>({...row,code:row.code.replace('DEMO-ADS','DEMO-'+opsPerson().code+'-ADS')})),topups:adLedger.topups.map(row=>({...row,account_ref:row.account_ref.replace('DEMO-ADS','DEMO-'+opsPerson().code+'-ADS')}))});
       return json({error:'运营演示仅开放本人投放日报、投放分析和广告台账'},403);
     }
-    if(role==="admin"&&!/^\/api\/(admin|cs-accounts)(\/|$)/.test(path))return json({error:"演示管理员仅管理系统，不查看业务数据"},403);
+    if(role==="admin"&&!/^\/api\/admin(\/|$)/.test(path))return json({error:"演示管理员仅管理系统；接待账号由本组客服主管管理"},403);
     if(/^\/api\/salaries(\/|$)/.test(path))return ["finance","boss"].includes(role)?salaryApi(path,q):json({error:"仅财务与BOSS可查看工资"},403);
     if(/^\/api\/finance\/payables\/[^/]+\/attachments$/.test(path))return ['boss','finance'].includes(role)&&payables().expenses.some(e=>path.includes('/'+e.id+'/'))?json({attachments:[]}):json({error:'无公司成本权限'},403);
     if(path==='/api/finance/payables')return ['boss','finance'].includes(role)?json(payables()):json({error:'无公司付款权限'},403);
@@ -608,7 +608,7 @@
     if(role==='finance'&&path!=='/api/finance'&&path!=='/api/orders'&&!path.startsWith('/api/order-records/'))return json({error:"演示财务仅可查看收款、结算与工资"},403);
     if(path==="/api/finance"&&["finance","boss"].includes(role))return json({payments,settlements,summary:{pending:{CNY:"0.00",TWD:"1200.00",USD:"90.00"},directCny:"1290.50",settledCny:"323.40",totalCny:"1613.90"}});
     if(path.startsWith("/api/order-records/")&&["boss","cs_supervisor","finance"].includes(role)){const id=path.slice("/api/order-records/".length);const order=visibleOrders().find(o=>o.id===id);return order?json(orderRecord(order)):json({error:"订单不存在或不在演示可见范围"},404);}
-    if(path==="/api/admin/users"&&role==="admin")return json({users:[...staff,...assetUsers]});
+    if(path==="/api/admin/users"&&role==="admin")return json({users:staff});
     if(path==="/api/admin/teams"&&role==="admin")return json({teams});
     if(path==="/api/admin/settings"&&role==="admin")return json({settings:{fan_report_backfill_days:"3"}});
     if(path==="/api/cs-accounts")return json({accounts:currentDirectory()&&['cs','cs_supervisor','admin'].includes(role)?currentDirectory().accounts:visibleAccounts()});

@@ -1,9 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { loaded, loadAdminHome, loadSupervisorHome } from "./roleHomeData";
+import { navItems } from "./access";
 
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("Role home request boundaries", () => {
+  it("reserves service account navigation for supervisors", () => {
+    expect(navItems("admin").map(item => item.id)).toEqual(["home", "people", "modules"]);
+    expect(navItems("cs_supervisor").some(item => item.id === "csAccounts")).toBe(true);
+  });
   it("admin overview requests configuration only, never business summaries", async () => {
     const paths: string[] = [];
     vi.stubGlobal("fetch", async (input: string, options: RequestInit) => {
@@ -13,7 +18,7 @@ describe("Role home request boundaries", () => {
       return new Response(JSON.stringify(payload));
     });
     const result = await loadAdminHome();
-    expect(paths.sort()).toEqual(["/api/admin/teams", "/api/admin/users", "/api/cs-accounts", "/api/modules"]);
+    expect(paths.sort()).toEqual(["/api/admin/teams", "/api/admin/users", "/api/modules"]);
     expect(Object.values(result).every(item => item.status === "fulfilled")).toBe(true);
   });
 

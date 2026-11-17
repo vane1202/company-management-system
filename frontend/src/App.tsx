@@ -558,7 +558,7 @@ function PeoplePage({ today, onError }: { today: string; onError: (value: string
       <div className="card">
         <h2>员工账号与权限</h2>
         {scopeUser && <form className="review-card" onSubmit={async (e) => { e.preventDefault(); const target = scopeUser; setSavingUser(target.id); try { await api.setSupervisorTeams(target.id, scopeIds); } catch (err) { fail(`${target.displayName} 负责小组未保存`, err); setSavingUser(""); return; } setSavingUser(""); setScopeUser(null); onError(""); toast.success(`已保存 ${target.displayName} 的负责小组（${scopeIds.length} 个）`); await refreshAfterSave(); }}><h3>设置 {scopeUser.displayName} 的负责小组</h3><p className="notice">未勾选任何小组时，主管不能查看业务数据或登记客服接待账号。</p>{teams.map((team) => <label className="row" key={team.id}><input type="checkbox" checked={scopeIds.includes(team.id)} onChange={(e) => setScopeIds(e.target.checked ? [...scopeIds,team.id] : scopeIds.filter((id) => id !== team.id))} />{team.name}</label>)}<div className="actions"><button disabled={!!savingUser}>{savingUser ? "保存中…" : "保存负责小组"}</button><button type="button" className="secondary" onClick={() => setScopeUser(null)}>取消</button></div></form>}
-        <p className="notice">管理、运营、拍剪等人员在这里开通。固定客服手机请到“客服接待账号”发放登记码，无需为每位轮班客服创建员工账号。</p>
+        <p className="notice">在这里开通员工登录账号、分配角色和主管负责小组。WhatsApp、Messenger 接待账号的新增、持有人更换和登记码由本组客服主管管理。</p>
 
         <form
           onSubmit={async (event) => {

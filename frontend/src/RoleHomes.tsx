@@ -50,34 +50,29 @@ export function AdminHome({ onNavigate }: { onNavigate: Navigate }) {
   const users = loaded(data?.users)?.users;
   const employees = users?.filter(user => !isServiceAccount(user.accountKind));
   const teams = loaded(data?.teams)?.teams;
-  const accounts = loaded(data?.accounts)?.accounts;
   const modules = loaded(data?.modules);
   const moduleEntries = modules ? Object.entries(modules.modules) : null;
   const enabled = moduleEntries?.filter(([, value]) => value).length;
   const unassignedSupervisors = employees?.filter(user => user.role === "cs_supervisor" && user.isActive && user.managedTeamIds?.length === 0);
-  const unassignedAccounts = accounts?.filter(account => account.isActive && !account.teamId);
   const inactiveEmployees = employees?.filter(user => !user.isActive).length;
-  const inactiveAccounts = accounts?.filter(account => !account.isActive).length;
-  const errors = sourceErrors([["员工账号", data?.users], ["小组", data?.teams], ["客服接待账号", data?.accounts], ["模块设置", data?.modules]]);
+  const errors = sourceErrors([["员工账号", data?.users], ["小组", data?.teams], ["模块设置", data?.modules]]);
   return <div className="management-dashboard role-home" aria-busy={loading}>
     <HomeHeading title="系统管理概览" subtitle="账号、编制与系统配置" loading={loading} refresh={refresh} />
     <div className="role-kpis" aria-label="系统配置概况">
       <HomeMetric label="员工账号" value={employees?.length} note={employees ? `启用 ${employees.filter(user => user.isActive).length} · 停用 ${inactiveEmployees}` : undefined} page="people" onNavigate={onNavigate} />
       <HomeMetric label="已建小组" value={teams?.length} note="维护归属与主管权限" page="people" onNavigate={onNavigate} />
-      <HomeMetric label="已登记接待账号" value={accounts?.length} note={accounts ? `启用 ${accounts.filter(account => account.isActive).length} · 停用 ${inactiveAccounts}` : undefined} page="csAccounts" onNavigate={onNavigate} />
+      <HomeMetric label="待分配主管" value={unassignedSupervisors?.length} note="设置主管负责的小组" page="people" onNavigate={onNavigate} />
       <HomeMetric label="启用模块" value={enabled} note={moduleEntries ? `共 ${moduleEntries.length} 个业务模块` : undefined} page="modules" onNavigate={onNavigate} />
     </div>
     <HomeErrors errors={errors} retry={refresh} />
     <section className="role-home-panel"><div className="role-panel-title"><h2>管理入口</h2><span>配置与维护</span></div><div className="role-action-list">
       <HomeAction page="people" title="账号与小组" detail="开通账号、分配负责小组" onNavigate={onNavigate} />
-      <HomeAction page="csAccounts" title="客服接待账号" detail="发放登记码、维护公司接待账号" onNavigate={onNavigate} />
       <HomeAction page="modules" title="模块与系统设置" detail="模块启停、填报补报窗口" onNavigate={onNavigate} />
     </div></section>
     <div className="role-detail-grid">
       <section className="role-home-panel"><div className="role-panel-title"><h2>归属待完善</h2><button type="button" className="text-action" onClick={() => onNavigate("people")}>设置小组<DashboardIcon name="arrow" /></button></div>
         <div className="role-status-row"><span>未分组的启用主管</span><strong>{unassignedSupervisors?.length ?? "—"}</strong></div>
-        <div className="role-status-row"><span>未归组的启用接待账号</span><strong>{unassignedAccounts?.length ?? "—"}</strong></div>
-        {unassignedSupervisors?.length === 0 && unassignedAccounts?.length === 0 && <p className="panel-note">暂无未分组的启用主管或接待账号。</p>}
+        {unassignedSupervisors?.length === 0 && <p className="panel-note">启用主管均已分配负责小组。</p>}
         {!!unassignedSupervisors?.length && <p className="panel-note">{unassignedSupervisors.map(user => user.displayName).join("、")}：设置负责小组后才能查看组内数据。</p>}
         {teams?.length === 0 && <p className="panel-note">尚未创建小组，请先建立小组再分配主管、登记接待账号。</p>}
       </section>
