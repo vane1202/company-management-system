@@ -34,6 +34,17 @@
   box-shadow: none;
 }
 
+.bp-primary-grid .bp-performance-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bp-performance-link > span {
+  font-size: 14px;
+  line-height: 1;
+}
+
 .bp-room-split {
   display: none;
 }

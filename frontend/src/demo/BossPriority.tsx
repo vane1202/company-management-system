@@ -22,7 +22,11 @@ export default function BossPriority({from,to,tick,onSalary,receipts}:{from:stri
  if(error)return <section className="boss-priority"><p className="error" role="alert">{error}</p><button type="button" onClick={()=>setRetry(n=>n+1)}>重试主数据</button></section>;
  return <section className={'boss-priority'+(view!=='home'?' bp-detail':'')} aria-label="优先经营数据">
  {view==='home'?<div className="bp-primary-grid">
- <article><header className="bp-performance-header"><h2>总业绩</h2><InfoTip inline label="总业绩口径" text={data?.definitions.performance||'直播间开单＋客服私推；售后追加收费另列。'}/></header><button className="bp-main-number" type="button" aria-label="查看总业绩" disabled={!data} onClick={()=>open('rooms')}>{data?yuan(data.performance.total):'…'}</button><div className="bp-mini bp-performance-split"><span>直播间 <b>{data?yuan(data.performance.live):'…'}</b></span><span>私推 <b>{data?yuan(data.performance.private):'…'}</b></span></div>{receipts&&<div className="bp-receipt-inline">{receipts}</div>}</article>
+ <article><header className="bp-performance-header"><h2>总业绩</h2><InfoTip inline label="总业绩口径" text={data?.definitions.performance||'直播间开单＋客服私推；售后追加收费另列。'}/></header>
+  <button className="bp-main-number bp-performance-link" type="button" aria-label="查看总业绩" disabled={!data} onClick={()=>open('rooms')}>
+   {data?<>{yuan(data.performance.total)}<span aria-hidden="true">›</span></>:'…'}
+  </button>
+  <div className="bp-mini bp-performance-split"><span>直播间 <b>{data?yuan(data.performance.live):'…'}</b></span><span>私推 <b>{data?yuan(data.performance.private):'…'}</b></span></div>{receipts&&<div className="bp-receipt-inline">{receipts}</div>}</article>
  <article><header><h2>运营成本</h2><InfoTip label="运营成本口径" text={data?.definitions.expenses||'房租、水电、员工工资、接待和其他，广告不计入。'}/></header><button type="button" className={'bp-main-number'+(data?.expenses.registered===null?' bp-pending-value':'')} aria-label="查看运营成本" disabled={!data} onClick={()=>open('expenses')}>{!data?'…':data.expenses.registered===null?'待补齐':yuan(data.expenses.registered)}</button><div className="bp-mini"><span>{data?.expenses.registered?'已登记小计':'费用资料待补'}</span></div><div className="bp-cost-status">工资待核算<InfoTip label="运营成本完整性" text="工资及其他费用未全部确认，已登记小计不代表公司完整运营成本。广告仍在投流数据。"/></div></article>
  </div>:<>
  <div className="bp-backbar"><button type="button" className="secondary" onClick={()=>room?setRoomId(""):open('home')}>← {room?'返回直播间':'返回经营总览'}</button>{room&&<button type="button" className="text-action" onClick={()=>open('home')}>经营总览</button>}</div>
