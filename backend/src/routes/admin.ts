@@ -3,11 +3,12 @@ import type { Pool, PoolClient } from "pg";
 import { writeAudit } from "../audit.js";
 import { query, queryOne } from "../db.js";
 import { isIsoDate } from "../lib/dates.js";
-import { hashPassword, validatePassword } from "../lib/password.js";
+import { generateTemporaryPassword, hashPassword, validatePassword } from "../lib/password.js";
 import { HttpError, type UserRole } from "../types.js";
-import { isBossOrAdmin } from "../users.js";
+import { isBossOrAdmin, normalizeUsername } from "../users.js";
 
 const ROLES: UserRole[] = ["boss", "admin", "finance", "assistant", "ops", "editor", "cs", "cs_supervisor", "warehouse"];
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function createAdminRouter(db: Pool): Router {
   const router = Router();
@@ -125,7 +126,7 @@ export function createAdminRouter(db: Pool): Router {
 
   router.post("/users", async (req, res, next) => {
     try {
-      const username = String(req.body?.username ?? "").trim().toLowerCase();
+      const username = normalizeUsername(req.body?.username);
       const displayName = String(req.body?.displayName ?? "").trim();
       const password = String(req.body?.password ?? "");
       const role = String(req.body?.role ?? "") as UserRole;
@@ -215,7 +216,7 @@ export function createAdminRouter(db: Pool): Router {
       if (!user) throw new HttpError(404, "员工不存在");
       if (["cs_wechat","cs_service"].includes(user.account_kind??"")) throw new HttpError(400, "客服接待账号请在客服接待账号页面管理，不可修改为员工或其他角色");
       const displayName = req.body?.displayName !== undefined ? String(req.body.displayName).trim() : user.display_name;
-      const username = req.body?.username !== undefined ? String(req.body.username).trim().toLowerCase() : user.username;
+      const username = req.body?.username !== undefined ? normalizeUsername(req.body.username) : user.username;
       if (!/^[a-z0-9][a-z0-9_-]{2,31}$/.test(username)) throw new HttpError(400, "登录名须为 3-32 位小写字母、数字、下划线或短横线");
       if (username !== user.username) {
         const duplicate = await queryOne(client, "SELECT id FROM users WHERE username = $1 AND id <> $2", [username, user.id]);
@@ -235,13 +236,17 @@ export function createAdminRouter(db: Pool): Router {
         "UPDATE users SET display_name = $1, role = $2, is_active = $3, username = $5, updated_at = now() WHERE id = $4",
         [displayName, role, isActive, user.id, username]
       );
+      const shouldRevoke = !isActive || role !== user.role || username !== user.username;
+      if (shouldRevoke) {
+        await revokeEmployeeSessions(client, user.id);
+      }
       await writeAudit(client, {
         actorId: req.actor!.id,
         action: "user_update",
         entityType: "user",
         entityId: user.id,
         before: user,
-        after: { username, displayName, role, isActive },
+        after: { username, displayName, role, isActive, ...(shouldRevoke ? { sessionsRevoked: true } : {}) },
         ip: req.ip
       });
       await client.query("COMMIT"); res.json({ ok: true });
@@ -249,6 +254,89 @@ export function createAdminRouter(db: Pool): Router {
       if (client) await client.query("ROLLBACK");
       next(error);
     } finally { client?.release(); }
+  });
+
+  router.post("/users/:id/reset-password", async (req, res, next) => {
+    let client: PoolClient | undefined;
+    try {
+      const id = String(req.params.id ?? "");
+      if (!UUID_RE.test(id)) throw new HttpError(400, "员工标识无效");
+      if (id === req.actor!.id) throw new HttpError(400, "不能重置当前登录管理员自己的密码，请使用修改密码功能");
+      const generate = req.body?.generate === true && !req.body?.temporaryPassword;
+      client = await db.connect();
+      await client.query("BEGIN");
+      const user = await queryOne<{ id: string; username: string; account_kind: string }>(
+        client,
+        "SELECT id, username, account_kind FROM users WHERE id = $1 FOR UPDATE",
+        [id]
+      );
+      if (!user) throw new HttpError(404, "员工不存在");
+      if (["cs_wechat", "cs_service"].includes(user.account_kind ?? "")) {
+        throw new HttpError(400, "客服接待账号不使用员工密码，请由主管重新发放登记码");
+      }
+      const temporaryPassword = generate
+        ? generateTemporaryPassword(user.username)
+        : String(req.body?.temporaryPassword ?? "");
+      validatePassword(temporaryPassword, user.username);
+      const passwordHash = await hashPassword(temporaryPassword);
+      await client.query(
+        "UPDATE users SET password_hash = $1, must_change_password = TRUE, session_version = session_version + 1, updated_at = now() WHERE id = $2",
+        [passwordHash, user.id]
+      );
+      await client.query("DELETE FROM session WHERE sess->>'userId' = $1", [user.id]);
+      await writeAudit(client, {
+        actorId: req.actor!.id,
+        action: "user_password_reset",
+        entityType: "user",
+        entityId: user.id,
+        after: { mustChangePassword: true, sessionsRevoked: true, generated: generate },
+        ip: req.ip
+      });
+      await client.query("COMMIT");
+      res.setHeader("Cache-Control", "no-store");
+      res.json({ ok: true, mustChangePassword: true, ...(generate ? { temporaryPassword } : {}) });
+    } catch (error) {
+      if (client) await client.query("ROLLBACK");
+      next(error);
+    } finally {
+      client?.release();
+    }
+  });
+
+  router.post("/users/:id/revoke-sessions", async (req, res, next) => {
+    let client: PoolClient | undefined;
+    try {
+      const id = String(req.params.id ?? "");
+      if (!UUID_RE.test(id)) throw new HttpError(400, "员工标识无效");
+      if (id === req.actor!.id) throw new HttpError(400, "请使用退出登录结束当前会话");
+      client = await db.connect();
+      await client.query("BEGIN");
+      const user = await queryOne<{ id: string; account_kind: string }>(
+        client,
+        "SELECT id, account_kind FROM users WHERE id = $1 FOR UPDATE",
+        [id]
+      );
+      if (!user) throw new HttpError(404, "员工不存在");
+      if (["cs_wechat", "cs_service"].includes(user.account_kind ?? "")) {
+        throw new HttpError(400, "客服接待账号请在客服接待账号页面停用或换机");
+      }
+      await revokeEmployeeSessions(client, user.id);
+      await writeAudit(client, {
+        actorId: req.actor!.id,
+        action: "user_sessions_revoked",
+        entityType: "user",
+        entityId: user.id,
+        after: { sessionsRevoked: true },
+        ip: req.ip
+      });
+      await client.query("COMMIT");
+      res.json({ ok: true });
+    } catch (error) {
+      if (client) await client.query("ROLLBACK");
+      next(error);
+    } finally {
+      client?.release();
+    }
   });
 
   router.post("/users/:id/transfer", async (req, res, next) => {
@@ -413,4 +501,12 @@ export function createAdminRouter(db: Pool): Router {
 function previousDay(iso: string): string {
   const [year, month, day] = iso.split("-").map(Number);
   return new Date(Date.UTC(year, month - 1, day - 1)).toISOString().slice(0, 10);
+}
+
+async function revokeEmployeeSessions(client: PoolClient, userId: string): Promise<void> {
+  await client.query(
+    "UPDATE users SET session_version = session_version + 1, updated_at = now() WHERE id = $1",
+    [userId]
+  );
+  await client.query("DELETE FROM session WHERE sess->>'userId' = $1", [userId]);
 }

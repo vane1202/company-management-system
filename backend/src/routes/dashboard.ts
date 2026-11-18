@@ -38,21 +38,79 @@ export function createDashboardRouter(db: Pool, config: AppConfig): Router {
 
       const orderAgg = await queryOne<{
         order_count: string;
-        revenue: string;
-        refunds: string;
+        base_revenue: string;
+        base_refunds: string;
+        additional_revenue: string;
+        additional_refunds: string;
         custom_cost: string;
         labor_cost: string;
         shipping_cost: string;
       }>(
         db,
-        `SELECT COUNT(*) FILTER (WHERE status <> 'refunded' AND NOT cancelled)::text AS order_count,
-                COALESCE(SUM(amount) FILTER (WHERE NOT cancelled), 0)::text AS revenue,
-                COALESCE(SUM(amount) FILTER (WHERE status = 'refunded' AND NOT cancelled), 0)::text AS refunds,
-                COALESCE(SUM(custom_product_cost), 0)::text AS custom_cost,
-                COALESCE(SUM(labor_cost), 0)::text AS labor_cost,
-                COALESCE(SUM(shipping_cost), 0)::text AS shipping_cost
-           FROM (SELECT o.*,EXISTS(SELECT 1 FROM order_cancellations x WHERE x.order_id=o.id AND x.voided_at IS NULL) AS cancelled FROM orders o) orders
-          WHERE business_date BETWEEN $1 AND $2`,
+        `WITH scoped_orders AS (
+           SELECT o.id,
+                  o.business_date,
+                  o.status,
+                  o.amount,
+                  o.custom_product_cost,
+                  o.labor_cost,
+                  o.shipping_cost,
+                  EXISTS(SELECT 1 FROM order_cancellations x WHERE x.order_id = o.id AND x.voided_at IS NULL) AS cancelled,
+                  EXISTS(SELECT 1 FROM order_details d WHERE d.order_id = o.id) AS has_details,
+                  COALESCE((SELECT SUM(i.price_cny + i.buying_fee_cny) FROM order_items i WHERE i.order_id = o.id), o.amount) AS modern_booking_amount
+             FROM orders o
+         ),
+         charge_agg AS (
+           SELECT COALESCE(SUM(a.amount_cny) FILTER (WHERE NOT o.cancelled), 0) AS additional_revenue,
+                  COALESCE(SUM(a.amount_cny) FILTER (WHERE o.status = 'refunded' AND NOT o.cancelled), 0) AS additional_refunds
+             FROM order_charges a
+             JOIN scoped_orders o ON o.id = a.order_id
+            WHERE a.voided_at IS NULL
+              AND a.business_date BETWEEN $1 AND $2
+         ),
+         expense_agg AS (
+           SELECT COALESCE(SUM(e.amount_cny) FILTER (WHERE e.category IN ('goods','sourcing','accessory','certificate','box','other')), 0) AS custom_cost,
+                  COALESCE(SUM(e.amount_cny) FILTER (WHERE e.category IN ('labor','design')), 0) AS labor_cost,
+                  COALESCE(SUM(e.amount_cny) FILTER (WHERE e.category = 'shipping'), 0) AS shipping_cost
+             FROM order_expenses e
+            WHERE e.voided_at IS NULL
+              AND e.business_date BETWEEN $1 AND $2
+         )
+         SELECT COUNT(*) FILTER (WHERE o.business_date BETWEEN $1 AND $2 AND o.status <> 'refunded' AND NOT o.cancelled)::text AS order_count,
+                COALESCE(SUM(CASE WHEN o.has_details THEN o.modern_booking_amount ELSE o.amount END) FILTER (WHERE o.business_date BETWEEN $1 AND $2 AND NOT o.cancelled), 0)::text AS base_revenue,
+                COALESCE(SUM(CASE WHEN o.has_details THEN o.modern_booking_amount ELSE o.amount END) FILTER (WHERE o.business_date BETWEEN $1 AND $2 AND o.status = 'refunded' AND NOT o.cancelled), 0)::text AS base_refunds,
+                (SELECT additional_revenue FROM charge_agg)::text AS additional_revenue,
+                (SELECT additional_refunds FROM charge_agg)::text AS additional_refunds,
+                (COALESCE(SUM(o.custom_product_cost) FILTER (WHERE o.business_date BETWEEN $1 AND $2 AND NOT o.has_details), 0) + (SELECT custom_cost FROM expense_agg))::text AS custom_cost,
+                (COALESCE(SUM(o.labor_cost) FILTER (WHERE o.business_date BETWEEN $1 AND $2 AND NOT o.has_details), 0) + (SELECT labor_cost FROM expense_agg))::text AS labor_cost,
+                (COALESCE(SUM(o.shipping_cost) FILTER (WHERE o.business_date BETWEEN $1 AND $2 AND NOT o.has_details), 0) + (SELECT shipping_cost FROM expense_agg))::text AS shipping_cost
+           FROM scoped_orders o`,
+        [period.from, period.to]
+      );
+
+      const receiptRows = await query<{ currency: "CNY" | "TWD" | "USD"; total: string }>(
+        db,
+        `SELECT currency, COALESCE(SUM(amount), 0)::text AS total
+           FROM customer_payments
+          WHERE voided_at IS NULL
+            AND payment_date BETWEEN $1 AND $2
+          GROUP BY currency`,
+        [period.from, period.to]
+      );
+      const customerReceipts = { CNY: "0.00", TWD: "0.00", USD: "0.00" };
+      for (const row of receiptRows) {
+        if (row.currency in customerReceipts) {
+          customerReceipts[row.currency] = formatMoney(row.total);
+        }
+      }
+
+      const cashTotals = await queryOne<{ company_received_cny: string; supplier_paid_cny: string }>(
+        db,
+        `SELECT (
+                  COALESCE((SELECT SUM(p.amount) FROM customer_payments p WHERE p.voided_at IS NULL AND NOT p.third_party AND p.currency = 'CNY' AND p.payment_date BETWEEN $1 AND $2), 0) +
+                  COALESCE((SELECT SUM(a.net_cny) FROM settlement_allocations a JOIN finance_settlements s ON s.id = a.settlement_id JOIN customer_payments p ON p.id = a.payment_id WHERE s.voided_at IS NULL AND p.voided_at IS NULL AND s.settled_on BETWEEN $1 AND $2), 0)
+                )::text AS company_received_cny,
+                COALESCE((SELECT SUM(p.amount_cny) FROM supplier_payments p JOIN order_expenses e ON e.id = p.expense_id WHERE p.voided_at IS NULL AND e.voided_at IS NULL AND p.paid_on BETWEEN $1 AND $2), 0)::text AS supplier_paid_cny`,
         [period.from, period.to]
       );
 
@@ -120,8 +178,13 @@ export function createDashboardRouter(db: Pool, config: AppConfig): Router {
       );
 
       const salaryAllocated = allocateSalaries(salaryRows, period.from, period.to);
-      const revenue = formatMoney(orderAgg?.revenue ?? "0");
-      const refunds = formatMoney(orderAgg?.refunds ?? "0");
+      const baseOrderRevenue = formatMoney(orderAgg?.base_revenue ?? "0");
+      const additionalChargesRevenue = formatMoney(orderAgg?.additional_revenue ?? "0");
+      const revenue = addMoney([baseOrderRevenue, additionalChargesRevenue]);
+      const refunds = addMoney([
+        formatMoney(orderAgg?.base_refunds ?? "0"),
+        formatMoney(orderAgg?.additional_refunds ?? "0")
+      ]);
       const promoCost = formatMoney(promo?.promo_cost ?? "0");
       const customCost = formatMoney(orderAgg?.custom_cost ?? "0");
       const laborCost = formatMoney(orderAgg?.labor_cost ?? "0");
@@ -131,6 +194,8 @@ export function createDashboardRouter(db: Pool, config: AppConfig): Router {
         subMoney(subMoney(subMoney(subMoney(revenue, refunds), promoCost), salaryAllocated), customCost),
         laborAndShipping
       );
+      const companyReceivedCny = formatMoney(cashTotals?.company_received_cny ?? "0");
+      const supplierPaidCny = formatMoney(cashTotals?.supplier_paid_cny ?? "0");
       const opsUsd = await loadOpsUsdBundle(db, period.from, period.to);
       const dataCounts = await queryOne<{ fans: number; ops: number; editor: number }>(db,
         `SELECT (SELECT count(*)::int FROM fan_reports WHERE business_date BETWEEN $1 AND $2) AS fans,
@@ -149,6 +214,8 @@ export function createDashboardRouter(db: Pool, config: AppConfig): Router {
         opsUsd,
         metrics: {
           revenue,
+          baseOrderRevenue,
+          additionalChargesRevenue,
           refunds,
           promoCost,
           salaryAllocated,
@@ -156,6 +223,9 @@ export function createDashboardRouter(db: Pool, config: AppConfig): Router {
           laborCost,
           shippingCost,
           estimate,
+          customerReceipts,
+          companyReceivedCny,
+          supplierPaidCny,
           orderCount: Number(orderAgg?.order_count ?? 0),
           promoVideoCount: Number(promo?.promo_videos ?? 0),
           shootCount: Number(editor?.shoot ?? 0),
@@ -197,8 +267,8 @@ export function createDashboardRouter(db: Pool, config: AppConfig): Router {
         },
         formula: "收入 - 退款 - 推广费 - 工资分摊 - 定制商品成本 - 工费 - 运费",
         estimateScope: "all_daily_minus_overall_salary",
-        estimateNote: "填报数据直接计入统计。估算中的推广费只含历史 promo_cost（币种未知/legacy），不含新的美元花费，也不会把美元与人民币工资相加或换汇。",
-        disclaimer: "此结果为经营估算，用于看日常趋势，不等于会计净利润；未包含房租、水电、税费、社保公积金、平台扣点等。收入为查询期内排除跑单后的订单金额（仍含状态为退款的源订单），退款为状态=退款的订单金额之和；估算按收入减去退款，避免同一笔退款订单先从收入排除再扣一次。退款及跑单订单已经发生的成本仍计入。跑单回冲原业务日，不生成退款流水。订单按录入的业务日归属，没有独立退款日或部分退款字段。"
+        estimateNote: "填报数据直接计入统计。现代订单档案按事件发生日分别归集：开单金额按开单业务日、追加收费按收费业务日、商品/工费/运费支出按费用发生日、收款与付款按各自收付款日；跑单回冲原开单日。估算中的推广费只含历史 promo_cost（币种未知/legacy），不含新的美元花费，也不会把美元与人民币工资相加或换汇。",
+        disclaimer: "此结果为经营估算，用于看日常趋势，不等于会计净利润；未包含房租、水电、税费、社保公积金、平台扣点等。收入为查询期内排除跑单后的开单金额与当日追加收费之和（仍含状态为退款的源订单），退款为状态=退款的订单金额之和；估算按收入减去退款，避免同一笔退款订单先从收入排除再扣一次。退款及跑单订单已经发生的成本仍计入。跑单回冲原开单日，不生成退款流水；旧版简单订单（未建完整档案）仍按订单录入业务日归属。"
       });
     } catch (error) {
       next(error);

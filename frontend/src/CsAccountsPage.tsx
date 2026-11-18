@@ -1,7 +1,8 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { api, type CsAccount, type Team } from "./api";
 import { toErrorMessage } from "./errors";
 import { FillEntryLinks } from "./FillEntryLinks";
+import { createRequestGate } from "./requestGate";
 import {platformLabels} from './serviceAccounts';
 import { toast } from "./Toast";
 const DemoTenurePanel = import.meta.env.MODE === "demo" ? lazy(() => import("./demo/AccountTenurePanel")) : null;
@@ -22,11 +23,22 @@ export function CsAccountsPage({ supervisor = false }: { supervisor?: boolean })
   const [editing, setEditing] = useState<CsAccount | null>(null);
   const [editForm, setEditForm] = useState({ accountIdentifier: "", phoneLabel: "", holderName: "" });
   const [newAccount,setNewAccount]=useState({platform:'whatsapp' as 'whatsapp'|'messenger',accountIdentifier:'',phoneLabel:'',holderName:''});
+  const gate = useRef(createRequestGate());
+  const actionPanelRef = useRef<HTMLDivElement>(null);
+  function scrollActionPanel() {
+    requestAnimationFrame(() => actionPanelRef.current?.scrollIntoView?.({ behavior: "smooth", block: "nearest" }));
+  }
   async function refresh() {
+    const ticket = gate.current.next();
     const [groups, list] = await Promise.all([api.csTeams(), api.csAccounts()]);
+    if (!ticket.isCurrent()) return;
+    setError("");
     setTeams(groups.teams); setAccounts(list.accounts);
   }
-  useEffect(() => { refresh().catch((err) => setError(toErrorMessage(err))); }, []);
+  useEffect(() => {
+    refresh().catch((err) => setError(toErrorMessage(err)));
+    return () => { gate.current.next(); };
+  }, []);
   function fail(prefix: string, err: unknown) { const text = toErrorMessage(err, "保存失败"); setError(text); toast.error(`${prefix}：${text}`); }
   /** 保存已成功后再刷新；刷新失败单独说明，不误报为保存失败。 */
   async function refreshAfterSave() { try { await refresh(); } catch { setError(REFRESH_AFTER_SAVE_FAILED); toast.error(REFRESH_AFTER_SAVE_FAILED); } }
@@ -56,18 +68,41 @@ export function CsAccountsPage({ supervisor = false }: { supervisor?: boolean })
         <button type="submit" disabled={pending || !teamId}>生成本组账号选择码</button>
       </form>
       {!teams.length && <p className="notice">{supervisor ? "尚未分配负责小组，请联系后台管理员。" : "请先在账号与小组新增小组，再发放登记码。"}</p>}
-      {editing && <form className="review-card" onSubmit={async (event) => { event.preventDefault(); setPending(true); setError(""); const before = editing.wechatId; if (!editForm.holderName.trim()) { setError('请填写账号持有人'); setPending(false); return; } let result: Awaited<ReturnType<typeof api.updateCsAccount>>; try { result = await api.updateCsAccount(editing.id, editForm); } catch (err) { fail(`${before} 资料未更新`, err); setPending(false); return; } setEditing(null); setIssued(null); const holderNow = editForm.holderName.trim(); const notes = []; if (result.needsRegistration) notes.push(`标识已更新为 ${editForm.accountIdentifier.trim()}，原数据保留；请重新发码登记`); if ((editing.holderName || "") !== holderNow) notes.push(`账号持有人已改为 ${holderNow}，接待账号和历史数据不变`); toast.success(`${before}：${notes.length ? notes.join("。") : "设备备注已更新"}。`); await refreshAfterSave(); setPending(false); }}>
+      <div ref={actionPanelRef}>
+      {editing && <form className="review-card" onSubmit={async (event) => {
+        event.preventDefault();
+        if (pending) return;
+        const currentEditing = editing;
+        const before = currentEditing.wechatId;
+        if (!editForm.holderName.trim()) { setError('请填写账号持有人'); return; }
+        setPending(true); setError("");
+        try {
+          const result = await api.updateCsAccount(currentEditing.id, editForm);
+          setEditing(null); setIssued(null);
+          const holderNow = editForm.holderName.trim();
+          const notes = [];
+          if (result.needsRegistration) notes.push(`标识已更新为 ${editForm.accountIdentifier.trim()}，原数据保留；请重新发码登记`);
+          if ((currentEditing.holderName || "") !== holderNow) notes.push(`账号持有人已改为 ${holderNow}，接待账号和历史数据不变`);
+          toast.success(`${before}：${notes.length ? notes.join("。") : "设备备注已更新"}。`);
+          await refreshAfterSave();
+        } catch (err) {
+          fail(`${before} 资料未更新`, err);
+        } finally {
+          setPending(false);
+        }
+      }}>
         <h3>更新 {editing.wechatId}</h3><p>{platformLabels[editing.platform??"legacy_wechat"]}</p><p className="notice">用于原账号标识更正，原数据保留。更换为另一个接待账号账号请新登记，以免混合数据。修改接待账号将退出原登录。更换账号持有人只改当前负责人，不需要重新登记。</p>
         <label className="row">接待账号<input required maxLength={256} value={editForm.accountIdentifier} onChange={(e) => setEditForm({ ...editForm, accountIdentifier: e.target.value })} /></label><label className="row">账号持有人<input required maxLength={32} autoComplete="name" value={editForm.holderName} onChange={(e) => setEditForm({ ...editForm, holderName: e.target.value })} /></label><label className="row">设备备注<input maxLength={64} value={editForm.phoneLabel} onChange={(e) => setEditForm({ ...editForm, phoneLabel: e.target.value })} /></label><div className="actions"><button disabled={pending}>{pending ? "保存中…" : "保存更新"}</button><button type="button" className="secondary" onClick={() => setEditing(null)}>取消</button></div>
 
       </form>}
       {selected && <div className="notice" role="region" aria-label="确认重新登记"><p>为 <strong>{selected.wechatId}</strong> 重新发码，会立即退出原浏览器。新码只能登记这个接待账号，原数据继续保留。</p><div className="actions"><button disabled={pending} onClick={() => issue(selected.id)}>确认重新发码</button><button className="secondary" disabled={pending} onClick={() => setSelected(null)}>取消</button></div></div>}
+      </div>
       {issued && <div className="cs-issued-code" role="status"><h3>一次性登记码</h3><label htmlFor="issued-cs-code">仅本次显示，请交给对应客服手机使用</label><input id="issued-cs-code" value={issued.code} readOnly /><p>有效期至 {new Date(issued.expiresAt).toLocaleString("zh-CN")}，使用一次后失效。</p><p>{issued.message}</p><div className="actions"><button type="button" className="secondary" onClick={async () => { try { await navigator.clipboard.writeText(issued.code); toast.success("登记码已复制"); } catch { setMessage("请长按上方登记码手动复制"); } }}>复制登记码</button><button type="button" className="secondary" onClick={() => setIssued(null)}>收起登记码</button></div></div>}
 
     </div>
     <div className="card"><h3>已登记接待账号（{accounts.length}）</h3><div className="row"><label htmlFor="cs-search">筛选接待账号、持有人或设备备注</label><input id="cs-search" value={filter} onChange={(e) => setFilter(e.target.value)} /></div>
       {!accounts.length && <p className="notice">尚无接待账号，请先按真实名单录入WhatsApp或Messenger账号。</p>}
-      <div className="grid two">{accounts.filter((a) => `${a.wechatId} ${a.holderName ?? ""} ${a.phoneLabel ?? ""}`.toLowerCase().includes(filter.toLowerCase())).map((account) => <article className="review-card cs-account-card" key={account.id}><h3>{account.wechatId}</h3><p>持有人：{account.holderName || "未填写"}</p><p>{account.phoneLabel || "未填设备备注"} · {account.teamName || "无当前小组"}</p><p className={account.isActive ? "ok" : "notice"}>{account.isActive ? "启用中" : "已停用"}</p><div className="actions"><button className="secondary" disabled={pending} onClick={() => { setEditing(account); setEditForm({ accountIdentifier: account.accountIdentifier??account.wechatId, phoneLabel: account.phoneLabel || "", holderName: account.holderName || "" }); setIssued(null); }}>更新资料</button><button disabled={pending || !account.isActive} onClick={() => { setSelected(account); setIssued(null); }}>重新登记</button><button className="secondary" disabled={pending} onClick={() => toggle(account)}>{account.isActive ? "停用" : "启用"}</button></div></article>)}</div>
+      <div className="grid two">{accounts.filter((a) => `${a.wechatId} ${a.holderName ?? ""} ${a.phoneLabel ?? ""}`.toLowerCase().includes(filter.toLowerCase())).map((account) => <article className="review-card cs-account-card" key={account.id}><h3>{account.wechatId}</h3><p>持有人：{account.holderName || "未填写"}</p><p>{account.phoneLabel || "未填设备备注"} · {account.teamName || "无当前小组"}</p><p className={account.isActive ? "ok" : "notice"}>{account.isActive ? "启用中" : "已停用"}</p><div className="actions"><button className="secondary" disabled={pending} onClick={() => { setSelected(null); setEditing(account); setEditForm({ accountIdentifier: account.accountIdentifier??account.wechatId, phoneLabel: account.phoneLabel || "", holderName: account.holderName || "" }); setIssued(null); scrollActionPanel(); }}>更新资料</button><button disabled={pending || !account.isActive} onClick={() => { setEditing(null); setSelected(account); setIssued(null); scrollActionPanel(); }}>重新登记</button><button className="secondary" disabled={pending} onClick={() => toggle(account)}>{account.isActive ? "停用" : "启用"}</button></div></article>)}</div>
     </div>{DemoTenurePanel && <Suspense fallback={<p className="notice">正在读取账号使用历史。</p>}><DemoTenurePanel accounts={accounts} /></Suspense>}<button className="secondary" type="button" disabled={pending} onClick={() => refresh().catch((err) => setError(toErrorMessage(err)))}>刷新接待账号列表</button>{!supervisor && <FillEntryLinks />}
   </section>;
 }

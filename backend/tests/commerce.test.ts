@@ -352,6 +352,47 @@ describe("成交、客户付款与财务结算隔离",()=>{
   const legacy=(await post("cashier","/api/orders",{orderRef:"LEGACY-"+randomUUID(),amount:"99.00",businessDate:today}).expect(201)).body.order.id;expect((await get("cashier",`/api/order-records/${legacy}`)).body.legacy).toBe(true);await post("cashier",`/api/order-records/${legacy}/payments`,{}).expect(409);
   const id=await order();await clients.cashier.agent.patch(`/api/orders/${id}`).set("Origin",origin).set("X-CSRF-Token",clients.cashier.token).send({amount:"1.00"}).expect(409);
  });
+ it("经营估算与直播间日报按事件发生日统一归属，跨日追加、费用、晚收款与跑单口径一致",async()=>{
+  const yesterday=new Date(Date.parse(today+"T00:00:00Z")-86400000).toISOString().slice(0,10);
+  const dayBefore=new Date(Date.parse(today+"T00:00:00Z")-2*86400000).toISOString().slice(0,10);
+  const baselineY=(await get("boss",`/api/dashboard/summary?from=${yesterday}&to=${yesterday}`).expect(200)).body.metrics;
+  const baselineT=(await get("boss",`/api/dashboard/summary?from=${today}&to=${today}`).expect(200)).body.metrics;
+  const persona="SYNC-"+randomUUID().slice(0,8);
+  const id=await order({businessDate:yesterday,personaCode:persona,customerCurrency:"CNY",items:[{kind:"material",label:"开单料子",priceCny:"100.00"}]});
+  await post("cashier",`/api/order-records/${id}/charges`,{requestKey:randomUUID(),businessDate:today,label:"设计雕工追加",amountCny:"60.00"}).expect(200);
+  await post("cashier",`/api/order-records/${id}/expenses`,{requestKey:randomUUID(),businessDate:today,category:"goods",label:"供货材料支出",amountCny:"20.00"}).expect(200);
+  await payment(id,{paymentDate:today,amount:"170.00",currency:"CNY",purpose:"full",thirdParty:false,channel:"直收测试账户"});
+
+  const ySummary=(await get("boss",`/api/dashboard/summary?from=${yesterday}&to=${yesterday}`).expect(200)).body.metrics;
+  const tSummary=(await get("boss",`/api/dashboard/summary?from=${today}&to=${today}`).expect(200)).body.metrics;
+  const yLive=(await get("boss",`/api/dashboard/live-business?from=${yesterday}&to=${yesterday}&persona=${persona}`).expect(200)).body.totals;
+  const tLive=(await get("boss",`/api/dashboard/live-business?from=${today}&to=${today}&persona=${persona}`).expect(200)).body.totals;
+
+  expect(Number(ySummary.revenue)-Number(baselineY.revenue)).toBeCloseTo(110,2);
+  expect(Number(ySummary.baseOrderRevenue)-Number(baselineY.baseOrderRevenue)).toBeCloseTo(110,2);
+  expect(Number(ySummary.additionalChargesRevenue)-Number(baselineY.additionalChargesRevenue)).toBeCloseTo(0,2);
+  expect(Number(ySummary.customProductCost)-Number(baselineY.customProductCost)).toBeCloseTo(0,2);
+  expect(yLive).toMatchObject({performanceCny:"110.00",additionalCny:"0.00",expenseCny:"0.00"});
+
+  expect(Number(tSummary.revenue)-Number(baselineT.revenue)).toBeCloseTo(60,2);
+  expect(Number(tSummary.baseOrderRevenue)-Number(baselineT.baseOrderRevenue)).toBeCloseTo(0,2);
+  expect(Number(tSummary.additionalChargesRevenue)-Number(baselineT.additionalChargesRevenue)).toBeCloseTo(60,2);
+  expect(Number(tSummary.customProductCost)-Number(baselineT.customProductCost)).toBeCloseTo(20,2);
+  expect(Number(tSummary.companyReceivedCny)-Number(baselineT.companyReceivedCny)).toBeCloseTo(170,2);
+  expect(tLive).toMatchObject({performanceCny:"0.00",additionalCny:"60.00",expenseCny:"20.00",companyReceivedCny:"170.00"});
+
+  // 跑单订单测试：未收款跑单回冲原开单日，已发生在次日的费用仍保留在费用发生日
+  const cancelPersona="SYNC-CXL-"+randomUUID().slice(0,8);
+  const cxlId=await order({businessDate:dayBefore,personaCode:cancelPersona,customerCurrency:"CNY",items:[{kind:"material",label:"跑单料子",priceCny:"200.00"}]});
+  await post("cashier",`/api/order-records/${cxlId}/expenses`,{requestKey:randomUUID(),businessDate:today,category:"labor",label:"已发生工费",amountCny:"30.00"}).expect(200);
+  const beforeB=(await get("boss",`/api/dashboard/summary?from=${dayBefore}&to=${dayBefore}`).expect(200)).body.metrics;
+  const detail=(await get("cashier",`/api/order-records/${cxlId}`).expect(200)).body;
+  await post("cashier",`/api/order-records/${cxlId}/cancellations`,{version:detail.details.version,reason:"跨日放弃付款"}).expect(200);
+  const afterB=(await get("boss",`/api/dashboard/summary?from=${dayBefore}&to=${dayBefore}`).expect(200)).body.metrics;
+  const afterT=(await get("boss",`/api/dashboard/summary?from=${today}&to=${today}`).expect(200)).body.metrics;
+  expect(Number(beforeB.revenue)-Number(afterB.revenue)).toBeCloseTo(220,2);
+  expect(Number(afterT.laborCost)-Number(tSummary.laborCost)).toBeCloseTo(30,2);
+ });
  it("发货不改变应收已付，模块关闭禁止新增订单资料且保留读取",async()=>{
   const id=await order();await post("cashier",`/api/order-records/${id}/shipping`,{shippedOn:today}).expect(200);let d=(await get("cashier",`/api/order-records/${id}`)).body;expect(d.details.shippedOn).toBe(today);expect(d.order.status).toBe("shipped");expect(d.paid).toBe("0.00");
   const config=(await get("admin","/api/modules")).body;await clients.admin.agent.put("/api/modules").set("Origin",origin).set("X-CSRF-Token",clients.admin.token).send({version:config.version,modules:{...config.modules,orders:false}}).expect(200);await post("cashier","/api/order-records",body()).expect(403);await get("cashier",`/api/order-records/${id}`).expect(200);

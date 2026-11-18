@@ -109,4 +109,28 @@ PORT=13080
     expect(READONLY_DB_SQL.startsWith("SELECT ")).toBe(true);
     expect(READONLY_DB_SQL).not.toMatch(/INSERT|UPDATE|DELETE|TRUNCATE|ALTER|DROP|CREATE|MIGRATE/i);
   });
+
+  it("生产启用 COOKIE_SECURE 时检查 TRUST_PROXY 与 HTTPS 来源", () => {
+    const findings = checkEnv({
+      NODE_ENV: "production",
+      SESSION_SECRET: HIDDEN + "-long-enough",
+      DATABASE_URL: `postgres://cms:${HIDDEN}@127.0.0.1:15432/cms`,
+      COOKIE_SECURE: "true",
+      TRUST_PROXY: "0",
+      APP_ORIGIN: "http://app.example.com"
+    });
+    const codes = findings.map((item) => item.code);
+    expect(codes).toContain("trust_proxy_unset_for_https");
+    expect(codes).toContain("cookie_secure_http_origin");
+
+    const okFindings = checkEnv({
+      NODE_ENV: "production",
+      SESSION_SECRET: HIDDEN + "-long-enough",
+      DATABASE_URL: `postgres://cms:${HIDDEN}@127.0.0.1:15432/cms`,
+      COOKIE_SECURE: "true",
+      TRUST_PROXY: "1",
+      APP_ORIGIN: "https://app.example.com"
+    });
+    expect(okFindings.some((item) => item.level !== "ok")).toBe(false);
+  });
 });

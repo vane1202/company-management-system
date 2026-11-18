@@ -23,7 +23,7 @@ import { IdentityName, identityLabel, useIdentityPrivacy } from "./IdentityName"
 import { CsDeviceRegistration } from "./CsDeviceRegistration";
 import { CsAccountsPage } from "./CsAccountsPage";
 import { fillEntries, fillEntryFromPath, canUseFillEntry } from "./fillEntries";
-import { type FormEvent, type ReactNode, lazy, Suspense, useEffect, useState } from "react";
+import { type FormEvent, type ReactNode, lazy, Suspense, useEffect, useId, useRef, useState } from "react";
 import { canQueryByDate, isIsoDate } from "./dates";
 import { labelOrderStatus } from "./labels";
 import { bossLinkedPages, navItems, pageLabel, roleLabel, type Page } from "./access";
@@ -34,6 +34,7 @@ import { toast } from "./Toast";
 import { BootSkeleton, Skeleton } from "./Skeleton";
 import {
   api,
+  setUnauthorizedHandler,
   type AdminUser,
   type CsAccount,
   type EditorReport,
@@ -69,12 +70,15 @@ export function App() {
   const navigation = useWorkspaceNavigation(user?.id, user?.role);
   const page = navigation.route.page;
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
   const [error, setError] = useState("");
   const [today, setToday] = useState("");
   const [backfillDays, setBackfillDays] = useState(3);
   const [disclaimer, setDisclaimer] = useState("");
   const [pageErrors, setPageErrors] = useState<Partial<Record<Page, string>>>({});
   const entry = fillEntryFromPath(window.location.pathname);
+  const hasUserRef = useRef(false);
+  hasUserRef.current = user !== null;
 
   useEffect(() => {
     setError(""); setMobileNavOpen(false);
@@ -104,6 +108,22 @@ export function App() {
   }, [user?.id]);
 
   useEffect(() => {
+    setUnauthorizedHandler((message) => {
+      if (!hasUserRef.current) return;
+      hasUserRef.current = false;
+      identityPrivacy.reset();
+      setError("");
+      setMobileNavOpen(false);
+      setPasswordOpen(false);
+      setUser(null);
+      setModules(null);
+      toast.error(message);
+      void api.loadCsrf().catch(() => {});
+    });
+    return () => setUnauthorizedHandler(null);
+  }, []);
+
+  useEffect(() => {
     (async () => {
       try {
         await api.loadCsrf();
@@ -130,7 +150,7 @@ export function App() {
     return <section className="page"><div className="card"><h2>{fillEntries[entry].title}</h2>
       <p>此入口用于客服本人填报。当前登录身份为{roleLabel[user.role]}，请使用相应的客服账号。</p>
       <a className="btn secondary" href="/">返回管理首页</a>
-      <button type="button" onClick={async () => { await api.logout(); identityPrivacy.reset(); setUser(null); setModules(null); }}>退出并切换账号</button>
+      <button type="button" onClick={logout}>退出并切换账号</button>
     </div></section>;
   }
   if (entry && !modules) return <div className="page"><p>正在确认填报入口…</p>{error && <p className="error">{error}</p>}<button type="button" onClick={() => api.modules().then((data) => { setModules(data.modules); setError(""); }).catch((err) => setError(toErrorMessage(err)))}>重新加载</button></div>;
@@ -140,8 +160,10 @@ export function App() {
   const demoBoss = import.meta.env.MODE === "demo" && user.role === "boss";
   const linkedPages = demoBoss ? bossLinkedPages() : [];
   const items = navItems(user.role).filter((item) => managementRole || !["fans", "orders", "ops", "editor"].includes(item.id) || modules?.[item.id] === true);
-  const sidebarItems = user.role === "finance" ? (import.meta.env.MODE==='demo'?items.filter(item=>item.id!=='salaries'):[]) : user.role === "cs_supervisor" ? items.filter((item) => !["summary", "orders", "reportHistory"].includes(item.id)) : items;
+  const sidebarItems = user.role === "finance" ? (import.meta.env.MODE==='demo'?items.filter(item=>item.id!=='salaries'):items) : user.role === "cs_supervisor" ? items.filter((item) => !["summary", "orders", "reportHistory"].includes(item.id)) : items;
   const bottomItems = user.role === "cs_supervisor" && import.meta.env.MODE === "demo" ? sidebarItems : sidebarItems.slice(0, 5);
+  const canChangePassword = !isServiceAccount(user.accountKind);
+  const accountOnlyMobileNav = bottomItems.length >= sidebarItems.length;
   const rootPage: Page = demoBoss ? "dashboard" : "home";
   const activePage = items.some((item) => item.id === page) || linkedPages.includes(page) ? page : rootPage;
   const navCurrent = linkedPages.includes(activePage) || (user.role === "cs_supervisor" && ["summary", "orders", "reportHistory"].includes(activePage)) ? rootPage : activePage;
@@ -163,20 +185,31 @@ export function App() {
     </section>;
   }
   async function logout() {
-    await api.logout();
-    identityPrivacy.reset();
-    await api.loadCsrf();
-    toast.clear();
-    setError(""); setMobileNavOpen(false); setUser(null); setModules(null);
+    try {
+      await api.logout();
+    } catch {
+      // Reset client session state even if server logout fails (expired session, CSRF mismatch, or offline).
+    } finally {
+      hasUserRef.current = false;
+      identityPrivacy.reset();
+      toast.clear();
+      setError("");
+      setMobileNavOpen(false);
+      setPasswordOpen(false);
+      setUser(null);
+      setModules(null);
+      void api.loadCsrf().catch(() => {});
+    }
   }
   return (
     <div className={`page app-shell ${managementRole ? "management-shell" : ""} ${user.role === "boss" ? "boss-shell" : ""} ${sidebarItems.length > 1 ? "has-bottom-nav" : "no-bottom-nav"}`}>
       <a className="skip-link" href="#main-content">跳到主要内容</a>
-      <aside className={`app-sidebar ${mobileNavOpen ? "mobile-nav-open" : ""}`}>
-        <div className="sidebar-brand-row"><button type="button" onClick={() => navigation.up({ page: rootPage })} className="sidebar-brand" aria-label="返回工作台首页"><span className="sidebar-brand-mark"><DashboardIcon name="home" /></span><span><b>翠管家</b><small>公司日常工作台</small></span></button>{managementRole && <div className="mobile-identity"><IdentityName name={user.displayName} hidden={identityPrivacy.hidden} onToggle={identityPrivacy.toggle} /></div>}{managementRole && (bottomItems.length >= sidebarItems.length ? <button type="button" className="mobile-menu-toggle secondary" onClick={logout}>{user.role === "cs_supervisor" ? "退出登录" : "退出"}</button> : <button type="button" className="mobile-menu-toggle secondary" aria-expanded={mobileNavOpen} aria-controls="workspace-navigation" onClick={() => setMobileNavOpen(open => !open)}>{mobileNavOpen ? "收起菜单" : "全部菜单"}</button>)}</div>
+      <aside className={`app-sidebar ${mobileNavOpen ? "mobile-nav-open" : ""} ${accountOnlyMobileNav ? "mobile-nav-account-only" : ""}`}>
+        <div className="sidebar-brand-row"><button type="button" onClick={() => navigation.up({ page: rootPage })} className="sidebar-brand" aria-label="返回工作台首页"><span className="sidebar-brand-mark"><DashboardIcon name="home" /></span><span><b>翠管家</b><small>公司日常工作台</small></span></button>{managementRole && <div className="mobile-identity"><IdentityName name={user.displayName} hidden={identityPrivacy.hidden} onToggle={identityPrivacy.toggle} /></div>}{managementRole && (!canChangePassword ? <button type="button" className="mobile-menu-toggle secondary" onClick={logout}>{user.role === "cs_supervisor" ? "退出登录" : "退出"}</button> : <button type="button" className="mobile-menu-toggle secondary" aria-expanded={mobileNavOpen} aria-controls="workspace-navigation" onClick={() => setMobileNavOpen(open => !open)}>{mobileNavOpen ? (accountOnlyMobileNav ? "收起" : "收起菜单") : (accountOnlyMobileNav ? "账号" : "全部菜单")}</button>)}</div>
         {sidebarItems.length > 0 && <span className="nav-section-label">工作空间</span>}
-        {sidebarItems.length > 0 && <nav id="workspace-navigation" className="nav" aria-label="主要导航">
+        {(sidebarItems.length > 0 || (managementRole && canChangePassword)) && <nav id="workspace-navigation" className="nav" aria-label="主要导航">
           {sidebarItems.map((item) => <button key={item.id} aria-current={navCurrent === item.id ? "page" : undefined} className={navCurrent === item.id ? "active" : ""} onClick={() => goTo(item.id)}><DashboardIcon name={item.id} /><span>{item.label}</span></button>)}
+          {managementRole && canChangePassword && <button type="button" className="mobile-menu-logout" onClick={() => { setMobileNavOpen(false); setPasswordOpen(true); window.scrollTo?.({ top: 0, behavior: "smooth" }); }}>修改密码</button>}
           {managementRole && <button type="button" className="mobile-menu-logout" onClick={logout}>退出登录</button>}
         </nav>}
         <div className="sidebar-footer"><span className="sidebar-avatar">{identityPrivacy.hidden ? Array.from(user.displayName).at(-1) : user.displayName.slice(0, 1)}</span><span><strong>{identityLabel(user.displayName, identityPrivacy.hidden)}</strong><small>{roleLabel[user.role]} · 数据按权限展示</small></span></div>
@@ -185,6 +218,11 @@ export function App() {
       <header className="topbar app-toolbar">
         <div className="toolbar-breadcrumb">工作台 <span>/</span> <strong>{pageLabel(user.role, activePage)}</strong></div>
         <div className="toolbar-account"><IdentityName name={user.displayName} hidden={identityPrivacy.hidden} onToggle={identityPrivacy.toggle} />
+        {!isServiceAccount(user.accountKind) && (
+          <button type="button" className="secondary" onClick={() => setPasswordOpen(open => !open)}>
+            修改密码
+          </button>
+        )}
         <button
           className="secondary"
           onClick={logout}
@@ -194,6 +232,9 @@ export function App() {
         </div>
       </header>
       <main id="main-content" tabIndex={-1}>
+      {passwordOpen && !isServiceAccount(user.accountKind) && (
+        <SelfChangePasswordCard user={user} onClose={() => setPasswordOpen(false)} />
+      )}
       {activePage !== rootPage && <WorkspaceBackbar page={activePage} detail={activePage === "orders" && !!navigation.route.orderId} homeLabel={items[0].label} pageLabel={bossBusiness?(navigation.route.orderList?'订单档案':liveViewLabel(currentBusiness)):pageLabel(user.role, activePage)} backLabel={businessBackLabel} onUp={() => { const route = navigation.route; const insideOrders = route.page === "orders" && !!(route.orderId || route.orderList || route.live && route.live.view !== "rooms"); navigation.up(demoBoss && !insideOrders ? { page: "dashboard" } : undefined); }} onHome={() => navigation.up({ page: rootPage })} />}
       {error && <p className="error">{error}</p>}
       {isServiceAccount(user.accountKind) && <p className="notice">当前填报接待账号：<strong>{user.serviceAccountLabel??user.wechatId}</strong>{user.phoneLabel ? `（${user.phoneLabel}）` : ""}。加粉与订单长期归属于此接待账号；退出后需管理员重新发码。</p>}
@@ -209,7 +250,7 @@ export function App() {
       {pagePanel("editor", DemoEditorOverview && user.role==='boss'?<Suspense fallback={<p role="status">正在读取拍剪汇总…</p>}><DemoEditorOverview today={today}/></Suspense>:<EditorPage today={today} onError={pageError("editor")} readOnly={user.role === "boss"} />)}
       {pagePanel("dashboard", DemoEstimateBoard ? <Suspense fallback={<p role="status">正在读取经营总览…</p>}><DemoEstimateBoard today={today} onError={pageError("dashboard")} onOpen={goTo} onDrill={route=>{setMobileNavOpen(false);setError("");navigation.navigate(route);}} /></Suspense> : <DashboardPage onError={pageError("dashboard")} />)}
       {pagePanel("modules", <><ModuleSettings onError={pageError("modules")} onChange={setModules} /><SystemSettings defaultDays={backfillDays} /></>)}
-      {pagePanel("people", <PeoplePage today={today} onError={pageError("people")} />)}
+      {pagePanel("people", <PeoplePage today={today} currentUserId={user.id} onError={pageError("people")} />)}
       {pagePanel("csAccounts", DemoRegisteredAccounts ? <Suspense fallback={<p role="status">正在读取账号名册…</p>}><DemoRegisteredAccounts supervisor={user.role === "cs_supervisor"} /></Suspense> : <CsAccountsPage supervisor={user.role === "cs_supervisor"} />)}
       {pagePanel("finance", import.meta.env.MODE==='demo'&&user.role==='finance'?<FinanceDesk today={today} section="finance" active={activePage==='finance'} onOpenSalary={()=>goTo('salaries')}/>:<FinanceWorkspace today={today} readOnly cashView={navigation.views.finance?.cash} />)}
       {pagePanel("financeOut", <FinanceDesk today={today} section="financeOut" active={activePage==='financeOut'} onOpenSalary={()=>goTo('salaries')}/>)}
@@ -257,7 +298,7 @@ function Login({ onLogin, entry }: { onLogin: (user: User, extras?: SessionMeta)
     <div className="login-wrap">
       <form className="card login-card" onSubmit={submit}>
         <div className="brand">
-          <b>{entry ? fillEntries[entry].title : "公司内部管理系统"}</b>
+          <b>{entry ? fillEntries[entry].title : "翠管家"}</b>
           <span>{entry ? fillEntries[entry].description : "账号由行政开通，不能自行注册"}</span>
         </div>
         <div className="row">
@@ -281,6 +322,8 @@ function ChangePassword({ user, onDone }: { user: User; onDone: () => void }) {
   const [newPassword, setNew] = useState("");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+  const currentId = useId();
+  const nextId = useId();
   return (
     <div className="login-wrap">
       <form
@@ -306,17 +349,67 @@ function ChangePassword({ user, onDone }: { user: User; onDone: () => void }) {
         <h2>首次登录请修改密码</h2>
         <p className="notice">{user.displayName}，为保护账号安全，请先设置新密码后再使用系统。</p>
         <div className="row">
-          <label>当前密码</label>
-          <input type="password" value={currentPassword} onChange={(e) => setCurrent(e.target.value)} />
+          <label htmlFor={currentId}>当前密码</label>
+          <input id={currentId} type="password" required maxLength={128} autoComplete="current-password" value={currentPassword} onChange={(e) => setCurrent(e.target.value)} />
         </div>
         <div className="row">
-          <label>新密码（至少 10 位，含字母和数字）</label>
-          <input type="password" value={newPassword} onChange={(e) => setNew(e.target.value)} />
+          <label htmlFor={nextId}>新密码（至少 10 位，含字母和数字）</label>
+          <input id={nextId} type="password" required minLength={10} maxLength={128} autoComplete="new-password" value={newPassword} onChange={(e) => setNew(e.target.value)} />
         </div>
         {error && <p className="error">{error}</p>}
         <button type="submit" disabled={pending}>{pending ? "保存中…" : "保存新密码"}</button>
       </form>
     </div>
+  );
+}
+
+function SelfChangePasswordCard({ user, onClose }: { user: User; onClose: () => void }) {
+  const [currentPassword, setCurrent] = useState("");
+  const [newPassword, setNew] = useState("");
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
+  const currentId = useId();
+  const nextId = useId();
+  return (
+    <section className="card" aria-label="修改登录密码">
+      <form
+        onSubmit={async (event) => {
+          event.preventDefault();
+          if (pending) return;
+          setPending(true);
+          setError("");
+          try {
+            await api.changePassword(currentPassword, newPassword);
+            toast.success(`${user.displayName}：密码已更新，其他设备会话已失效`);
+            setCurrent("");
+            setNew("");
+            onClose();
+          } catch (err) {
+            const text = toErrorMessage(err, "修改失败");
+            setError(text);
+            toast.error(`修改密码失败：${text}`);
+          } finally {
+            setPending(false);
+          }
+        }}
+      >
+        <h2>修改登录密码</h2>
+        <p className="notice">保存新密码后，当前设备保持登录，其他已登录设备将自动失效。</p>
+        <div className="row">
+          <label htmlFor={currentId}>当前密码</label>
+          <input id={currentId} type="password" required maxLength={128} value={currentPassword} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" />
+        </div>
+        <div className="row">
+          <label htmlFor={nextId}>新密码（至少 10 位，含字母和数字）</label>
+          <input id={nextId} type="password" required minLength={10} maxLength={128} value={newPassword} onChange={(e) => setNew(e.target.value)} autoComplete="new-password" />
+        </div>
+        {error && <p className="action-error" role="alert">{error}</p>}
+        <div className="actions">
+          <button type="submit" disabled={pending}>{pending ? "保存中…" : "保存新密码"}</button>
+          <button type="button" className="secondary" disabled={pending} onClick={onClose}>取消</button>
+        </div>
+      </form>
+    </section>
   );
 }
 
@@ -475,11 +568,11 @@ function DashboardPage({ onError }: { onError: (value: string) => void }) {
   const m = data?.metrics;
   return <section className="card"><h2>经营估算</h2><div className="actions">{[["day","今日"],["week","本周"],["month","本月"]].map(([key,label]) => <button key={key} type="button" className={preset === key ? "" : "secondary"} onClick={() => { setPreset(key); load(key); }}>{label}</button>)}<button type="button" className="secondary" onClick={() => load()}>刷新</button></div>
     {loading && <p role="status">读取中…</p>}
-    {data && m && <><p className="notice">{data.period.from} 至 {data.period.to}</p><div className="metrics">{Object.entries({revenue:"订单金额（含退款源订单）",refunds:"退款金额",promoCost:"历史推广费（币种未知）",salaryAllocated:"工资分摊",customProductCost:"定制成本",laborCost:"工费",shippingCost:"运费",estimate:"经营估算"}).map(([key,label]) => <div className="metric" key={key}><b>{String(m[key as keyof Metrics])}</b><span>{label}</span></div>)}</div><DailyDetailMetrics item={m} /><article className="review-card"><h3>运营投放 · USD</h3><p>花费 {data.opsUsd.spendUsd} · 咨询 {data.opsUsd.consultCount} · 点击 {data.opsUsd.clickCount}</p><p>区间末次余额 {data.opsUsd.endingBalanceUsd ?? "未记录"} USD</p></article><p className="notice">{data.formula}</p><p className="notice">{data.estimateNote}</p><p className="notice">{data.disclaimer}</p></>}
+    {data && m && <><p className="notice">{data.period.from} 至 {data.period.to} · 按业务事件发生日归集</p><div className="metrics">{Object.entries({revenue:"当期收入合计（开单+追加）",baseOrderRevenue:"当日开单金额",additionalChargesRevenue:"当日追加收费",refunds:"退款金额",companyReceivedCny:"公司人民币净到账",supplierPaidCny:"供应商已付款",promoCost:"历史推广费（币种未知）",salaryAllocated:"工资分摊",customProductCost:"定制/商品成本（按费用日）",laborCost:"工费（按费用日）",shippingCost:"运费（按费用日）",estimate:"经营估算"}).map(([key,label]) => <div className="metric" key={key}><b>{String(m[key as keyof Metrics] ?? "0.00")}</b><span>{label}</span></div>)}</div><DailyDetailMetrics item={m} /><article className="review-card"><h3>运营投放 · USD</h3><p>花费 {data.opsUsd.spendUsd} · 咨询 {data.opsUsd.consultCount} · 点击 {data.opsUsd.clickCount}</p><p>区间末次余额 {data.opsUsd.endingBalanceUsd ?? "未记录"} USD</p></article><p className="notice">{data.formula}</p>{data.estimateNote && <p className="notice">{data.estimateNote}</p>}<p className="notice">{data.disclaimer}</p></>}
   </section>;
 }
 
-function PeoplePage({ today, onError }: { today: string; onError: (value: string) => void }) {
+function PeoplePage({ today, currentUserId, onError }: { today: string; currentUserId: string; onError: (value: string) => void }) {
   const [teams, setTeams] = useState<Team[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -491,8 +584,12 @@ function PeoplePage({ today, onError }: { today: string; onError: (value: string
   const [scopeUser, setScopeUser] = useState<AdminUser | null>(null);
   const [editingUser, setEditingUser] = useState<{ id: string; username: string; displayName: string } | null>(null);
   const [editError, setEditError] = useState("");
+  const [resetUser, setResetUser] = useState<{ id: string; username: string; displayName: string; temporaryPassword: string } | null>(null);
+  const [resetError, setResetError] = useState("");
+  const [issuedTempPassword, setIssuedTempPassword] = useState<{ displayName: string; username: string; temporaryPassword: string } | null>(null);
   const [scopeIds, setScopeIds] = useState<string[]>([]);
   const [savingUser, setSavingUser] = useState("");
+  const userPanelRef = useRef<HTMLFormElement>(null);
   const [form, setForm] = useState({
     username: "",
     displayName: "",
@@ -501,6 +598,32 @@ function PeoplePage({ today, onError }: { today: string; onError: (value: string
     teamId: "",
     membershipStart: today
   });
+
+  function scrollUserPanel() {
+    requestAnimationFrame(() => userPanelRef.current?.scrollIntoView?.({ behavior: "smooth", block: "nearest" }));
+  }
+  function openScopePanel(item: AdminUser) {
+    setEditingUser(null);
+    setResetUser(null);
+    setScopeUser(item);
+    setScopeIds(item.managedTeamIds ?? []);
+    scrollUserPanel();
+  }
+  function openEditPanel(item: AdminUser) {
+    setScopeUser(null);
+    setResetUser(null);
+    setEditError("");
+    setEditingUser({ id: item.id, username: item.username, displayName: item.displayName });
+    scrollUserPanel();
+  }
+  function openResetPanel(item: AdminUser) {
+    setScopeUser(null);
+    setEditingUser(null);
+    setResetError("");
+    setIssuedTempPassword(null);
+    setResetUser({ id: item.id, username: item.username, displayName: item.displayName, temporaryPassword: "" });
+    scrollUserPanel();
+  }
 
   async function refresh() {
     setTeams((await api.teams()).teams);
@@ -548,7 +671,7 @@ function PeoplePage({ today, onError }: { today: string; onError: (value: string
             await refreshAfterSave();
           }}
         >
-          <Field label="小组名称"><input value={teamName} onChange={(e) => setTeamName(e.target.value)} /></Field>
+          <Field label="小组名称"><input required maxLength={64} value={teamName} onChange={(e) => setTeamName(e.target.value)} /></Field>
           <button type="submit" disabled={teamPending}>{teamPending ? "保存中…" : "新增小组"}</button>
           {teamError && <p className="action-error" role="alert">{teamError}</p>}
         </form>
@@ -559,7 +682,7 @@ function PeoplePage({ today, onError }: { today: string; onError: (value: string
       </div>
       <div className="card">
         <h2>员工账号与权限</h2>
-        {scopeUser && <form className="review-card" onSubmit={async (e) => { e.preventDefault(); const target = scopeUser; setSavingUser(target.id); try { await api.setSupervisorTeams(target.id, scopeIds); } catch (err) { fail(`${target.displayName} 负责小组未保存`, err); setSavingUser(""); return; } setSavingUser(""); setScopeUser(null); onError(""); toast.success(`已保存 ${target.displayName} 的负责小组（${scopeIds.length} 个）`); await refreshAfterSave(); }}><h3>设置 {scopeUser.displayName} 的负责小组</h3><p className="notice">未勾选任何小组时，主管不能查看业务数据或登记客服接待账号。</p>{teams.map((team) => <label className="row" key={team.id}><input type="checkbox" checked={scopeIds.includes(team.id)} onChange={(e) => setScopeIds(e.target.checked ? [...scopeIds,team.id] : scopeIds.filter((id) => id !== team.id))} />{team.name}</label>)}<div className="actions"><button disabled={!!savingUser}>{savingUser ? "保存中…" : "保存负责小组"}</button><button type="button" className="secondary" onClick={() => setScopeUser(null)}>取消</button></div></form>}
+        {scopeUser && <form ref={userPanelRef} className="review-card" onSubmit={async (e) => { e.preventDefault(); if (savingUser) return; const target = scopeUser; setSavingUser(target.id); try { await api.setSupervisorTeams(target.id, scopeIds); setScopeUser(null); onError(""); toast.success(`已保存 ${target.displayName} 的负责小组（${scopeIds.length} 个）`); await refreshAfterSave(); } catch (err) { fail(`${target.displayName} 负责小组未保存`, err); } finally { setSavingUser(""); } }}><h3>设置 {scopeUser.displayName} 的负责小组</h3><p className="notice">未勾选任何小组时，主管不能查看业务数据或登记客服接待账号。</p>{teams.map((team) => <label className="row" key={team.id}><input type="checkbox" checked={scopeIds.includes(team.id)} disabled={!!savingUser} onChange={(e) => setScopeIds(e.target.checked ? [...scopeIds,team.id] : scopeIds.filter((id) => id !== team.id))} />{team.name}</label>)}<div className="actions"><button disabled={!!savingUser}>{savingUser ? "保存中…" : "保存负责小组"}</button><button type="button" className="secondary" disabled={!!savingUser} onClick={() => setScopeUser(null)}>取消</button></div></form>}
         <p className="notice">在这里开通员工登录账号、分配角色和主管负责小组。WhatsApp、Messenger 接待账号的新增、持有人更换和登记码由本组客服主管管理。</p>
 
         <form
@@ -582,9 +705,9 @@ function PeoplePage({ today, onError }: { today: string; onError: (value: string
             await refreshAfterSave();
           }}
         >
-          <Field label="登录名"><input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} /></Field>
-          <Field label="姓名"><input value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} /></Field>
-          <Field label="初始密码"><input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></Field>
+          <Field label="登录名"><input required minLength={3} maxLength={32} pattern="[a-z0-9][a-z0-9_-]{2,31}" autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder="小写字母、数字、_-（3–32位）" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value.toLowerCase() })} /></Field>
+          <Field label="姓名"><input required maxLength={64} value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} /></Field>
+          <Field label="初始密码"><input required type="password" minLength={10} maxLength={128} autoComplete="new-password" placeholder="至少 10 位，含字母和数字" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></Field>
           <Field label="角色">
             <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
               {Object.entries(roleLabel).filter(([key]) => key !== "assistant").map(([value, label]) => <option key={value} value={value}>{label}</option>)}
@@ -599,26 +722,62 @@ function PeoplePage({ today, onError }: { today: string; onError: (value: string
           <button type="submit" disabled={userPending}>{userPending ? "保存中…" : "开通账号"}</button>
           {userError && <p className="action-error" role="alert">{userError}</p>}
         </form>
-        {editingUser && <form className="review-card" onSubmit={async event => {
+        {editingUser && <form ref={userPanelRef} className="review-card" onSubmit={async event => {
           event.preventDefault();
+          if (savingUser) return;
           const target = editingUser;
           setSavingUser(target.id); setEditError("");
           try {
             await api.updateUser(target.id, { username: target.username, displayName: target.displayName });
+            setEditingUser(null); onError("");
+            toast.success("账号信息已更新，下次登录请使用新登录名");
+            await refreshAfterSave();
           } catch (error) {
-            fail("账号信息未保存", error, setEditError); setSavingUser(""); return;
+            fail("账号信息未保存", error, setEditError);
+          } finally {
+            setSavingUser("");
           }
-          setSavingUser(""); setEditingUser(null); onError("");
-          toast.success("账号信息已更新，下次登录请使用新登录名");
-          await refreshAfterSave();
         }}>
           <h3>修改账号信息</h3>
-          <label>姓名<input required maxLength={64} value={editingUser.displayName} disabled={!!savingUser} onChange={event => setEditingUser({ ...editingUser, displayName: event.target.value })} /></label>
-          <label>登录名<input required minLength={3} maxLength={32} pattern="[a-z0-9][a-z0-9_-]{2,31}" value={editingUser.username} disabled={!!savingUser} autoCapitalize="none" autoCorrect="off" onChange={event => setEditingUser({ ...editingUser, username: event.target.value.toLowerCase() })} /></label>
+          <label className="row field-label">姓名<input required maxLength={64} value={editingUser.displayName} disabled={!!savingUser} onChange={event => setEditingUser({ ...editingUser, displayName: event.target.value })} /></label>
+          <label className="row field-label">登录名<input required minLength={3} maxLength={32} pattern="[a-z0-9][a-z0-9_-]{2,31}" value={editingUser.username} disabled={!!savingUser} autoCapitalize="none" autoCorrect="off" onChange={event => setEditingUser({ ...editingUser, username: event.target.value.toLowerCase() })} /></label>
           <p className="notice">修改后密码、小组归属和历史记录保持关联，下次登录使用新登录名。</p>
           {editError && <p className="action-error" role="alert">{editError}</p>}
           <div className="actions"><button disabled={!!savingUser}>{savingUser ? "保存中…" : "保存修改"}</button><button className="secondary" type="button" disabled={!!savingUser} onClick={() => setEditingUser(null)}>取消</button></div>
         </form>}
+        {resetUser && <form ref={userPanelRef} className="card" onSubmit={async event => {
+          event.preventDefault();
+          if (savingUser) return;
+          setSavingUser(resetUser.id); setResetError("");
+          try {
+            const res = await api.resetUserPassword(resetUser.id, resetUser.temporaryPassword ? { temporaryPassword: resetUser.temporaryPassword } : { generate: true });
+            if (res.temporaryPassword) {
+              setIssuedTempPassword({ displayName: resetUser.displayName, username: resetUser.username, temporaryPassword: res.temporaryPassword });
+            } else {
+              setIssuedTempPassword(null);
+            }
+            toast.success(`已重置 ${resetUser.displayName} 的密码，已注销其全部登录会话`);
+            setResetUser(null);
+            await refreshAfterSave();
+          } catch (err) {
+            fail(`${resetUser.displayName} 重置密码失败`, err, setResetError);
+          } finally { setSavingUser(""); }
+        }}>
+          <h3>重置员工密码 · {resetUser.displayName}（{resetUser.username}）</h3>
+          <label className="row field-label">临时密码（留空则由系统生成随机临时密码）<input type="password" minLength={10} maxLength={128} autoComplete="new-password" value={resetUser.temporaryPassword} disabled={!!savingUser} placeholder="至少 10 位，含字母和数字；留空自动生成" onChange={event => setResetUser({ ...resetUser, temporaryPassword: event.target.value })} /></label>
+          <p className="notice">重置后会立即注销该员工所有已登录会话，下次登录必须修改为新密码。</p>
+          {resetError && <p className="action-error" role="alert">{resetError}</p>}
+          <div className="actions">
+            <button disabled={!!savingUser}>{savingUser ? "重置中…" : resetUser.temporaryPassword ? "确认重置" : "生成随机临时密码并重置"}</button>
+            <button className="secondary" type="button" disabled={!!savingUser} onClick={() => setResetUser(null)}>取消</button>
+          </div>
+        </form>}
+        {issuedTempPassword && <div className="card" role="status">
+          <h3>临时密码（仅显示本次）</h3>
+          <p>{issuedTempPassword.displayName}（<code>{issuedTempPassword.username}</code>）的临时密码：<code>{issuedTempPassword.temporaryPassword}</code></p>
+          <p className="notice">请通过受信任渠道发给员工本人，首次登录后系统将强制修改密码。</p>
+          <button type="button" className="secondary" onClick={() => setIssuedTempPassword(null)}>我已记录</button>
+        </div>}
         <div className="table-wrap">
           <table>
             <thead><tr><th>姓名</th><th>登录名</th><th>角色</th><th>小组 / 管理范围</th><th>状态</th><th>操作</th></tr></thead>
@@ -627,10 +786,27 @@ function PeoplePage({ today, onError }: { today: string; onError: (value: string
                 <tr key={item.id}>
                   <td data-label="姓名">{item.displayName}</td>
                   <td data-label="登录名">{item.username}</td>
-                  <td data-label="角色"><select aria-label={`${item.username}角色`} disabled={savingUser === item.id} value={item.role} onChange={async (e) => { const role = e.target.value; setSavingUser(item.id); try { await api.updateUser(item.id, { role }); } catch (err) { fail(`${item.displayName} 角色未修改`, err); setSavingUser(""); return; } setSavingUser(""); onError(""); toast.success(`已将 ${item.displayName} 的角色改为${roleLabel[role as keyof typeof roleLabel] ?? role}`); await refreshAfterSave(); }}>{Object.entries(roleLabel).filter(([key]) => key !== "assistant" || item.role === "assistant").map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></td>
-                  <td data-label="小组 / 管理范围">{item.role === "cs_supervisor" ? <><p>{(item.managedTeamIds ?? []).map((id) => teams.find((team) => team.id === id)?.name || id).join("、") || "暂未分配小组"}</p><button className="secondary" type="button" onClick={() => { setScopeUser(item); setScopeIds(item.managedTeamIds ?? []); }}>设置负责小组</button></> : item.currentTeam?.name ?? "—"}</td>
-                  <td data-label="状态"><button className="secondary" type="button" disabled={savingUser === item.id} onClick={async () => { setSavingUser(item.id); try { await api.updateUser(item.id, { isActive: !item.isActive }); } catch (err) { fail(`${item.displayName} ${item.isActive ? "停用" : "启用"}失败`, err); setSavingUser(""); return; } setSavingUser(""); onError(""); toast.success(`已${item.isActive ? "停用" : "启用"}账号：${item.displayName}`); await refreshAfterSave(); }}>{savingUser === item.id ? "保存中…" : item.isActive ? "停用账号" : "启用账号"}</button></td>
-                  <td data-label="操作"><button className="secondary" type="button" disabled={!!savingUser} onClick={() => { setEditingUser({ id: item.id, username: item.username, displayName: item.displayName }); setEditError(""); }}>修改信息</button></td>
+                  <td data-label="角色"><select aria-label={`${item.username}角色`} disabled={!!savingUser} value={item.role} onChange={async (e) => { if (savingUser) return; const role = e.target.value; setSavingUser(item.id); try { await api.updateUser(item.id, { role }); onError(""); toast.success(`已将 ${item.displayName} 的角色改为${roleLabel[role as keyof typeof roleLabel] ?? role}`); await refreshAfterSave(); } catch (err) { fail(`${item.displayName} 角色未修改`, err); } finally { setSavingUser(""); } }}>{Object.entries(roleLabel).filter(([key]) => key !== "assistant" || item.role === "assistant").map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></td>
+                  <td data-label="小组 / 管理范围">{item.role === "cs_supervisor" ? <div className="admin-scope-cell"><p>{(item.managedTeamIds ?? []).map((id) => teams.find((team) => team.id === id)?.name || id).join("、") || "暂未分配小组"}</p><button className="secondary" type="button" disabled={!!savingUser} onClick={() => openScopePanel(item)}>设置负责小组</button></div> : item.currentTeam?.name ?? "—"}</td>
+                  <td data-label="状态"><button className="secondary" type="button" disabled={!!savingUser} onClick={async () => { if (savingUser) return; setSavingUser(item.id); try { await api.updateUser(item.id, { isActive: !item.isActive }); onError(""); toast.success(`已${item.isActive ? "停用" : "启用"}账号：${item.displayName}`); await refreshAfterSave(); } catch (err) { fail(`${item.displayName} ${item.isActive ? "停用" : "启用"}失败`, err); } finally { setSavingUser(""); } }}>{savingUser === item.id ? "保存中…" : item.isActive ? "停用账号" : "启用账号"}</button></td>
+                  <td data-label="操作"><div className="actions">
+                    <button className="secondary" type="button" disabled={!!savingUser} onClick={() => openEditPanel(item)}>修改信息</button>
+                    {item.id !== currentUserId && <>
+                      <button className="secondary" type="button" disabled={!!savingUser} onClick={() => openResetPanel(item)}>重置密码</button>
+                      <button className="secondary" type="button" disabled={!!savingUser} onClick={async () => {
+                        setSavingUser(item.id);
+                        try {
+                          await api.revokeUserSessions(item.id);
+                          onError("");
+                          toast.success(`已强制下线：${item.displayName}`);
+                        } catch (err) {
+                          fail(`${item.displayName} 强制下线失败`, err);
+                        } finally {
+                          setSavingUser("");
+                        }
+                      }}>强制下线</button>
+                    </>}
+                  </div></td>
                 </tr>
               ))}
             </tbody>
@@ -643,10 +819,10 @@ function PeoplePage({ today, onError }: { today: string; onError: (value: string
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="row">
-      <label>{label}</label>
+    <label className="row field-label">
+      {label}
       {children}
-    </div>
+    </label>
   );
 }
 

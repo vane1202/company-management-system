@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { toErrorMessage } from "./errors";
+import { createRequestGate } from "./requestGate";
 import { toast } from "./Toast";
 import { detailLines, fanFields, opsFields, editorFields, fanNote, opsNote, editorNote } from "./dailyDetail";
 import {editorNames,productionGroups} from './productionGroups';
@@ -28,19 +29,35 @@ export function DailyForm({ kind, today, onError, readOnly = false,servicePlatfo
   const [reportId,setReportId]=useState('');
   const [filters,setFilters]=useState({editor:'',persona:'',from:'',to:'',group:'editor' as 'editor'|'persona'});
   const [adAccounts,setAdAccounts]=useState<{code:string;name:string}[]>([]);
+  const [refreshingAccounts, setRefreshingAccounts] = useState(false);
+  const gate = useRef(createRequestGate());
+  const formRef = useRef<HTMLFormElement>(null);
   async function refresh() {
+    const ticket = gate.current.next();
     setRowsLoading(true);
     try {
       const result = kind === "fan_report" ? await api.myFanReports() : kind === "ops_report" ? await api.opsReports() : await api.editorReports();
+      if (!ticket.isCurrent()) return;
       setRows(result.reports as unknown as Row[]);
       setRowsLoaded(true);
       setRowsError("");
     } finally {
-      setRowsLoading(false);
+      if (ticket.isCurrent()) setRowsLoading(false);
     }
   }
-  useEffect(() => { refresh().catch((err) => setRowsError(toErrorMessage(err))); }, [kind]);
-  useEffect(()=>{if(kind==='ops_report')api.adAccounts().then(d=>setAdAccounts(d.accounts)).catch(err=>onError(toErrorMessage(err)));},[kind]);
+  useEffect(() => {
+    setForm({ businessDate: today, [nameKey]: "", note: "" });
+    setReportId(""); setLegacyId(""); setTargetUserId(""); setSaveError(""); setMessage("");
+    refresh().catch((err) => setRowsError(toErrorMessage(err)));
+    return () => { gate.current.next(); };
+  }, [kind]);
+  useEffect(() => {
+    let active = true;
+    if (kind === 'ops_report') {
+      api.adAccounts().then(d => { if (active) setAdAccounts(d.accounts); }).catch(err => { if (active) onError(toErrorMessage(err)); });
+    }
+    return () => { active = false; };
+  }, [kind]);
   const visibleRows=rows.filter(r=>(kind!=='editor_report'||(!filters.editor||(filters.editor==='legacy'?!r.editorName:r.editorName===filters.editor))&&(!filters.persona||r.personaName===filters.persona))&&(!filters.from||r.businessDate>=filters.from)&&(!filters.to||r.businessDate<=filters.to));
   const groups=kind==='editor_report'?productionGroups(visibleRows,filters.group):[];
   function edit(row: Row) {
@@ -50,19 +67,18 @@ export function DailyForm({ kind, today, onError, readOnly = false,servicePlatfo
       next.addedCount = String(row.addedCount ?? 0);
       setLegacyId(row.id);
     } else setLegacyId("");
-    setForm(next);
     setForm({...next,editorName:String(row.editorName??''),adAccountRef:String(row.adAccountRef??'')});
     setReportId(row.id);
     setTargetUserId(String(row.userId ?? ""));
     setSaveError("");
     setMessage("已加载原记录，修改后保存会直接更新统计。变更日期或人设请点击新建；归类会更新原记录，不重复计数。");
-
+    requestAnimationFrame(() => formRef.current?.scrollIntoView?.({ behavior: "smooth", block: "nearest" }));
   }
   return <section className="card">
     <h2>{kind === "fan_report" ? "客服主页日报" : kind === "ops_report" ? "运营投放日报" : readOnly?"视频素材明细":"拍剪日报"}{kind==="editor_report"&&<InfoTip label="库存与统计口径" text={editorNote+" 历史未归类记录保留原归属，需原填报人员明确归类。"}/>}</h2>
     {kind!=="editor_report"&&<p className="notice">{kind === "fan_report" ? fanNote : opsNote}</p>}
     {readOnly && kind!=="editor_report" && <p className="notice">BOSS 端仅查看数据，业务填报由对应岗位完成。</p>}
-    {!readOnly && <form onSubmit={async (event) => {
+    {!readOnly && <form ref={formRef} onSubmit={async (event) => {
       event.preventDefault();
       if (pending) return;
       setPending(true); setMessage(""); setSaveError("");
@@ -108,9 +124,9 @@ export function DailyForm({ kind, today, onError, readOnly = false,servicePlatfo
             return <label className="row" key={key}>{label}<input required type="number" min="0" max={key === "ctrPercent" ? 100 : decimal ? undefined : key === "clickCount" ? 100000000 : 1000000} step={decimal ? "0.01" : "1"} inputMode={decimal ? "decimal" : "numeric"} value={form[key] ?? ""} onChange={(e) => setForm({ ...form, [key]: e.target.value })} /></label>;
           })}
         </div>
-        {kind==='fan_report'&&!legacyId&&<button type="button" className="secondary" disabled={!form.businessDate||!form.pageName?.trim()} onClick={async()=>{setPending(true);try{const data=await leadApi.list(form.businessDate,form.businessDate),leads=data.leads.filter(l=>!l.voidedAt&&l.pageName===form.pageName.trim());setForm(f=>({...f,msToday:String(leads.filter(l=>l.channel==='ms').length),wsToday:String(leads.filter(l=>l.channel==='ws').length)}));setMessage(`已按该主页客户明细带入 ${leads.length} 位当日进粉；月累计与当日沟通情况请继续填报。`);onError('');}catch(e){onError(toErrorMessage(e));}finally{setPending(false);}}}>从客户明细带入今日进粉</button>}
+        {kind==='fan_report'&&!legacyId&&<button type="button" className="secondary" disabled={!form.businessDate||!form.pageName?.trim()} onClick={async()=>{setPending(true);setSaveError('');try{const data=await leadApi.list(form.businessDate,form.businessDate),leads=data.leads.filter(l=>!l.voidedAt&&l.pageName===form.pageName.trim());setForm(f=>({...f,msToday:String(leads.filter(l=>l.channel==='ms').length),wsToday:String(leads.filter(l=>l.channel==='ws').length)}));setMessage(`已按该主页客户明细带入 ${leads.length} 位当日进粉；月累计与当日沟通情况请继续填报。`);onError('');}catch(e){const text=toErrorMessage(e);setSaveError(text);onError(text);toast.error(`带入今日进粉失败：${text}`);}finally{setPending(false);}}}>从客户明细带入今日进粉</button>}
         {!legacyId && <label className="row">备注（可选）<textarea maxLength={500} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} /></label>}
-        {kind==='ops_report'&&<button type="button" className="secondary" onClick={()=>{api.adAccounts().then(d=>{setAdAccounts(d.accounts);setMessage('广告账户选项已更新');}).catch(e=>onError(toErrorMessage(e)));}}>刷新广告账户选项</button>}
+        {kind==='ops_report'&&<button type="button" className="secondary" disabled={refreshingAccounts} onClick={async()=>{if(refreshingAccounts)return;setRefreshingAccounts(true);setSaveError('');try{const d=await api.adAccounts();setAdAccounts(d.accounts);setMessage('广告账户选项已更新');onError('');}catch(e){const text=toErrorMessage(e);setSaveError(text);onError(text);toast.error(`刷新广告账户失败：${text}`);}finally{setRefreshingAccounts(false);}}}>{refreshingAccounts?'刷新中…':'刷新广告账户选项'}</button>}
         <div className="actions"><button type="submit">{pending ? "保存中…" : "保存日报"}</button><button type="button" className="secondary" onClick={() => { setReportId('');setLegacyId(""); setTargetUserId(""); setMessage(""); setSaveError(""); setForm({ businessDate: today, [nameKey]: "", note: "" }); }}>新建另一主页/人设</button></div>
         {saveError && <p className="action-error" role="alert">未保存：{saveError}</p>}
 

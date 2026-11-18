@@ -1,6 +1,7 @@
 import {useEffect,useRef,useState} from 'react';
 import {requestInner, type CompanyExpense} from '../api';
 import {toErrorMessage} from '../errors';
+import {createRequestGate} from '../requestGate';
 import {demoOrderRooms} from './orderIdentity';
 import './warehouse-workspace.css';
 
@@ -8,7 +9,7 @@ type Bill={id:string;orderId:string;expenseId:string;afterSaleChargeId?:string;c
 type Payment={id:string;billId:string;amount:string;date:string;payee:string;account:string;reference:string};
 type Data={state:{bills:Bill[];payments:Payment[]};expenses:CompanyExpense[];orders:{id:string;orderRef:string;customerLabel:string;liveRoomCode:string;hostName:string;operatorName:string;personaName:string;customerCode:string;canCreate?:boolean}[];charges?:{id:string;orderId:string;label:string}[];kinds:Record<string,string>};
 const demo=import.meta.env.MODE==='demo';
-const roomLabel=(code?:string)=>demoOrderRooms.find(room=>room.code===code)?.name||(demo?'客服私推':code||'未登记直播间');
+const roomLabel=(code?:string)=>demo?(demoOrderRooms.find(room=>room.code===code)?.name||'客服私推'):(code||'未登记直播间');
 const c=(value:string)=>{const [a,b='']=value.split('.');return BigInt(a)*100n+BigInt(b.padEnd(2,'0'));};
 const m=(value:bigint)=>`${value/100n}.${String(value%100n).padStart(2,'0')}`;
 const yuan=(value:string)=>'¥'+Number(value).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -22,13 +23,14 @@ export default function WarehouseWorkspace({today,finance=false,onBack,userId}:{
  const [data,setData]=useState<Data|null>(null),[error,setError]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false);
  const [view,setView]=useState<'ledger'|'create'>('ledger'),[query,setQuery]=useState(''),[status,setStatus]=useState('');
  const requests=useRef(new Map<string,string>()),[revision,setRevision]=useState<Bill|null>(null);
+ const gate=useRef(createRequestGate());
  const blank=()=>({orderId:'',expenseId:'',afterSaleChargeId:'',category:'goods',label:'',counterparty:'',amount:'',date:today,materialRef:'',proof:'',note:'',requestKey:crypto.randomUUID()});
  const [form,setForm]=useState(blank),[selected,setSelected]=useState<Bill|null>(null),[review,setReview]=useState('');
  const [withdraw,setWithdraw]=useState(false);
  useEffect(()=>{if(selected)document.querySelector('.warehouse-workspace > form.warehouse-form')?.scrollIntoView({block:'start'});},[selected,withdraw]);
  const [payment,setPayment]=useState({amount:'',date:today,payee:'',account:'',reference:''});
- async function refresh(){setError('');try{setData(await call(finance));}catch(e){setError(toErrorMessage(e));}}
- useEffect(()=>{void refresh();},[]);
+ async function refresh(){const ticket=gate.current.next();setError('');try{const next=await call(finance);if(ticket.isCurrent())setData(next);}catch(e){if(ticket.isCurrent())setError(toErrorMessage(e));}}
+ useEffect(()=>{void refresh();return()=>{gate.current.next();};},[finance]);
  async function act(input:object,success:string){if(busy)return;setBusy(true);setError('');setMessage('');const signature=JSON.stringify(input);const key=requests.current.get(signature)||crypto.randomUUID();requests.current.set(signature,key);try{setData(await call(finance,{...input,requestKey:key}));requests.current.delete(signature);setSelected(null);setMessage(success);return true;}catch(e){setError(toErrorMessage(e));return false;}finally{setBusy(false);}}
  const paid=(b:Bill)=>(data?.state.payments||[]).filter(p=>p.billId===b.id).reduce((n,p)=>n+c(p.amount),0n);
  const remaining=(b:Bill)=>c(b.amount)-paid(b);
@@ -41,7 +43,7 @@ export default function WarehouseWorkspace({today,finance=false,onBack,userId}:{
  return <div className="warehouse-workspace" aria-busy={busy}>
   <header className="commerce-heading"><div><h1>{finance?'库房结账':'库房工作台'}</h1><small>{finance?'核对账单 · 登记实际付款':'出库结账 · 售后接待 · 对外结账'}</small></div><div className="actions">{onBack&&<button type="button" className="secondary" onClick={onBack}>返回</button>}<button type="button" className="secondary" disabled={busy} onClick={refresh}>刷新</button></div></header>
   {error&&<p className="error" role="alert">{error}</p>}{message&&<p className="ok" role="status">{message}</p>}
-  {!data?<p role="status">{error?'台账加载失败，请重试。':'正在读取结账台账…'}</p>:<>
+  {!data?(error?<div className="overview-error" role="alert"><p>台账加载失败，请重试。</p><button type="button" className="secondary" disabled={busy} onClick={()=>void refresh()}>重新读取</button></div>:<p role="status">正在读取结账台账…</p>):<>
   <div className="wh-kpis"><article><span>待审核</span><b>{data.state.bills.filter(b=>b.status==='submitted').length} 单</b></article><article><span>已审核待付</span><b>{yuan(m(approved.reduce((n,b)=>n+remaining(b),0n)))}</b></article><article><span>实际已付</span><b>{yuan(m(data.state.payments.reduce((n,p)=>n+c(p.amount),0n)))}</b></article></div>
   {!finance&&<nav className="wh-entry" aria-label="库房结账入口">{[['goods','原石出库结账'],['sourcing','售后接待结账'],['other','其他对外结账']].map(([key,label])=><button key={key} type="button" className="secondary" onClick={()=>start(key)}>{label}<span>＋</span></button>)}</nav>}
   {view==='create'&&!finance?<section className="card"><header className="commerce-line"><h2>{revision?'修改退回账单':'登记待结账单'}</h2><button type="button" className="text-action" onClick={()=>setView('ledger')}>返回台账</button></header><form className="warehouse-form" onSubmit={async e=>{e.preventDefault();if(await act({action:revision?'resubmit':'create',...(revision?{id:revision.id,version:revision.version}:{}),...form},'结账单已提交，等待财务审核')){setRevision(null);setForm(blank());setView('ledger');}}}>

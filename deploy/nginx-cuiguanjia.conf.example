@@ -1,0 +1,60 @@
+# 翠管家生产 Nginx 反向代理参考模板（P0-01 / P2-01）
+# 使用前请替换 example.com 与证书路径，并将后端 .env 设置：
+#   NODE_ENV=production
+#   TRUST_PROXY=1
+#   COOKIE_SECURE=true
+#   APP_ORIGIN=https://example.com
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name example.com;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name example.com;
+
+    ssl_certificate     /etc/nginx/ssl/example.com/fullchain.pem;
+    ssl_certificate_key /etc/nginx/ssl/example.com/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
+
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+
+    client_max_body_size 12m;
+
+    # 敏感路径与仓库元数据显式返回 404，不回落 SPA
+    location ~ /\.(?!well-known) {
+        return 404;
+    }
+
+    location ~* ^/(backend|scripts|docs|migrations|node_modules|artifacts|dist-demo)(/|$) {
+        return 404;
+    }
+
+    location ~* ^/(package\.json|package-lock\.json|tsconfig\.json|docker-compose\.yml|Dockerfile|CLAUDE\.md|README\.md)$ {
+        return 404;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:13080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 60s;
+    }
+}

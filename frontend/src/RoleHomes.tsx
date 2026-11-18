@@ -43,8 +43,8 @@ export function AdminHome({ onNavigate }: { onNavigate: Navigate }) {
   const [tick, setTick] = useState(0);
   const refresh = () => setTick(value => value + 1);
   useEffect(() => {
-    let active = true; setLoading(true); setData(null);
-    loadAdminHome().then(result => { if (active) { setData(result); setLoading(false); } });
+    let active = true; setLoading(true);
+    loadAdminHome().then(result => { if (active) setData(result); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [tick]);
   const users = loaded(data?.users)?.users;
@@ -59,10 +59,10 @@ export function AdminHome({ onNavigate }: { onNavigate: Navigate }) {
   return <div className="management-dashboard role-home" aria-busy={loading}>
     <HomeHeading title="系统管理概览" subtitle="账号、编制与系统配置" loading={loading} refresh={refresh} />
     <div className="role-kpis" aria-label="系统配置概况">
-      <HomeMetric label="员工账号" value={employees?.length} note={employees ? `启用 ${employees.filter(user => user.isActive).length} · 停用 ${inactiveEmployees}` : undefined} page="people" onNavigate={onNavigate} />
-      <HomeMetric label="已建小组" value={teams?.length} note="维护归属与主管权限" page="people" onNavigate={onNavigate} />
-      <HomeMetric label="待分配主管" value={unassignedSupervisors?.length} note="设置主管负责的小组" page="people" onNavigate={onNavigate} />
-      <HomeMetric label="启用模块" value={enabled} note={moduleEntries ? `共 ${moduleEntries.length} 个业务模块` : undefined} page="modules" onNavigate={onNavigate} />
+      <HomeMetric label="员工账号" value={employees?.length} note={employees ? `启用 ${employees.filter(user => user.isActive).length} · 停用 ${inactiveEmployees}` : undefined} page="people" onNavigate={onNavigate} pending={loading && !data} />
+      <HomeMetric label="已建小组" value={teams?.length} note="维护归属与主管权限" page="people" onNavigate={onNavigate} pending={loading && !data} />
+      <HomeMetric label="待分配主管" value={unassignedSupervisors?.length} note="设置主管负责的小组" page="people" onNavigate={onNavigate} pending={loading && !data} />
+      <HomeMetric label="启用模块" value={enabled} note={moduleEntries ? `共 ${moduleEntries.length} 个业务模块` : undefined} page="modules" onNavigate={onNavigate} pending={loading && !data} />
     </div>
     <HomeErrors errors={errors} retry={refresh} />
     <section className="role-home-panel"><div className="role-panel-title"><h2>管理入口</h2><span>配置与维护</span></div><div className="role-action-list">
@@ -91,8 +91,8 @@ export function SupervisorHome({ today, onNavigate }: { today: string; onNavigat
   const [tick, setTick] = useState(0);
   const refresh = () => setTick(value => value + 1);
   useEffect(() => {
-    let active = true; setLoading(true); setData(null);
-    loadSupervisorHome(today).then(result => { if (active) { setData(result); setLoading(false); } });
+    let active = true; setLoading(true);
+    loadSupervisorHome(today).then(result => { if (active) setData(result); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [today, tick]);
   const teams = loaded(data?.fans)?.teams;

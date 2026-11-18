@@ -1,5 +1,6 @@
 import type { AssessmentFoundation } from "./demo/assessmentFoundation";
 import { httpErrorMessage, networkErrorMessage } from "./errors";
+import { resolveImageMime } from "./imageMime";
 export type Role = "warehouse" | "boss" | "admin" | "finance" | "assistant" | "ops" | "editor" | "cs" | "cs_supervisor";
 
 export type User = {
@@ -18,6 +19,23 @@ export type User = {
 };
 
 let csrfToken = "";
+let unauthorizedHandler: ((message: string) => void) | null = null;
+
+/** Register a handler invoked when an authenticated request fails with HTTP 401. */
+export function setUnauthorizedHandler(handler: ((message: string) => void) | null): void {
+  unauthorizedHandler = handler;
+}
+
+function isAuthEntryPath(path: string): boolean {
+  const pathname = path.split("?")[0];
+  return (
+    pathname === "/api/auth/login" ||
+    pathname === "/api/auth/me" ||
+    pathname === "/api/auth/logout" ||
+    pathname === "/api/auth/cs-device" ||
+    pathname.startsWith("/api/auth/cs-device/")
+  );
+}
 
 export async function requestInner<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers);
@@ -52,9 +70,13 @@ export async function requestInner<T>(path: string, options: RequestInit = {}): 
     }
   }
   if (!response.ok) {
-    const error = new Error(httpErrorMessage(response.status, data.error, write)) as Error & { code?: string; status?: number };
+    const message = httpErrorMessage(response.status, data.error, write);
+    const error = new Error(message) as Error & { code?: string; status?: number };
     error.code = data.code;
     error.status = response.status;
+    if (response.status === 401 && unauthorizedHandler && !isAuthEntryPath(path)) {
+      unauthorizedHandler(message);
+    }
     throw error;
   }
   if (data.csrfToken) csrfToken = data.csrfToken;
@@ -72,7 +94,14 @@ export const api = {
   createOrderRecord: (payload: Record<string, unknown>) => requestInner<{id:string}>("/api/order-records", {method:"POST",body:JSON.stringify(payload)}),
   correctOrderRecord: (id: string, payload: Record<string, unknown>) => requestInner<{id:string}>(`/api/order-records/${encodeURIComponent(id)}`, {method:"PATCH",body:JSON.stringify(payload)}),
   orderAction: (id: string, action: string, payload: Record<string, unknown>) => requestInner<{id:string}>(`/api/order-records/${encodeURIComponent(id)}/${action}`, {method:"POST",body:JSON.stringify(payload)}),
-  uploadOrderPhoto: (id: string, file: File, itemId: string) => requestInner<{id:string}>(`/api/order-records/${encodeURIComponent(id)}/attachments?${new URLSearchParams({filename:file.name,...(itemId?{itemId}:{})})}`,{method:"POST",headers:{"Content-Type":file.type},body:file}),
+  uploadOrderPhoto: async (id: string, file: File, itemId: string) => {
+    const mime = await resolveImageMime(file);
+    if (!mime) throw new Error("请上传 JPEG、PNG 或 WebP 原图");
+    return requestInner<{ id: string }>(
+      `/api/order-records/${encodeURIComponent(id)}/attachments?${new URLSearchParams({ filename: file.name, ...(itemId ? { itemId } : {}) })}`,
+      { method: "POST", headers: { "Content-Type": mime }, body: file }
+    );
+  },
   finance: () => requestInner<FinanceData>("/api/finance"),
   payables: () => requestInner<PayablesData>("/api/finance/payables"),
   costAttachments: (expenseId:string) => requestInner<{attachments:{id:string;filename:string;mime_type:string}[]}>(`/api/finance/payables/${encodeURIComponent(expenseId)}/attachments`),
@@ -86,6 +115,16 @@ export const api = {
   createCsAccount:(payload:{platform:'whatsapp'|'messenger';accountIdentifier:string;teamId:string;phoneLabel:string;holderName:string})=>requestInner<{id:string}>('/api/cs-accounts',{method:'POST',body:JSON.stringify(payload)}),
   updateCsAccount: (id: string, payload: { accountIdentifier: string; phoneLabel: string; holderName: string }) => requestInner<{ needsRegistration: boolean }>(`/api/cs-accounts/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(payload) }),
   updateUser: (id: string, payload: Record<string, unknown>) => requestInner(`/api/admin/users/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  resetUserPassword: (id: string, payload: { temporaryPassword?: string; generate?: boolean }) =>
+    requestInner<{ ok: boolean; mustChangePassword: boolean; temporaryPassword?: string }>(
+      `/api/admin/users/${encodeURIComponent(id)}/reset-password`,
+      { method: "POST", body: JSON.stringify(payload) }
+    ),
+  revokeUserSessions: (id: string) =>
+    requestInner<{ ok: boolean }>(`/api/admin/users/${encodeURIComponent(id)}/revoke-sessions`, {
+      method: "POST",
+      body: JSON.stringify({})
+    }),
   setSupervisorTeams: (id: string, teamIds: string[]) => requestInner(`/api/admin/users/${encodeURIComponent(id)}/scopes`, { method: "PUT", body: JSON.stringify({ teamIds }) }),
   issueCsRegistrationCode: (payload: { teamId?: string; accountId?: string }) => requestInner<{ code: string; expiresAt: string; message: string }>("/api/cs-accounts/registration-codes", { method: "POST", body: JSON.stringify(payload) }),
   setCsAccountStatus: (id: string, isActive: boolean) => requestInner(`/api/cs-accounts/${encodeURIComponent(id)}/status`, { method: "PUT", body: JSON.stringify({ isActive }) }),
@@ -310,6 +349,8 @@ export type FinanceData={payments:FinancePayment[];settlements:SettlementRecord[
 
 export type Metrics = {
   revenue: string;
+  baseOrderRevenue?: string;
+  additionalChargesRevenue?: string;
   refunds: string;
   promoCost: string;
   salaryAllocated: string;
@@ -317,6 +358,9 @@ export type Metrics = {
   laborCost: string;
   shippingCost: string;
   estimate: string;
+  customerReceipts?: Record<Currency, string>;
+  companyReceivedCny?: string;
+  supplierPaidCny?: string;
   orderCount: number;
   promoVideoCount: number;
   shootCount: number;

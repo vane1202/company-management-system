@@ -597,4 +597,138 @@ describe("公司内部管理系统集成测试", () => {
     const res = await request(app).get("/health").expect(200);
     expect(res.body.status).toBe("ok");
   });
+
+  it("登录限流对大小写和首尾空白标准化一致，支持 IP 总量限流与代理隔离", async () => {
+    const limitedApp = createApp(db, {
+      ...loadConfig(),
+      trustProxy: 1,
+      loginMaxAttempts: 2,
+      loginIpMaxAttempts: 4
+    });
+
+    const agent = request.agent(limitedApp);
+    const csrf = (await agent.get("/api/auth/csrf")).body.csrfToken;
+    const failAttempt = (username: string, ip = "203.0.113.10") =>
+      agent
+        .post("/api/auth/login")
+        .set("Origin", ORIGIN)
+        .set("X-CSRF-Token", csrf)
+        .set("X-Forwarded-For", ip)
+        .send({ username, password: "WrongPassword123" });
+
+    await failAttempt("missing_user").expect(401);
+    await failAttempt("  MISSING_USER \t").expect(401);
+    await failAttempt(" missing_user").expect(429);
+
+    // 同一代理 IP 更换不同用户名继续失败，也会在达到 IP 上限后触发 429
+    const ipAgent = request.agent(limitedApp);
+    const ipCsrf = (await ipAgent.get("/api/auth/csrf")).body.csrfToken;
+    const ipFail = (username: string) =>
+      ipAgent
+        .post("/api/auth/login")
+        .set("Origin", ORIGIN)
+        .set("X-CSRF-Token", ipCsrf)
+        .set("X-Forwarded-For", "203.0.113.20")
+        .send({ username, password: "WrongPassword123" });
+    await ipFail("acct_1").expect(401);
+    await ipFail("acct_2").expect(401);
+    await ipFail("acct_3").expect(401);
+    await ipFail("acct_4").expect(401);
+    await ipFail("acct_5").expect(429);
+
+    // 不同客户端 IP 不受前面 IP 失败计数影响，且成功登录不被计入失败配额
+    const cleanAgent = request.agent(limitedApp);
+    const cleanCsrf = (await cleanAgent.get("/api/auth/csrf")).body.csrfToken;
+    await cleanAgent
+      .post("/api/auth/login")
+      .set("Origin", ORIGIN)
+      .set("X-CSRF-Token", cleanCsrf)
+      .set("X-Forwarded-For", "203.0.113.30")
+      .send({ username: "  OPS1 ", password: PASSWORD })
+      .expect(200);
+  });
+
+  it("管理员重置密码与强制下线、修改密码及停用/改角色均立即撤销旧会话", async () => {
+    const admin = await login("admin");
+    const created = await write(admin.agent, admin.csrf, "post", "/api/admin/users")
+      .send({ username: "reset_target", displayName: "待重置员工", password: PASSWORD, role: "ops" })
+      .expect(201);
+    const targetId = created.body.user.id as string;
+
+    // 首次登录后改密
+    const s1 = await login("reset_target");
+    const s2 = await login("reset_target");
+    await write(s1.agent, s1.csrf, "post", "/api/auth/change-password")
+      .send({ currentPassword: PASSWORD, newPassword: "UpdatedPass1234" })
+      .expect(200);
+    // 当前会话保留，另一设备旧会话立即失效
+    await s1.agent.get("/api/ops-reports").expect(200);
+    await s2.agent.get("/api/auth/me").expect(401);
+
+    // 管理员强制下线
+    await write(admin.agent, admin.csrf, "post", `/api/admin/users/${targetId}/revoke-sessions`).send({}).expect(200);
+    await s1.agent.get("/api/auth/me").expect(401);
+
+    // 不能通过管理接口重置或强制下线自己
+    await write(admin.agent, admin.csrf, "post", `/api/admin/users/${ids.admin}/reset-password`)
+      .send({ generate: true })
+      .expect(400);
+    await write(admin.agent, admin.csrf, "post", `/api/admin/users/${ids.admin}/revoke-sessions`)
+      .send({})
+      .expect(400);
+
+    // 重新登录后管理员重置密码（自动生成临时密码），现有会话失效，旧密码失效，新临时密码登录后强制改密
+    const s3Agent = request.agent(app);
+    const s3Csrf = (await s3Agent.get("/api/auth/csrf")).body.csrfToken;
+    const s3Login = await s3Agent
+      .post("/api/auth/login")
+      .set("Origin", ORIGIN)
+      .set("X-CSRF-Token", s3Csrf)
+      .send({ username: "reset_target", password: "UpdatedPass1234" })
+      .expect(200);
+    const s3Token = s3Login.body.csrfToken;
+    await s3Agent.get("/api/ops-reports").expect(200);
+
+    const resetRes = await write(admin.agent, admin.csrf, "post", `/api/admin/users/${targetId}/reset-password`)
+      .send({ generate: true })
+      .expect(200);
+    expect(resetRes.headers["cache-control"]).toBe("no-store");
+    expect(resetRes.body.mustChangePassword).toBe(true);
+    const tempPass = resetRes.body.temporaryPassword as string;
+    expect(tempPass.length).toBeGreaterThanOrEqual(10);
+
+    // 旧会话已立即失效
+    await s3Agent.get("/api/auth/me").expect(401);
+    // 审计日志不记录明文临时密码
+    const auditRows = await db.query(
+      "SELECT after_data::text AS after_text FROM audit_logs WHERE entity_id = $1 AND action = 'user_password_reset'",
+      [targetId]
+    );
+    expect(auditRows.rowCount).toBe(1);
+    expect(auditRows.rows[0].after_text).not.toContain(tempPass);
+
+    // 使用临时密码登录，必须先改密才能访问业务接口
+    const tempAgent = request.agent(app);
+    const tempCsrf = (await tempAgent.get("/api/auth/csrf")).body.csrfToken;
+    const tempLogin = await tempAgent
+      .post("/api/auth/login")
+      .set("Origin", ORIGIN)
+      .set("X-CSRF-Token", tempCsrf)
+      .send({ username: "reset_target", password: tempPass })
+      .expect(200);
+    expect(tempLogin.body.user.mustChangePassword).toBe(true);
+    await tempAgent.get("/api/ops-reports").expect(403);
+
+    await write(tempAgent, tempLogin.body.csrfToken, "post", "/api/auth/change-password")
+      .send({ currentPassword: tempPass, newPassword: "FinalPass12345" })
+      .expect(200);
+    await tempAgent.get("/api/ops-reports").expect(200);
+
+    // 变更角色会立即撤销现有会话
+    await write(admin.agent, admin.csrf, "patch", `/api/admin/users/${targetId}`)
+      .send({ role: "editor" })
+      .expect(200);
+    await tempAgent.get("/api/auth/me").expect(401);
+    expect(s3Token).toBeTruthy();
+  });
 });

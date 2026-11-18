@@ -1,11 +1,12 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { computeTipPosition, type TipPosition } from "./infoTipPosition";
 
 /**
  * 口径说明的 ⓘ：点按（手机）或点击/键盘（桌面）打开，点外面、Esc、滚动时关闭。
  * 用固定定位并夹在视口内，窄屏不溢出。不可放进另一个 <button> 里。
  */
 export function InfoTip({ text, label = "口径说明", scrollable = false }: { text: string; label?: string; scrollable?: boolean }) {
-  const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [pos, setPos] = useState<TipPosition | null>(null);
   const id = useId(), ref = useRef<HTMLSpanElement>(null), button = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!pos) return;
@@ -20,12 +21,10 @@ export function InfoTip({ text, label = "口径说明", scrollable = false }: { 
   }, [pos, scrollable]);
   function toggle() {
     if (pos) { setPos(null); return; }
-    const r = button.current!.getBoundingClientRect(), width = Math.min(280, window.innerWidth - 16);
-    const left = Math.min(Math.max(8, r.left + r.width / 2 - width / 2), window.innerWidth - width - 8);
-    setPos({ top: r.bottom + 6, left, width });
+    setPos(computeTipPosition(button.current!.getBoundingClientRect(), { width: window.innerWidth, height: window.innerHeight }));
   }
   return <span className="info-tip" ref={ref}>
     <button ref={button} type="button" className="info-tip-button" aria-label={label} aria-expanded={!!pos} aria-describedby={pos ? id : undefined} onClick={e => { e.stopPropagation(); toggle(); }}>ⓘ</button>
-    {pos && <span role="tooltip" id={id} className="info-tip-pop" style={{ top: pos.top, left: pos.left, width: pos.width, ...(scrollable ? { maxHeight: Math.max(48, window.innerHeight - pos.top - 84), overflowY: "auto" as const } : {}) }}>{text}</span>}
+    {pos && <span role="tooltip" id={id} className="info-tip-pop" style={{ left: pos.left, width: pos.width, ...(pos.top !== undefined ? { top: pos.top } : { bottom: pos.bottom }), ...(scrollable ? { maxHeight: pos.maxHeight, overflowY: "auto" as const } : {}) }}>{text}</span>}
   </span>;
 }

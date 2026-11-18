@@ -2,22 +2,34 @@
 
 /* Prevent bottom navigation bar from overlapping page content on mobile */
 @media (max-width: 799px) {
-  .app-shell.has-bottom-nav .app-main {
-    padding-bottom: max(76px, calc(64px + env(safe-area-inset-bottom)));
+  :root .app-shell {
+    padding-bottom: 0;
+  }
+
+  :root .app-shell.has-bottom-nav .app-main {
+    padding-bottom: max(88px, calc(76px + env(safe-area-inset-bottom)));
+  }
+
+  :root .app-shell.no-bottom-nav .app-main {
+    padding-bottom: max(24px, calc(20px + env(safe-area-inset-bottom)));
   }
 
   /* Touch targets minimum size */
-  .overview-segments button,
-  .payment-inline-button,
-  .be-main-value,
-  .lr-summary button,
-  .lr-summary-value,
-  details > summary,
-  .text-action {
-    min-height: 40px;
+  :root .overview-segments button,
+  :root .payment-inline-button,
+  :root .bp-receipt-inline .payment-inline-button,
+  :root .be-main-value,
+  :root .be-board > .be-kpis > article > .be-main-value,
+  :root .lr-summary button,
+  :root .lr-summary .lr-summary-value,
+  :root details > summary,
+  :root .text-action:not(.commerce-item .text-action),
+  :root .missing-chip,
+  :root .payroll-item-actions button {
+    min-height: 44px;
   }
 
-  .text-action {
+  :root .text-action:not(.commerce-item .text-action) {
     display: inline-flex;
     align-items: center;
     padding: 6px 8px;
@@ -25,7 +37,7 @@
 }
 
 /* OpsScopeBar header & field layout */
-.ops-scope-head {
+:root .ops-scope-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -33,12 +45,12 @@
   font-size: 13px;
   color: var(--muted);
 }
-.ops-scope-head span {
+:root .ops-scope-head span {
   font-weight: 500;
   color: var(--ink);
 }
-.ops-scope-head .ops-scope-reset {
-  min-height: 32px;
+:root .ops-scope-head .ops-scope-reset {
+  min-height: 40px;
   padding: 4px 10px;
   font-size: 12px;
   background: var(--bg);
@@ -47,22 +59,23 @@
   cursor: pointer;
 }
 @media (max-width: 799px) {
-  .ops-scope-fields {
+  :root .ops-scope-fields {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
     gap: 8px !important;
   }
-  .ops-scope-bar {
+  :root .ops-scope-bar {
     padding: 12px !important;
   }
-  .ops-scope-head .ops-scope-reset {
-    min-height: 32px;
-    padding: 4px 10px;
+  :root .ops-scope-head .ops-scope-reset {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 6px 12px;
     font-size: 12px;
   }
 }
 
 /* Live business room select in period toolbar */
-.live-workspace-period .live-room-select {
+:root .live-workspace-period .live-room-select {
   min-height: 40px;
   padding: 6px 28px 6px 10px;
   font-size: 13px;
@@ -72,18 +85,18 @@
   color: var(--ink);
 }
 @media (max-width: 799px) {
-  .live-workspace-period .live-room-select {
+  :root .live-workspace-period .live-room-select {
     width: 100%;
-    min-height: 42px;
+    min-height: 44px;
   }
 }
 
 /* Prevent popup forms from overflowing viewport horizontally */
 @media (max-width: 799px) {
-  .bp-custom-date {
+  :root .bp-custom-date {
     position: static;
   }
-  .bp-custom-date form {
+  :root .bp-custom-date form {
     position: fixed;
     top: auto;
     bottom: 0;
@@ -100,43 +113,77 @@
   }
 
   /* Admin people management responsive table on small screens */
-  .admin-people table,
-  .admin-people thead,
-  .admin-people tbody,
-  .admin-people th,
-  .admin-people td,
-  .admin-people tr {
+  :root .admin-people .table-wrap {
+    border: 0;
+    background: transparent;
+    border-radius: 0;
+    overflow: visible;
+  }
+  :root .admin-people table,
+  :root .admin-people thead,
+  :root .admin-people tbody,
+  :root .admin-people th,
+  :root .admin-people td,
+  :root .admin-people tr {
     display: block;
   }
-  .admin-people thead tr {
+  :root .admin-people thead tr {
     position: absolute;
     top: -9999px;
     left: -9999px;
   }
-  .admin-people tr {
+  :root .admin-people tr {
     border: 1px solid var(--line);
-    border-radius: 8px;
-    padding: 10px;
-    margin-bottom: 10px;
+    border-radius: 12px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
     background: var(--card);
   }
-  .admin-people td {
-    border: none;
-    padding: 6px 0;
+  :root .admin-people td {
+    border: 0;
+    border-bottom: 1px dashed #edf1ef;
+    padding: 8px 0;
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
     align-items: center;
+    gap: 6px 12px;
     font-size: 13px;
+    overflow-wrap: anywhere;
   }
-  .admin-people td[data-label]::before {
+  :root .admin-people td:last-child {
+    border-bottom: 0;
+  }
+  :root .admin-people td[data-label]::before {
     content: attr(data-label);
     font-weight: 500;
     color: var(--muted);
     font-size: 12px;
-    margin-right: 12px;
+    flex-shrink: 0;
   }
-  .admin-people td select,
-  .admin-people td button {
-    min-height: 38px;
+  :root .admin-people .admin-scope-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+    max-width: 100%;
+    text-align: right;
+  }
+  :root .admin-people .admin-scope-cell p {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+  :root .admin-people td[data-label="操作"] .actions {
+    justify-content: flex-end;
+    width: 100%;
+  }
+  :root .admin-people td select,
+  :root .admin-people td button {
+    min-height: 44px;
+  }
+  :root .admin-people td select {
+    width: auto;
+    min-width: 8.5em;
+    max-width: 100%;
   }
 }

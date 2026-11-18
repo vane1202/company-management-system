@@ -5,6 +5,7 @@ declare module "express-session" {
     userId?: string;
     csrfToken?: string;
     deviceVersion?: number;
+    sessionVersion?: number;
   }
 }
 
@@ -35,6 +36,7 @@ export type PublicUser = {
   wechatId?: string | null;
   phoneLabel?: string | null;
   deviceVersion?: number;
+  sessionVersion?: number;
 };
 
 export class HttpError extends Error {

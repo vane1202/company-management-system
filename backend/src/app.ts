@@ -148,6 +148,14 @@ export function createApp(db: Pool, config: AppConfig) {
     res.status(404).json({ error: "接口不存在" });
   });
 
+  app.use((req, res, next) => {
+    if (isSensitivePath(req.path)) {
+      res.status(404).type("text/plain").send("Not Found");
+      return;
+    }
+    next();
+  });
+
   if (config.serveStatic) {
     const dist = resolveFrontendDist();
     if (existsSync(dist)) {
@@ -189,4 +197,47 @@ function resolveFrontendDist(): string {
     path.resolve(here, "../../../frontend/dist")
   ];
   return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
+}
+
+export function isSensitivePath(pathname: string): boolean {
+  let decoded = pathname;
+  try {
+    decoded = decodeURIComponent(pathname);
+  } catch {
+    return true;
+  }
+  const normalized = decoded.replace(/\\/g, "/");
+  if (normalized.split("/").some((segment) => segment.startsWith(".") && segment.length > 1)) {
+    return true;
+  }
+  const lower = normalized.toLowerCase();
+  const blockedPrefixes = [
+    "/backend/",
+    "/scripts/",
+    "/docs/",
+    "/migrations/",
+    "/node_modules/",
+    "/artifacts/",
+    "/dist-demo/"
+  ];
+  if (blockedPrefixes.some((prefix) => lower === prefix.slice(0, -1) || lower.startsWith(prefix))) {
+    return true;
+  }
+  const blockedExact = new Set([
+    "/package.json",
+    "/package-lock.json",
+    "/tsconfig.json",
+    "/docker-compose.yml",
+    "/dockerfile",
+    "/claude.md",
+    "/readme.md",
+    "/wrangler-demo.json"
+  ]);
+  if (blockedExact.has(lower)) {
+    return true;
+  }
+  if (!lower.startsWith("/assets/") && /\.(ts|tsx|sql|map|sh|ps1|py|env)$/.test(lower)) {
+    return true;
+  }
+  return false;
 }

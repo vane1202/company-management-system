@@ -16,9 +16,14 @@ export type DbUser = {
   service_account_label?:string|null;
   phone_label?: string | null;
   device_version?: number;
+  session_version?: number;
 };
 
 export type Actor = PublicUser;
+
+export function normalizeUsername(input: unknown): string {
+  return typeof input === "string" ? input.trim().toLowerCase() : "";
+}
 
 export function toPublicUser(row: DbUser): PublicUser {
   return {
@@ -34,7 +39,8 @@ export function toPublicUser(row: DbUser): PublicUser {
     accountIdentifier:row.wechat_id??null,
     serviceAccountLabel:row.service_account_label??row.wechat_id??null,
     phoneLabel: row.phone_label ?? null,
-    deviceVersion: row.device_version ?? 0
+    deviceVersion: row.device_version ?? 0,
+    sessionVersion: row.session_version ?? 0
   };
 }
 
@@ -43,7 +49,7 @@ export async function findUserById(db: Pool | PoolClient, id: string): Promise<D
 }
 
 export async function findUserByUsername(db: Pool | PoolClient, username: string): Promise<DbUser | undefined> {
-  return queryOne<DbUser>(db, "SELECT * FROM users WHERE username = $1", [username.toLowerCase()]);
+  return queryOne<DbUser>(db, "SELECT * FROM users WHERE username = $1", [normalizeUsername(username)]);
 }
 
 export function isBossOrAdmin(actor: Actor): boolean {

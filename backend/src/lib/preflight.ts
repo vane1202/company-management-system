@@ -216,6 +216,32 @@ export function checkEnv(env: Record<string, string | undefined>): Finding[] {
       message: "NODE_ENV=production 时建议在 HTTPS 下将 COOKIE_SECURE 设为 true"
     });
   }
+  if ((env.NODE_ENV ?? "").trim() === "production" && (env.COOKIE_SECURE ?? "false") === "true") {
+    const trustProxy = Number(env.TRUST_PROXY ?? "0");
+    if (!Number.isInteger(trustProxy) || trustProxy < 1) {
+      findings.push({
+        level: "warn",
+        code: "trust_proxy_unset_for_https",
+        message: "启用 COOKIE_SECURE=true 时若由 Nginx 等反向代理终结 TLS，建议将 TRUST_PROXY 设为 1"
+      });
+    }
+    const origins = (env.APP_ORIGIN ?? "").split(",").map((item) => item.trim()).filter(Boolean);
+    const hasInsecureOrigin = origins.some((origin) => {
+      try {
+        const parsed = new URL(origin);
+        return parsed.protocol === "http:" && !["127.0.0.1", "localhost", "::1"].includes(parsed.hostname);
+      } catch {
+        return false;
+      }
+    });
+    if (hasInsecureOrigin) {
+      findings.push({
+        level: "warn",
+        code: "cookie_secure_http_origin",
+        message: "启用 COOKIE_SECURE=true 时 APP_ORIGIN 不应保留公网 http:// 来源"
+      });
+    }
+  }
   return findings;
 }
 

@@ -13,7 +13,7 @@ export function AdAccountsWorkspace({today,readOnly=false}:{today:string;readOnl
  async function action(fn:()=>Promise<unknown>){if(busy)return;setBusy(true);setError('');setMessage('');try{await fn();await load();setMessage('广告台账已更新');}catch(e){setError(toErrorMessage(e));}finally{setBusy(false);}}
  return <section className="card ad-accounts"><header className="commerce-line"><h2>广告预存与消耗</h2><button className="secondary" disabled={busy} onClick={()=>void action(load)}>刷新广告台账</button></header>
  {error&&<p className="error" role="alert">{error}</p>}{message&&<p className="ok" role="status">{message}</p>}
- {!data?<p>{error?'广告台账暂不可用':'正在读取广告台账…'}</p>:<>
+ {!data?(error?<div className="overview-error" role="alert"><p>广告台账暂不可用</p><button type="button" className="secondary" disabled={busy} onClick={()=>void action(load)}>{busy?'读取中…':'重新读取'}</button></div>:<p role="status">正在读取广告台账…</p>):<>
  <div className="commerce-kpis"><div><small>充值实付 · CNY</small><strong>{data.summary.paidCny}</strong></div><div><small>关联日报消耗 · USD</small><strong>{data.summary.spentUsd}</strong></div><div><small>台账余额 · USD</small><strong>{data.summary.balanceUsd}</strong></div></div>
  <p className="notice">充值为预存资金，投放消耗按日报统计，两项不重复计为费用。余额＝期初＋充值入账−已关联消耗；未关联的历史日报不在本台账中。实付与入账金额分别填写，不自动换汇。</p>
  {!data.accounts.length&&<p>尚未建立广告账户。</p>}

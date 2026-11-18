@@ -5,7 +5,7 @@ import type { Pool } from "pg";
 import { randomBytes } from "node:crypto";
 import type { AppConfig } from "../config.js";
 import { writeAudit } from "../audit.js";
-import { findUserByUsername, toPublicUser, type Actor, type DbUser } from "../users.js";
+import { findUserByUsername, normalizeUsername, toPublicUser, type Actor, type DbUser } from "../users.js";
 import { hashPassword, validatePassword, verifyPassword } from "../lib/password.js";
 import { HttpError } from "../types.js";
 import { businessToday } from "../lib/dates.js";
@@ -14,13 +14,27 @@ import { getBackfillDays } from "../settings.js";
 export function createAuthRouter(db: Pool, config: AppConfig): Router {
   const router = Router();
 
+  const loginIpLimit = config.loginIpMaxAttempts ?? Math.max(config.loginMaxAttempts * 4, 24);
+  const loginIpLimiter = rateLimit({
+    windowMs: config.loginWindowMs,
+    limit: loginIpLimit,
+    skipSuccessfulRequests: true,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => req.ip ?? "unknown",
+    handler: (_req, res) => {
+      res.status(429).json({ error: "当前网络登录失败次数过多，请稍后再试" });
+    }
+  });
+
   const loginLimiter = rateLimit({
     windowMs: config.loginWindowMs,
     limit: config.loginMaxAttempts,
+    skipSuccessfulRequests: true,
     standardHeaders: true,
     legacyHeaders: false,
     keyGenerator: (req) => {
-      const username = typeof req.body?.username === "string" ? req.body.username.toLowerCase() : "";
+      const username = normalizeUsername(req.body?.username);
       return `${req.ip ?? "unknown"}:${username}`;
     },
     handler: (_req, res) => {
@@ -58,9 +72,9 @@ export function createAuthRouter(db: Pool, config: AppConfig): Router {
     }
   });
 
-  router.post("/login", loginLimiter, async (req, res, next) => {
+  router.post("/login", loginIpLimiter, loginLimiter, async (req, res, next) => {
     try {
-      const username = String(req.body?.username ?? "").trim().toLowerCase();
+      const username = normalizeUsername(req.body?.username);
       const password = String(req.body?.password ?? "");
       if (!username || !password) throw new HttpError(400, "请输入登录名和密码");
 
@@ -128,18 +142,35 @@ export function createAuthRouter(db: Pool, config: AppConfig): Router {
         throw new HttpError(400, "新密码不能与当前密码相同");
       }
       const passwordHash = await hashPassword(newPassword);
-      await db.query(
-        "UPDATE users SET password_hash = $1, must_change_password = FALSE, updated_at = now() WHERE id = $2",
-        [passwordHash, user.id]
-      );
-      await writeAudit(db, {
-        actorId: user.id,
-        action: "change_password",
-        entityType: "user",
-        entityId: user.id,
-        after: { mustChangePassword: false },
-        ip: req.ip
-      });
+      const client = await db.connect();
+      let nextSessionVersion = (user.session_version ?? 0) + 1;
+      try {
+        await client.query("BEGIN");
+        const updated = await client.query<{ session_version: number }>(
+          "UPDATE users SET password_hash = $1, must_change_password = FALSE, session_version = session_version + 1, updated_at = now() WHERE id = $2 RETURNING session_version",
+          [passwordHash, user.id]
+        );
+        nextSessionVersion = updated.rows[0]?.session_version ?? nextSessionVersion;
+        await client.query(
+          "DELETE FROM session WHERE sess->>'userId' = $1 AND sid <> $2",
+          [user.id, req.sessionID]
+        );
+        await writeAudit(client, {
+          actorId: user.id,
+          action: "change_password",
+          entityType: "user",
+          entityId: user.id,
+          after: { mustChangePassword: false, otherSessionsRevoked: true },
+          ip: req.ip
+        });
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+      req.session.sessionVersion = nextSessionVersion;
       res.json({ ok: true });
     } catch (error) {
       next(error);
@@ -174,6 +205,8 @@ export async function establishSession(req: Request, user: DbUser): Promise<void
   if (isDeviceAccount(user.account_kind)) {
     req.session.deviceVersion = user.device_version ?? 0;
     req.session.cookie.maxAge = 30 * 24 * 60 * 60 * 1000;
+  } else {
+    req.session.sessionVersion = user.session_version ?? 0;
   }
 }
 
@@ -217,8 +250,10 @@ export function attachActor(loader: (id: string) => Promise<Actor | undefined>) 
     try {
       if (req.session.userId) {
         const actor = await loader(req.session.userId);
-        if (actor && actor.isActive && (!isDeviceAccount(actor.accountKind) || req.session.deviceVersion === actor.deviceVersion)) req.actor = actor;
-        else { delete req.session.userId; delete req.session.deviceVersion; }
+        const validDevice = actor ? (!isDeviceAccount(actor.accountKind) || req.session.deviceVersion === actor.deviceVersion) : false;
+        const validEmployeeSession = actor ? (isDeviceAccount(actor.accountKind) || req.session.sessionVersion === (actor.sessionVersion ?? 0)) : false;
+        if (actor && actor.isActive && validDevice && validEmployeeSession) req.actor = actor;
+        else { delete req.session.userId; delete req.session.deviceVersion; delete req.session.sessionVersion; }
       }
       next();
     } catch (error) {

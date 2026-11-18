@@ -3,6 +3,7 @@ import { OrderCharges } from "./OrderCharges";
 import { lazy, Suspense, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { api, type Order, type OrderRecord, type User, type CsAccount, type Currency } from "./api";
 import { toErrorMessage } from "./errors";
+import { resolveImageMime } from "./imageMime";
 import { createRequestGate } from "./requestGate";
 import { toast } from "./Toast";
 import { labelOrderStatus } from "./labels";
@@ -46,17 +47,35 @@ export function CreateOrder({today,operator,onSaved,initial,previewOnly=false,re
   function practiceDraft(){let material=0n,fee=0n;if(!items.length)return null;for(const item of items){const price=cents(item.priceCny);const preview=itemPreview(item.priceCny,item.kind,privateDeal?"0.00":item.feeManual?item.buyingFeeCny:undefined);const feeCents=preview?cents(preview.fee):null;if(price===null||feeCents===null)return null;material+=price;fee+=feeCents;}return {businessDate:form.businessDate,materialCny:money(material),feeCny:money(fee),customerCurrency:form.customerCurrency,customerDue:form.customerDue,materialRef:form.materialLotNo||items.map(i=>i.materialRef).filter(Boolean).join('、'),items:items.map(i=>({kind:i.kind,materialRef:i.materialRef,priceCny:i.priceCny,buyingFeeCny:privateDeal?'0.00':itemPreview(i.priceCny,i.kind,i.feeManual?i.buyingFeeCny:undefined)?.fee??'0.00'}))};}
   const photoUrls = useRef<string[]>([]);
   const [itemPhotos, setItemPhotos] = useState<string[]>([]);
+  const photoChecks = useRef<number[]>([]);
   useEffect(() => () => { for (const url of photoUrls.current) URL.revokeObjectURL(url); }, []);
   function rememberPhotos(next: string[]) { photoUrls.current = next; setItemPhotos(next); }
   function clearItemPhotos() { for (const url of photoUrls.current) URL.revokeObjectURL(url); rememberPhotos([]); }
-  function setItemPhoto(index: number, file: File | null) {
-    const allowed = !file?.type || ["image/jpeg", "image/png", "image/webp"].includes(file.type);
-    if (file && (!allowed || file.size > 8 * 1024 * 1024)) { setError("商品照片请使用 JPEG、PNG 或 WebP，每张不超过 8MB。"); return; }
-    const next = itemPhotos.slice();
+  async function setItemPhoto(index: number, file: File | null) {
+    const token = (photoChecks.current[index] ?? 0) + 1;
+    photoChecks.current[index] = token;
+    if (!file) {
+      const next = photoUrls.current.slice();
+      if (next[index]) URL.revokeObjectURL(next[index]);
+      next[index] = "";
+      rememberPhotos(next);
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      setError("商品照片请使用 JPEG、PNG 或 WebP，每张不超过 8MB。");
+      return;
+    }
+    const mime = await resolveImageMime(file);
+    if (photoChecks.current[index] !== token) return;
+    if (!mime) {
+      setError("商品照片请使用 JPEG、PNG 或 WebP，每张不超过 8MB。");
+      return;
+    }
+    const next = photoUrls.current.slice();
     if (next[index]) URL.revokeObjectURL(next[index]);
-    next[index] = file ? URL.createObjectURL(file) : "";
+    next[index] = URL.createObjectURL(file);
     rememberPhotos(next);
-    if (file) setError("");
+    setError("");
   }
   function removeItem(index: number) {
     if (itemPhotos[index]) URL.revokeObjectURL(itemPhotos[index]);
@@ -85,7 +104,7 @@ function OrderDetail({id,today,canFill,canCancel}:{id:string;today:string;canFil
   const [correction,setCorrection]=useState<{path:string;label:string}|null>(null),[reason,setReason]=useState("");
   const [cancellationAction,setCancellationAction]=useState<{path:string;label:string}|null>(null),[cancellationReason,setCancellationReason]=useState('');
   const paymentKey=useRef(submissionKey()),expenseKey=useRef(submissionKey());
-  async function load(){const d=await api.orderRecord(id);setData(d);return d;}
+  async function load(){const d=await api.orderRecord(id);setError("");setData(d);return d;}
   useEffect(()=>{let active=true;api.orderRecord(id).then(d=>{if(active){setData(d);setPayment(p=>({...p,currency:d.details?.customerCurrency??"CNY",thirdParty:d.details?.customerCurrency!=="CNY"}));}}).catch(e=>{if(active)setError(toErrorMessage(e));});return()=>{active=false;};},[id]);
   async function action(fn:()=>Promise<unknown>,success:string){if(busy)return;setBusy(true);setError("");const who=data?`${data.order.order_ref}${data.order.customer_label?`（${data.order.customer_label}）`:""}`:"订单";
     try{await fn();}catch(e){const text=toErrorMessage(e,"保存失败");setError(text);toast.error(`${who}：${text}`);setBusy(false);return;}
@@ -93,7 +112,7 @@ function OrderDetail({id,today,canFill,canCancel}:{id:string;today:string;canFil
     // 保存已成功；刷新失败单独说明，不误报为保存失败。
     try{await load();}catch{setError(REFRESH_AFTER_SAVE_FAILED);toast.error(REFRESH_AFTER_SAVE_FAILED);}finally{setBusy(false);}}
   async function reload(){if(busy)return;setBusy(true);setError("");try{await load();}catch(e){setError(toErrorMessage(e));}finally{setBusy(false);}}
-  if(!data)return <section className="card"><p>{error||"正在读取订单档案…"}</p></section>;
+  if(!data)return error?<section className="card overview-error" role="alert"><p>{error}</p><button type="button" className="secondary" disabled={busy} onClick={()=>void reload()}>{busy?"读取中…":"重新读取"}</button></section>:<section className="card"><p role="status">正在读取订单档案…</p></section>;
 
   const d=data.details,o=data.order;
   return <div className="commerce-workspace"><div className="commerce-line"><p>{o.cancelled?"已跑单":labelOrderStatus(o.status)}</p><button type="button" className="secondary" disabled={busy} onClick={()=>void reload()}>刷新</button></div><header className="commerce-heading"><div><p className="eyebrow">{o.order_ref} · {o.business_date}</p><h1>{o.customer_label||"历史订单"}</h1><p>{o.wechat_id||o.display_name}{d?` · ${d.personaName} · 经办：${d.operatorName}`:""}</p></div><strong className="commerce-amount">¥ {o.amount}<small>订单合计（含追加）</small></strong></header>

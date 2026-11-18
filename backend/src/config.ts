@@ -17,6 +17,7 @@ export type AppConfig = {
   cookieSameSite: "lax" | "strict" | "none";
   loginWindowMs: number;
   loginMaxAttempts: number;
+  loginIpMaxAttempts?: number;
 };
 
 function required(name: string, allowEmptyInTest = false): string {
@@ -61,6 +62,11 @@ export function loadConfig(): AppConfig {
   const host = (process.env.HOST ?? "127.0.0.1").trim() || "127.0.0.1";
   const lan = parseLanConfig(process.env.LAN_HOST, process.env.LAN_ALLOWED_CIDR);
   if (lan.lanHost && host !== "127.0.0.1") throw new Error("启用额外 LAN 入口时 HOST 须保持 127.0.0.1，避免重复或扩大监听");
+  const loginMaxAttempts = Number(process.env.LOGIN_MAX_ATTEMPTS ?? "8");
+  const loginIpMaxRaw = process.env.LOGIN_IP_MAX_ATTEMPTS;
+  const loginIpMaxAttempts = loginIpMaxRaw && loginIpMaxRaw.trim()
+    ? Number(loginIpMaxRaw)
+    : Math.max(loginMaxAttempts * 4, 24);
 
   return {
     nodeEnv,
@@ -77,6 +83,7 @@ export function loadConfig(): AppConfig {
     cookieSecure: (process.env.COOKIE_SECURE ?? "false") === "true",
     cookieSameSite,
     loginWindowMs: Number(process.env.LOGIN_WINDOW_MS ?? "900000"),
-    loginMaxAttempts: Number(process.env.LOGIN_MAX_ATTEMPTS ?? "8")
+    loginMaxAttempts,
+    loginIpMaxAttempts
   };
 }

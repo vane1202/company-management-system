@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api } from "./api";
+import { api, setUnauthorizedHandler } from "./api";
 import { httpErrorMessage, isFetchNetworkError, NETWORK_ERROR, NETWORK_ERROR_READ, SERVER_ERROR, SERVER_ERROR_READ, SESSION_EXPIRED, SESSION_EXPIRED_READ, toErrorMessage } from "./errors";
 
 describe("失败原因翻译（纯函数）", () => {
@@ -33,7 +33,10 @@ describe("失败原因翻译（纯函数）", () => {
 });
 
 describe("请求层把失败翻译成中文原因", () => {
-  afterEach(() => { vi.unstubAllGlobals(); });
+  afterEach(() => {
+    setUnauthorizedHandler(null);
+    vi.unstubAllGlobals();
+  });
   const respond = (status: number, body: string) => vi.fn(async () => new Response(body, { status }));
 
   it("写操作断网：网络中断，本次未保存", async () => {
@@ -55,5 +58,37 @@ describe("请求层把失败翻译成中文原因", () => {
     await expect(api.saveOps({})).rejects.toMatchObject({ message: SERVER_ERROR, status: 502 });
     vi.stubGlobal("fetch", respond(409, JSON.stringify({ error: "工资单状态已变更，请刷新后再操作" })));
     await expect(api.saveOps({})).rejects.toMatchObject({ message: "工资单状态已变更，请刷新后再操作" });
+  });
+  it("业务接口返回 401 时通知未登录处理器；登录与会话引导接口不触发", async () => {
+    const onUnauthorized = vi.fn();
+    setUnauthorizedHandler(onUnauthorized);
+    vi.stubGlobal("fetch", respond(401, JSON.stringify({ error: "未登录" })));
+
+    await expect(api.opsReports()).rejects.toMatchObject({ status: 401 });
+    expect(onUnauthorized).toHaveBeenCalledTimes(1);
+    expect(onUnauthorized).toHaveBeenCalledWith(SESSION_EXPIRED_READ);
+
+    onUnauthorized.mockClear();
+    await expect(api.login("a", "b")).rejects.toMatchObject({ status: 401 });
+    await expect(api.me()).rejects.toMatchObject({ status: 401 });
+    await expect(api.logout()).rejects.toMatchObject({ status: 401 });
+    await expect(api.csRegistrationOptions("123456")).rejects.toMatchObject({ status: 401 });
+    await expect(api.registerCsDevice({ accountId: "1", phoneLabel: "p1", registrationCode: "123456" })).rejects.toMatchObject({ status: 401 });
+    expect(onUnauthorized).not.toHaveBeenCalled();
+  });
+  it("uploadOrderPhoto 按文件魔数嗅探 MIME 并忽略空的 file.type", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({ id: "att-1" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const jpegBytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const file = new File([jpegBytes], "wechat.bin", { type: "" });
+    await expect(api.uploadOrderPhoto("order-1", file, "item-1")).resolves.toEqual({ id: "att-1" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0];
+    expect(new Headers(init?.headers).get("Content-Type")).toBe("image/jpeg");
+
+    fetchMock.mockClear();
+    const invalidFile = new File([new TextEncoder().encode("plain text content")], "bad.jpg", { type: "image/jpeg" });
+    await expect(api.uploadOrderPhoto("order-1", invalidFile, "")).rejects.toThrow("请上传 JPEG、PNG 或 WebP 原图");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
