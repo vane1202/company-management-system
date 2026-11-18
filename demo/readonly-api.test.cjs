@@ -235,6 +235,23 @@ test('经营看板分开当期开单进度和历史待收款，保持原币且�
  assert.equal(e.network(),0);
 });
 
+test('BOSS 公司待收含私推和历史余额，直播间口径保持独立',async()=>{
+ const boss=environment('boss'),live=(await boss.json('/api/dashboard/live-business')).body;
+ const route='/api/demo/cash-order-balances?asOf=';
+ const current=await boss.json(route+live.period.to);
+ assert.equal(current.status,200);
+ const byId=Object.fromEntries(current.body.orders.map(o=>[o.id,o]));
+ assert.equal(byId['demo-order-7'].roomCode,'客服私推');
+ assert.equal(byId['demo-order-7'].balance,'600.00');
+ assert.equal(byId['demo-order-6'].balance,'550.00');
+ assert.equal(byId['demo-order-2'].balance,'2000.00');
+ assert.equal(byId['demo-order-3'].balance,'0.00');
+ assert.equal(byId['demo-order-4'],undefined);
+ assert.equal(live.operations.orders.some(o=>o.id==='demo-order-7'),false);
+ assert.equal((await boss.json(route+'2026-02-30')).status,400);
+ assert.equal((await environment('finance').json(route+live.period.to)).status,403);
+});
+
 test('按主播筛选不因财务人员费用补入无关直播间，无匹配时返回空看板',async()=>{
  const e=environment('boss');
  const one=(await e.json('/api/dashboard/live-business?host='+encodeURIComponent('甜甜'))).body;

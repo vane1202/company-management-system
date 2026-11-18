@@ -1,6 +1,6 @@
 import {describe,it,expect} from 'vitest';
 import type {FinanceData,FinancePayment,SettlementRecord} from '../api';
-import {buildCashBoard,buildOutstandingPayments,formatCashValue} from './cashBoardData';
+import {buildCashBoard,buildOutstandingPayments,convertPendingCash,formatCashValue,formatPendingCash} from './cashBoardData';
 import {convertCustomerPayments,type FxQuote} from './adExchangeRates';
 import {readFileSync} from 'node:fs';
 import {runInNewContext} from 'node:vm';
@@ -9,6 +9,21 @@ const p=(id:string,patch:Partial<FinancePayment>={}):FinancePayment=>({id,paymen
 const s=(patch:Partial<SettlementRecord>={}):SettlementRecord=>({id:'s1',reference:'s1',channel:'代收账户',currency:'USD',settled_on:today,fee_amount:'1.00',fee_currency:'USD',fee_percent:null,fx_rate:'6.60',net_cny:'323.40',note:'虚构',voided_at:null,void_reason:null,allocations:[{paymentId:'usd',foreignAmount:'50.00',netCny:'323.40'}],...patch});
 const data=(payments:FinancePayment[],settlements:SettlementRecord[]=[]):FinanceData=>({payments,settlements,summary:{pending:{CNY:'0.00',TWD:'0.00',USD:'0.00'},directCny:'0.00',settledCny:'0.00',totalCny:'0.00'}});
 describe('BOSS 收款与到账口径',()=>{
+ it('待收只合并客户未付余额与第三方尚未转回款，排除已转回款',async()=>{
+  const board=buildCashBoard(data([p('usd')],[s()]),period);
+  const unpaid=[{currency:'USD' as const,balance:'60.00'}];
+  const quote=async (date:string,currency:FxQuote['currency']):Promise<FxQuote>=>({
+   date,currency,rate:'7.00',updatedAt:`${date}T00:00:00Z`,checkedAt:0,source:'test',sourceDate:date,delayed:false,stale:false,
+  });
+  const pending=await convertPendingCash(today,unpaid,board.pending,quote);
+  expect(board.totalCny).toBe('323.40');
+  expect([pending.customer.cny,pending.held.cny,pending.total.cny]).toEqual(['420.00','630.00','1050.00']);
+  expect(formatPendingCash(pending.total)).toBe('约 ¥1,050.00');
+  const missing=await convertPendingCash(today,unpaid,board.pending,async()=>null);
+  expect(formatPendingCash(missing.total)).toBe('待折算');
+  const unknown=await convertPendingCash(today,[{currency:null,balance:null}],board.pending,quote);
+  expect(formatPendingCash(unknown.total)).toBe('待核对');
+ });
  it('首页待收按截止日参考汇率折算，并标记无法核对的订单余额',async()=>{
   const outstanding=buildOutstandingPayments(today,[
    {currency:'CNY',balance:'100.10'},

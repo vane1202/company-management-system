@@ -259,13 +259,26 @@
   ];
   // 与 BOSS 营业额同口径：开单卡料价＋代购费；历史简版单用原金额。
   function bookingAmount(o){const d=orderRecord(o);return d.legacy?o.amount:money(d.items.reduce((n,i)=>n+cents(i.price_cny)+cents(i.buying_fee_cny),0n));}
+  const roomTitle=code=>({'DEMO-LIVE-01':'海外一线','DEMO-LIVE-02':'海外二线'}[code]||code||'未归属直播间');
+  function cashOrderBalances(query){
+    const date=query.get('asOf');
+    if(!date||!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date))||new Date(date).toISOString().slice(0,10)!==date||date>today){
+      return json({error:'截止日期无效'},400);
+    }
+    const operations=window.CmsLiveRoomOperations.build(orders.map(order=>({
+      ...orderRecord(order),identity:order,payments:payments.filter(payment=>payment.order_id===order.id)
+    })),{from:date,to:date});
+    const privateIds=new Set(orders.filter(order=>order.dealChannel==='private').map(order=>order.id));
+    return json({asOf:date,orders:operations.orders.map(order=>({
+      ...order,roomCode:privateIds.has(order.id)?'客服私推':roomTitle(order.roomKey==='__unassigned__'?'':order.roomKey)
+    }))});
+  }
   function liveBusiness(query) {
     const period=dashboard(query).period,selected=Object.fromEntries(['room','host','persona','operator'].map(k=>[k,query.get(k)||'']));
     if(![period.from,period.to].every(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)&&Number.isFinite(Date.parse(d)))||period.from>period.to)return json({error:'日期范围无效'},400);
     const matchDate=d=>d>=period.from&&d<=period.to;
     const scoped=orders.filter(o=>o.dealChannel!=='private'&&(!selected.room||(selected.room==='__unassigned__'?!o.liveRoomCode:o.liveRoomCode===selected.room))&&(!selected.host||o.hostName===selected.host)&&(!selected.persona||o.personaCode===selected.persona)&&(!selected.operator||o.operatorName===selected.operator));
     const empty=()=>({performanceCny:'0.00',newSalesCny:'0.00',grossSalesCny:'0.00',cancelledSalesCny:'0.00',grossOrderCount:0,cancelledOrderCount:0,excludedAdditionalCny:'0.00',additionalCny:'0.00',expenseCny:'0.00',supplierPaidCny:'0.00',companyReceivedCny:'0.00',excludedSourceCny:'0.00',newOrderCount:0,expenseCount:0,customerReceipts:{CNY:'0.00',TWD:'0.00',USD:'0.00'}});
-    const roomTitle=code=>({'DEMO-LIVE-01':'海外一线','DEMO-LIVE-02':'海外二线'}[code]||code||'未归属直播间');
     const totals=empty(),rooms=new Map(),events=[];
     const plus=(t,k,v)=>{t[k]=money(cents(t[k])+cents(v));};
     function push(o,id,kind,date,amount,currency='CNY',label=kind,category='') {
@@ -620,6 +633,7 @@
     if(q.has("reviewStatus"))return json({error:"审核筛选已停用"},400);
     if(path==="/api/orders"&&role!=="admin"){const rows=filteredOrders(q).map(o=>({...o,bookingAmount:bookingAmount(o)})),valid=rows.filter(r=>!r.cancelled&&r.status!=="refunded");return json({orders:rows,totals:{amount:sumMoney(rows,"amount"),refunds:sumMoney(rows.filter((r)=>r.status==="refunded"&&!r.cancelled),"amount"),cancelled:sumMoney(rows.filter(r=>r.cancelled),"amount"),turnover:sumMoney(valid,"bookingAmount"),turnoverCount:valid.length}});}
     if(role==="boss"){
+      if(path==="/api/demo/cash-order-balances")return cashOrderBalances(q);
       if(path==="/api/dashboard/live-business")return liveBusiness(q);
       if(path==="/api/dashboard/summary")return json(dashboard(q));
       if(path==="/api/dashboard/series")return dashboardSeries(q);

@@ -1,6 +1,6 @@
 import BossPriority from "./BossPriority";
-import { useEffect, useRef, useState } from "react";
-import { api, type LiveBusinessData } from "../api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { api, type FinanceData, type LiveBusinessData } from "../api";
 import { InfoTip } from "../InfoTip";
 import type { Page } from "../access";
 import type { CashView } from "../cashNavigation";
@@ -9,10 +9,11 @@ import { createRequestGate } from "../requestGate";
 import { toErrorMessage } from "../errors";
 import { buildEstimateView, type EstimateSources } from "./estimateBoardData";
 import { convertAdSpend, referenceFxClient, FX_REFRESH_MS, type AdFxView } from "./adExchangeRates";
-import { CustomerPaymentSummary } from "./CustomerPaymentSummary";
-import { buildOutstandingPayments } from "./cashBoardData";
+import { buildCashBoard, formatCashValue, formatPendingCash } from "./cashBoardData";
+import { loadCashOrderBalances, useBossCashPending, type CashOrderBalances } from "./useBossCashPending";
 import BossHomeTrend from "./BossHomeTrend";
 import "./boss-estimate-board.css";
+import "./customer-payment-summary.css";
 import { useReferenceQuotes } from "./useReferenceQuotes";
 import { dashboardPresetRange } from "../dates";
 import { buildTrend, previousRange, type TrendKey } from "./bossTrendData";
@@ -24,6 +25,10 @@ const presets = [["day", "今日"], ["week", "本周"], ["month", "本月"]] as 
 const spendTip = "售后费用是已登记的供货、加工、接待和发货等人民币支出，按发生日统计。广告消耗按消耗日汇率参考折算为人民币，原美元金额保留。今日每小时检查最新行情（免费行情约延迟15分钟），历史日期使用当日参考汇率，跨日逐日折算后汇总。不代表实际扣款或结汇金额。";
 const presetKey = "cms-demo-boss-estimate-period";
 
+function InlinePaymentAmount({ value }: { value: string }) {
+  return <strong>{value.startsWith("约 ") ? <><span className="payment-inline-approximation">约</span>{" "}{value.slice(2)}</> : value}</strong>;
+}
+
 export default function BossEstimateBoard({ today, onError, onOpen, onDrill }: { today: string; onError: (value: string) => void; onOpen?: (page: Page, cash?: CashView) => void; onDrill?: (route: WorkspaceRoute) => void }) {
   const [preset, setPreset] = useState<(typeof presets)[number][0]>(() => {
     try { const saved = sessionStorage.getItem(presetKey); return saved === "week" || saved === "month" ? saved : "day"; } catch { return "day"; }
@@ -32,6 +37,9 @@ export default function BossEstimateBoard({ today, onError, onOpen, onDrill }: {
   const [dateDraft,setDateDraft]=useState({from:today,to:today});
   const [dateError,setDateError]=useState("");
   const [live, setLive] = useState<LiveBusinessData | null>(null);
+  const [finance, setFinance] = useState<FinanceData | null>(null);
+  const [cashOrders, setCashOrders] = useState<CashOrderBalances>();
+  const [cashLoading, setCashLoading] = useState(true);
   const [legacy, setLegacy] = useState<EstimateSources | null>(null);
   const [loading, setLoading] = useState(true);
   const [liveFailed, setLiveFailed] = useState(false);
@@ -47,6 +55,10 @@ export default function BossEstimateBoard({ today, onError, onOpen, onDrill }: {
   const revision=useReferenceQuotes();
   const view = buildEstimateView(live, legacy);
   const period = custom || dashboardPresetRange(today, preset);
+  const cash = useMemo(() => finance ? buildCashBoard(finance, period) : null, [finance, period.from, period.to]);
+  const pendingCash = useBossCashPending(period.to, cashOrders, cash?.pending);
+  const receivedAmount = cashLoading ? "…" : !cash ? "—" : cash.totalCny === null ? "待核对" : `¥${formatCashValue(cash.totalCny)}`;
+  const outstandingAmount = loading || cashLoading || pendingCash.loading ? "…" : formatPendingCash(pendingCash.value?.total);
   function drill(kind: "income" | "expenses" | "ads") {
     if (kind === "ads") onDrill?.({ page: "ops", ops: { ...period } });
     else onDrill?.({ page: "orders", live: { ...defaultLiveView(), preset, range: { ...period }, view: kind } });
@@ -62,6 +74,9 @@ export default function BossEstimateBoard({ today, onError, onOpen, onDrill }: {
     checked.current = Date.now();
     setLoading(true);
     setLive(null);
+    setFinance(null);
+    setCashOrders(undefined);
+    setCashLoading(true);
     setLegacy(null);
     setAdFx(null);
     setFxLoading(true);
@@ -72,6 +87,12 @@ export default function BossEstimateBoard({ today, onError, onOpen, onDrill }: {
       .then(result => { if (ticket.isCurrent()) setBaseline(result.previous); })
       .catch(() => { if (ticket.isCurrent()) setBaseline({}); })
       .finally(() => { if (ticket.isCurrent()) setBaselineLoading(false); });
+    void Promise.allSettled([api.finance(),loadCashOrderBalances(range.to)]).then(([financeResult,ordersResult])=>{
+      if (!ticket.isCurrent()) return;
+      setFinance(financeResult.status==="fulfilled"?financeResult.value:null);
+      setCashOrders(ordersResult.status==="fulfilled"?ordersResult.value:undefined);
+      setCashLoading(false);
+    });
     const [liveResult, legacyResult] = await Promise.allSettled([
       api.liveBusiness(custom?"custom":next, custom, filters),
       api.dashboard(custom?"custom":next,custom)
@@ -107,7 +128,7 @@ export default function BossEstimateBoard({ today, onError, onOpen, onDrill }: {
   return <section className="be-board" aria-label="经营总览" aria-busy={loading}>
     <header className="be-heading">
       <div>
-        <h1>经营总览 <InfoTip label="首页统计口径" text="开单按开单日、客户付款按付款日、售后费用按发生日、广告按消耗日统计。上期为紧邻的同等天数，今日未结束时只并列已登记金额，不作整日涨跌判断。外币为参考折算；各项不合成利润。待收款包括历史订单，未登记约定付款日时不判断逾期。"/></h1>
+        <h1>经营总览 <InfoTip label="首页统计口径" text="开单按开单日、公司已到账按到账日、售后费用按发生日、广告按消耗日统计。待收金额含截至所选结束日的客户未付余额和第三方代收未转回，外币按截止日参考汇率折算。上期为紧邻的同等天数，今日未结束时只并列已登记金额。"/></h1>
       </div>
       <button type="button" className="secondary" onClick={() => load()}>刷新</button>
     </header>
@@ -117,7 +138,17 @@ export default function BossEstimateBoard({ today, onError, onOpen, onDrill }: {
       {view && <span>全公司 · {view.period.from} 至 {view.period.to} · 今日未结束</span>}
     </div>
     {dateError&&<p className="error" role="alert">{dateError}</p>}
-    <BossPriority from={period.from} to={period.to} tick={trendTick} onSalary={()=>onOpen?.("salaries")} receipts={<CustomerPaymentSummary outstanding={live?.operations ? buildOutstandingPayments(live.operations.asOf, live.operations.orders) : null} loading={loading} records={live?.events.filter(event=>event.kind==="receipt")??[]} totals={live?.totals.customerReceipts} onOpen={()=>view&&onOpen?.("finance",{...view.period,metric:"receipts",scope:"company"})} detailLabel="查看收款"/>}/>
+    <BossPriority from={period.from} to={period.to} tick={trendTick} onSalary={()=>onOpen?.("salaries")} receipts={
+      <button type="button" className="payment-inline-button"
+        aria-label={`实收金额 ${receivedAmount}，待收金额 ${outstandingAmount}，查看收款与到账`}
+        onClick={()=>onOpen?.("finance",{...period,metric:"receipts",scope:"company"})}>
+        <span className="payment-inline-metrics">
+          <span><span>实收金额</span><InlinePaymentAmount value={receivedAmount}/></span>
+          <span><span>待收金额</span><InlinePaymentAmount value={outstandingAmount}/></span>
+        </span>
+        <span aria-hidden="true">›</span>
+      </button>
+    }/>
     <div className="be-kpis">
       <article aria-label="广告消耗">
         <header><h2>投流数据</h2><InfoTip scrollable label="广告消耗口径" text={`${spendTip}${fxInfo ? ` ${fxInfo}。` : ""}${adFx?.missingDates.length ? ` 缺少汇率：${adFx.missingDates.join("、")}。` : ""}${adFx?.incomplete ? " 消耗明细不完整，暂不折算。" : ""}`} /></header>

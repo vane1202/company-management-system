@@ -1,6 +1,7 @@
 import type {Currency,FinanceData,FinancePayment,LiveOperationOrder,SettlementRecord} from '../api';
 import {cents,money} from '../commerceUi';
 import {isIsoDate} from '../dates';
+import {convertCustomerPayments,getReferenceQuote,type CustomerPaymentFx} from './adExchangeRates';
 
 export type CashAmounts=Record<Currency,string|null>;
 export type HeldPayment=FinancePayment&{pendingAsOf:string|null;heldDays:number};
@@ -31,8 +32,41 @@ export function buildOutstandingPayments(date: string, orders: readonly Pick<Liv
     balances[order.currency] += balance;
   }
   const totals = { CNY: money(balances.CNY), TWD: money(balances.TWD), USD: money(balances.USD) };
-  const records = currencies.filter(currency => balances[currency] > 0n).map(currency => ({ date, currency, amount: totals[currency] }));
-  return { totals, records, incomplete };
+  return { totals, records: balanceRows(date, totals), incomplete };
+}
+
+function balanceRows(date: string, totals: CashAmounts) {
+  return currencies.flatMap(currency => {
+    const amount = totals[currency];
+    return amount && amount !== '0.00' ? [{date,currency,amount}] : [];
+  });
+}
+
+export async function convertPendingCash(
+  date: string,
+  orders: readonly Pick<LiveOperationOrder, 'currency' | 'balance'>[],
+  agency: CashAmounts,
+  getQuote = getReferenceQuote,
+) {
+  const unpaid = buildOutstandingPayments(date, orders);
+  const [customer, held] = await Promise.all([
+    convertCustomerPayments(unpaid.records, unpaid.totals, getQuote),
+    convertCustomerPayments(balanceRows(date, agency), agency, getQuote),
+  ]);
+  const customerBalance = unpaid.incomplete ? {...customer, cny: null, incomplete: true} : customer;
+  const total = {
+    cny: add(customerBalance.cny, held.cny),
+    hasForeign: customerBalance.hasForeign || held.hasForeign,
+    incomplete: customerBalance.incomplete || held.incomplete,
+  };
+  return {customer:customerBalance,held,total};
+}
+
+export function formatPendingCash(value: Pick<CustomerPaymentFx, 'cny' | 'hasForeign' | 'incomplete'> | undefined) {
+  if (!value) return '—';
+  if (value.incomplete) return '待核对';
+  if (value.cny === null) return '待折算';
+  return `${value.hasForeign ? '约 ' : ''}¥${formatCashValue(value.cny)}`;
 }
 function clean(v:string):string|null{const n=cents(v);return n===null?null:money(n);}
 function days(from:string,to:string){return Math.max(0,Math.floor((Date.parse(to+'T00:00:00Z')-Date.parse(from+'T00:00:00Z'))/86400000));}
