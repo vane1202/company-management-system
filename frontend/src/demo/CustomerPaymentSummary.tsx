@@ -9,6 +9,10 @@ type Totals = Record<"CNY" | "TWD" | "USD", string | null>;
 type OutstandingPayments = { records: CustomerPaymentRow[]; totals: Totals; incomplete: boolean };
 type Props = { records: CustomerPaymentRow[]; totals?: Totals; loading: boolean; onOpen: () => void; detailLabel: string; compact?: boolean; interactive?:boolean; outstanding?: OutstandingPayments | null };
 
+function InlinePaymentAmount({ value }: { value: string }) {
+  return <strong>{value.startsWith("约 ") ? <><span className="payment-inline-approximation">约</span>{" "}{value.slice(2)}</> : value}</strong>;
+}
+
 /** The same payment-day conversion and hierarchy on both BOSS cards. Raw ledgers stay unchanged. */
 export function CustomerPaymentSummary({ records, totals, loading, onOpen, detailLabel, compact=false,interactive=true,outstanding }: Props) {
   const revision = useReferenceQuotes();
@@ -58,8 +62,8 @@ export function CustomerPaymentSummary({ records, totals, loading, onOpen, detai
       aria-label={`实收金额 ${value}，待收金额 ${outstandingValue}，查看收款与到账`}
       disabled={!totals || pending} onClick={onOpen}>
       <span className="payment-inline-metrics">
-        <span><span>实收金额</span><strong>{value}</strong></span>
-        <span><span>待收金额</span><strong>{outstandingValue}</strong></span>
+        <span><span>实收金额</span><InlinePaymentAmount value={value}/></span>
+        <span><span>待收金额</span><InlinePaymentAmount value={outstandingValue}/></span>
       </span>
       <span aria-hidden="true">›</span>
     </button>

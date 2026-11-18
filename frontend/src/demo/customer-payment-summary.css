@@ -19,3 +19,34 @@
   overflow-wrap: anywhere;
   text-align: right;
 }
+
+@media (max-width: 799px) {
+  .bp-primary-grid .bp-receipt-inline .payment-inline-button {
+    min-height: 44px;
+    font-size: 13px;
+    line-height: 1.35;
+  }
+
+  .payment-inline-metrics {
+    gap: 7px;
+  }
+
+  .payment-inline-metrics > span {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 2px 6px;
+  }
+
+  .payment-inline-button .payment-inline-metrics strong {
+    max-width: 100%;
+    font-size: 16px;
+    font-weight: 600;
+  }
+
+  .payment-inline-approximation {
+    font-size: 12px;
+    font-weight: 500;
+  }
+}

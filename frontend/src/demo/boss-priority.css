@@ -33,3 +33,34 @@
   flex: 1 0 100%;
   box-shadow: none;
 }
+
+.bp-room-split {
+  display: none;
+}
+
+@media (max-width: 799px) {
+  .bp-primary-grid .bp-performance-split {
+    display: none;
+  }
+
+  .bp-room-list .bp-room {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    column-gap: 10px;
+  }
+
+  .bp-room-split {
+    display: flex;
+    flex-wrap: wrap;
+    grid-column: 1 / -1;
+    gap: 4px 14px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .bp-room-split b {
+    color: var(--ink);
+    font-size: inherit;
+    font-weight: 600;
+  }
+}
