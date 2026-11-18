@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { Router, type Request } from "express";
 import type { Pool, PoolClient } from "pg";
+import { withTransaction } from "../db.js";
 import type { AppConfig } from "../config.js";
 import { HttpError } from "../types.js";
 import { amount, dateField, hashPayload, textField, uuid } from "../lib/commerce.js";
-import { moneyToCents } from "../lib/money.js";
+import { centsToMoney, moneyToCents } from "../lib/money.js";
 import { writeAudit } from "../audit.js";
 
 const kinds: Record<string, string> = { goods: "原石出库", sourcing: "售后接待", labor: "加工雕刻", design: "设计", accessory: "配件", certificate: "证书", box: "包装", shipping: "运费", other: "其他对外结账" };
@@ -62,6 +63,9 @@ async function validateLink(client: PoolClient, bill: Pick<Bill, "id" | "order_i
   if (expense.order_id !== bill.order_id || expense.category !== bill.category || expense.business_date !== bill.business_date || (expense.after_sale_charge_id ?? null) !== bill.after_sale_charge_id) throw new HttpError(400, "关联成本的订单、类别、日期和售后项目须一致");
   if (moneyToCents(bill.amount_cny) > remaining) throw new HttpError(409, "结账金额超过关联成本的剩余应付");
   if ((await client.query("SELECT 1 FROM warehouse_bills WHERE expense_id=$1 AND id<>$2 AND status<>'rejected'", [bill.expense_id, bill.id])).rowCount) throw new HttpError(409, "该项成本已有待审核或已审核结账单，请查看原账单");
+  if (moneyToCents(bill.amount_cny) < remaining) {
+    throw new HttpError(409, `关联成本的结账金额须等于剩余应付 ${centsToMoney(remaining)} 元，财务可在审核后分次付款`);
+  }
 }
 
 async function syncCosts(client: PoolClient, orderId: string) {
@@ -168,26 +172,19 @@ async function mutate(client: PoolClient, req: Request, config: AppConfig) {
 export function createWarehouseRouter(db: Pool, config: AppConfig) {
   const router = Router();
   router.use((req, _res, next) => ["warehouse", "finance"].includes(req.actor?.role ?? "") ? next() : next(new HttpError(403, "仅库房与财务可访问结账台账")));
-  router.get("/", async (req, res, next) => {
-    let client: PoolClient | undefined;
-    try {
-      client = await db.connect();
-      await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
-      const data = await snapshot(client, req.actor!.role === "finance");
-      await client.query("COMMIT"); res.set("Cache-Control", "private, no-store").json(data);
-    } catch (error) { if (client) await client.query("ROLLBACK").catch(() => {}); next(error); } finally { client?.release(); }
+  router.get("/", (req, res, next) => {
+    void withTransaction(db, (client) => snapshot(client, req.actor!.role === "finance"), true)
+      .then((data) => res.set("Cache-Control", "private, no-store").json(data))
+      .catch(next);
   });
   router.post("/", async (req, res, next) => {
-    let client: PoolClient | undefined;
     try {
-      client = await db.connect();
-      await client.query("BEGIN");
-      await mutate(client, req, config);
-      await client.query("COMMIT");
-      await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
-      const data = await snapshot(client, req.actor!.role === "finance");
-      await client.query("COMMIT"); res.set("Cache-Control", "private, no-store").json(data);
-    } catch (error) { if (client) await client.query("ROLLBACK").catch(() => {}); next(error); } finally { client?.release(); }
+      await withTransaction(db, (client) => mutate(client, req, config));
+      const data = await withTransaction(db, (client) => snapshot(client, req.actor!.role === "finance"), true);
+      res.set("Cache-Control", "private, no-store").json(data);
+    } catch (error) {
+      next(error);
+    }
   });
   return router;
 }

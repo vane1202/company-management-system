@@ -7,6 +7,7 @@ import connectPgSimple from "connect-pg-simple";
 import helmet from "helmet";
 import type { Pool } from "pg";
 import type { AppConfig } from "./config.js";
+import { isDatabaseUnavailable } from "./db.js";
 import { HttpError } from "./types.js";
 import { findUserById, toPublicUser } from "./users.js";
 import {
@@ -38,9 +39,11 @@ import { createWarehouseRouter } from "./routes/warehouse.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PgSession = connectPgSimple(session);
+const healthQuery = { text: "SELECT 1", query_timeout: 1000 };
 
 export function createApp(db: Pool, config: AppConfig) {
   const app = express();
+  app.enable("case sensitive routing");
   app.use(restrictLanClients(config));
   if (config.trustProxy > 0) app.set("trust proxy", config.trustProxy);
 
@@ -79,6 +82,18 @@ export function createApp(db: Pool, config: AppConfig) {
     next();
   });
 
+  const health = async (_req: Request, res: Response) => {
+    res.set("Cache-Control", "no-store");
+    try {
+      await db.query(healthQuery);
+      res.json({ status: "ok", db: "ok" });
+    } catch {
+      res.status(503).json({ status: "error", db: "down" });
+    }
+  };
+  app.get("/health", health);
+  app.get("/api/health", health);
+
   app.use(
     session({
       name: "cms.sid",
@@ -106,17 +121,6 @@ export function createApp(db: Pool, config: AppConfig) {
       return user && user.is_active ? toPublicUser(user) : undefined;
     })
   );
-
-  const health = async (_req: Request, res: Response) => {
-    try {
-      await db.query("SELECT 1");
-      res.json({ status: "ok", db: "ok" });
-    } catch {
-      res.status(503).json({ status: "error", db: "down" });
-    }
-  };
-  app.get("/health", health);
-  app.get("/api/health", health);
 
   app.use(csrfAndOriginGuard(config.appOrigins));
   app.use("/api/auth/cs-device", createCsDeviceRegistrationRouter(db, config));
@@ -152,13 +156,14 @@ export function createApp(db: Pool, config: AppConfig) {
     const dist = resolveFrontendDist();
     if (existsSync(dist)) {
       app.use(express.static(dist));
-      app.get(/^(?!\/api\/).*/, (_req, res) => {
+      app.get(/^(?!\/api(?:\/|$)).*/i, (_req, res) => {
         res.sendFile(path.join(dist, "index.html"));
       });
     }
   }
 
-  app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  app.use((error: unknown, _req: Request, res: Response, next: NextFunction) => {
+    if (res.headersSent) return next(error);
     if (typeof error === "object" && error && "status" in error && error.status === 413) { res.status(413).json({ error: "文件或请求过大，订单照片每张最多8MB" }); return; }
     if (error instanceof HttpError) {
       res.status(error.status).json({ error: error.message, code: error.code });
@@ -166,6 +171,10 @@ export function createApp(db: Pool, config: AppConfig) {
     }
     if (typeof error === "object" && error && "code" in error && (error as { code: string }).code === "23505") {
       res.status(409).json({ error: "记录已存在，不能重复提交" });
+      return;
+    }
+    if (isDatabaseUnavailable(error)) {
+      res.status(503).json({ error: "数据库暂时不可用，请稍后重试", code: "DATABASE_UNAVAILABLE" });
       return;
     }
     console.error(error);

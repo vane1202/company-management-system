@@ -246,7 +246,7 @@ export function createAdminRouter(db: Pool): Router {
       });
       await client.query("COMMIT"); res.json({ ok: true });
     } catch (error) {
-      if (client) await client.query("ROLLBACK");
+      if (client) await client.query("ROLLBACK").catch(() => { client?.release(true); client = undefined; });
       next(error);
     } finally { client?.release(); }
   });

@@ -56,7 +56,7 @@ npm run preflight -- --env-file .env --check-db
 4. `npm run preflight -- --env-file .env --check-db`
 5. 可复现安装：`npm ci`（开发也可 `npm install`，上线前应能用 `npm ci` 成功）。
 6. `npm run migrate`
-7. `npm run init-admin`（不要把管理员口令写入仓库）。
+7. 空库使用 `npm run init-admin` 创建 BOSS，再用 `INIT_ADMIN_ROLE=admin npm run init-admin` 创建独立的后台管理员。两次使用不同登录名。恢复已有业务库时先核对启用的后台管理员，缺失时再补建。管理员口令通过交互输入或当前进程环境提供，勿写入仓库。
 8. 开发：`npm run dev`，浏览器打开 `http://127.0.0.1:15173`。
 9. 或生产式本地预览：`npm run build` 后 `SERVE_STATIC=true npm run dev:backend`，访问 `http://127.0.0.1:13080`。
 10. Compose 一键应用+数据库：在填好 `.env` 后执行 `docker compose up -d --build`。这会启动业务容器，只有在目标环境明确授权时才做。

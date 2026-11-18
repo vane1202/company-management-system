@@ -54,7 +54,7 @@
 需要符合package.json engines的Node.js（本机已用22.23.4验证）及PostgreSQL。
 
 1. 执行npm ci，复制.env.example为.env并填写独立配置和密钥；示例只有占位值。
-2. 执行npm run preflight -- --env-file .env，确认配置后执行npm run migrate和npm run init-admin。
+2. 执行 `npm run preflight -- --env-file .env` 和 `npm run migrate`。空库按[部署说明](docs/LOCAL_DEPLOY.md)分别初始化 BOSS 和后台管理员。
 3. 开发时分别运行npm run dev:backend与npm run dev:frontend；Windows终端使用npm.cmd。
 4. 前端默认http://127.0.0.1:15173，后端默认http://127.0.0.1:13080。
 5. 生产构建执行npm run build；按部署环境设置SERVE_STATIC=true后，使用npm run start -w backend启动。

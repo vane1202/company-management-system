@@ -1,5 +1,6 @@
 import { Router,type Request,type Response,type NextFunction } from 'express';
 import type { Pool,PoolClient } from 'pg';
+import { withTransaction } from '../db.js';
 import type { AppConfig } from '../config.js';
 import { HttpError } from '../types.js';
 import { amount,dateField,hashPayload,replay,textField,uuid } from '../lib/commerce.js';
@@ -11,14 +12,17 @@ export function createAdAccountsRouter(db:Pool,config:AppConfig) {
   router.use((req,_res,next)=>['boss','ops','finance'].includes(req.actor!.role)?next():next(new HttpError(403,'无广告账户权限')));
   const mutate=(handler:(c:PoolClient,req:Request)=>Promise<unknown>)=>(req:Request,res:Response,next:NextFunction)=>{
     if(!['ops','finance'].includes(req.actor!.role)){next(new HttpError(403,'仅运营或财务可登记广告账户流水'));return;}
-    void(async()=>{const c=await db.connect();try{await c.query('BEGIN');const result=await handler(c,req);await c.query('COMMIT');res.json(result);}catch(e){await c.query('ROLLBACK');next(e);}finally{c.release();}})();
+    void withTransaction(db, (client) => handler(client, req))
+      .then((result) => res.json(result))
+      .catch(next);
   };
-  router.get('/',async(_req,res,next)=>{const c=await db.connect();try{
-    await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
-    const accounts=(await c.query(`SELECT a.*,COALESCE((SELECT sum(t.credited_usd) FROM ad_topups t WHERE t.account_ref=a.code AND t.voided_at IS NULL),0)::numeric(14,2) AS topped_usd,COALESCE((SELECT sum(r.spend_usd) FROM ops_reports r WHERE r.ad_account_ref=a.code AND r.business_date>=a.opened_on),0)::numeric(14,2) AS spent_usd FROM ad_accounts a ORDER BY a.code`)).rows.map(a=>({...a,balance_usd:centsToMoney(moneyToCents(a.opening_usd)+moneyToCents(a.topped_usd)-moneyToCents(a.spent_usd))}));
-    const topups=(await c.query('SELECT * FROM ad_topups ORDER BY paid_on DESC,created_at DESC')).rows;
-    await c.query('COMMIT');res.json({accounts,topups,summary:{paidCny:addMoney(topups.filter(t=>!t.voided_at).map(t=>t.paid_cny)),creditedUsd:addMoney(topups.filter(t=>!t.voided_at).map(t=>t.credited_usd)),spentUsd:addMoney(accounts.map(a=>a.spent_usd)),balanceUsd:addMoney(accounts.map(a=>a.balance_usd))}});
-  }catch(e){await c.query('ROLLBACK');next(e);}finally{c.release();}});
+  router.get('/', (_req, res, next) => {
+    void withTransaction(db, async (c) => {
+      const accounts=(await c.query(`SELECT a.*,COALESCE((SELECT sum(t.credited_usd) FROM ad_topups t WHERE t.account_ref=a.code AND t.voided_at IS NULL),0)::numeric(14,2) AS topped_usd,COALESCE((SELECT sum(r.spend_usd) FROM ops_reports r WHERE r.ad_account_ref=a.code AND r.business_date>=a.opened_on),0)::numeric(14,2) AS spent_usd FROM ad_accounts a ORDER BY a.code`)).rows.map(a=>({...a,balance_usd:centsToMoney(moneyToCents(a.opening_usd)+moneyToCents(a.topped_usd)-moneyToCents(a.spent_usd))}));
+      const topups=(await c.query('SELECT * FROM ad_topups ORDER BY paid_on DESC,created_at DESC')).rows;
+      return {accounts,topups,summary:{paidCny:addMoney(topups.filter(t=>!t.voided_at).map(t=>t.paid_cny)),creditedUsd:addMoney(topups.filter(t=>!t.voided_at).map(t=>t.credited_usd)),spentUsd:addMoney(accounts.map(a=>a.spent_usd)),balanceUsd:addMoney(accounts.map(a=>a.balance_usd))}};
+    }, true).then((result) => res.json(result)).catch(next);
+  });
   router.post('/',mutate(async(c,req)=>{
     const b=req.body??{},body={code:textField(b.code,'广告账户编号',64),name:textField(b.name,'广告账户名称'),openedOn:dateField(b.openedOn,config.businessTimezone),openingUsd:amount(b.openingUsd??'0','启用日期期初余额')};
     await c.query('INSERT INTO ad_accounts(code,name,opened_on,opening_usd,created_by) VALUES($1,$2,$3,$4,$5)',[body.code,body.name,body.openedOn,body.openingUsd,req.actor!.id]);
