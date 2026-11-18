@@ -238,7 +238,7 @@ export function App() {
       {activePage !== rootPage && <WorkspaceBackbar page={activePage} detail={activePage === "orders" && !!navigation.route.orderId} homeLabel={items[0].label} pageLabel={bossBusiness?(navigation.route.orderList?'订单档案':liveViewLabel(currentBusiness)):pageLabel(user.role, activePage)} backLabel={businessBackLabel} onUp={() => { const route = navigation.route; const insideOrders = route.page === "orders" && !!(route.orderId || route.orderList || route.live && route.live.view !== "rooms"); navigation.up(demoBoss && !insideOrders ? { page: "dashboard" } : undefined); }} onHome={() => navigation.up({ page: rootPage })} />}
       {error && <p className="error">{error}</p>}
       {isServiceAccount(user.accountKind) && <p className="notice">当前填报接待账号：<strong>{user.serviceAccountLabel??user.wechatId}</strong>{user.phoneLabel ? `（${user.phoneLabel}）` : ""}。加粉与订单长期归属于此接待账号；退出后需管理员重新发码。</p>}
-      {pagePanel("home", <Home user={user} today={today} backfillDays={backfillDays} disclaimer={disclaimer} onNavigate={goTo} active={activePage==='home'} onOpenBusiness={live=>navigation.navigate({page:'orders',live})} />)}
+      {pagePanel("home", <Home warehouseEnabled={modules?.warehouse !== false} user={user} today={today} backfillDays={backfillDays} disclaimer={disclaimer} onNavigate={goTo} active={activePage==='home'} onOpenBusiness={live=>navigation.navigate({page:'orders',live})} />)}
       {pagePanel("fans", <FanForm today={today} onError={pageError("fans")} platform={user.servicePlatform}/>)}
       {pagePanel("summary", <FanSummaryPage today={today} onError={pageError("summary")} supervisor={user.role === "cs_supervisor"} onNavigate={goTo} />)}
       {pagePanel("assessment", DemoStaffAssessment ? <Suspense fallback={<p role="status">正在读取客服考核…</p>}><DemoStaffAssessment today={today} scope={user.role === "cs_supervisor" ? "本组" : "全部"} /></Suspense> : <p className="notice">客服考核目前只在独立演示提供。</p>)}
@@ -420,7 +420,8 @@ function Home({
   disclaimer,
   active,
   onNavigate,
-  onOpenBusiness
+  onOpenBusiness,
+  warehouseEnabled
 }: {
   user: User;
   today: string;
@@ -429,9 +430,12 @@ function Home({
   active: boolean;
   onNavigate: (page: Page) => void;
   onOpenBusiness:(view:LiveView)=>void;
+  warehouseEnabled?: boolean;
 }) {
   if (DemoOpsAnalysis && user.role === "ops") return <Suspense fallback={<p role="status">正在读取运营工作台…</p>}><DemoOpsAnalysis today={today} onOpenReports={()=>onNavigate("ops")} onOpenFeedback={account=>{try{sessionStorage.setItem("cms-demo-ops-feedback-context",account||"");}catch{}onNavigate("opsFeedback");}}/></Suspense>;
-  if (user.role === "warehouse") return <WarehouseWorkspace today={today} userId={user.id}/>;
+  if (user.role === "warehouse") return warehouseEnabled === false
+    ? <section className="page"><div className="card"><h2>库房结账已停用</h2><p>管理员已暂时停用库房结账，暂时不能提交新的结账单。已提交的账单仍由财务处理，请联系管理员重新启用。</p></div></section>
+    : <WarehouseWorkspace today={today} userId={user.id}/>;
   if (user.role === "finance") return import.meta.env.MODE==='demo'?<FinanceHome today={today} active={active} onOpen={(section,task)=>{if(task)sessionStorage.setItem('cms-demo-finance-task',task);onNavigate(section);}}/>:<FinanceDesk today={today} onOpenSalary={() => onNavigate("salaries")} />;
   if (user.role === "boss") return <DashboardHome today={today} onNavigate={onNavigate} onOpenBusiness={onOpenBusiness} />;
   if (user.role === "admin") return import.meta.env.MODE === "demo" ? <AdminWorkbench onNavigate={onNavigate}/> : <AdminHome onNavigate={onNavigate} />;

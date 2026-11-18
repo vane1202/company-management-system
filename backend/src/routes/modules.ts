@@ -2,14 +2,17 @@ import { Router } from "express";
 import type { Pool } from "pg";
 import { writeAudit } from "../audit.js";
 import { queryOne } from "../db.js";
-import { loadModuleConfig, MODULES, MODULE_SETTING, parseModuleConfig, type ModuleKey } from "../lib/modules.js";
+import { loadLastModuleChange, loadModuleConfig, MODULE_DETAILS, MODULES, MODULE_SETTING, parseModuleConfig, type ModuleKey } from "../lib/modules.js";
 import { HttpError } from "../types.js";
 import { isBossOrAdmin } from "../users.js";
 
 export function createModulesRouter(db: Pool): Router {
   const router = Router();
-  router.get("/", async (_req, res, next) => {
-    try { res.json({ ...await loadModuleConfig(db), labels: MODULES }); }
+  router.get("/", async (req, res, next) => {
+    try {
+      const lastChange = req.actor?.role === "admin" ? await loadLastModuleChange(db) : null;
+      res.json({ ...await loadModuleConfig(db), labels: MODULES, details: MODULE_DETAILS, lastChange });
+    }
     catch (error) { next(error); }
   });
   router.put("/", async (req, res, next) => {
@@ -32,7 +35,7 @@ export function createModulesRouter(db: Pool): Router {
         await client.query("UPDATE app_settings SET value = $2 WHERE key = $1", [MODULE_SETTING, JSON.stringify(after)]);
         await writeAudit(client, { actorId: req.actor.id, action: "modules_update", entityType: "app_settings", entityId: MODULE_SETTING, before, after, ip: req.ip });
         await client.query("COMMIT");
-        res.json({ ...after, labels: MODULES });
+        res.json({ ...after, labels: MODULES, details: MODULE_DETAILS, lastChange: await loadLastModuleChange(db) });
       } catch (error) { await client.query("ROLLBACK"); throw error; }
       finally { client.release(); }
     } catch (error) { next(error); }

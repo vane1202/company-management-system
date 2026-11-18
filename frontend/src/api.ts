@@ -88,6 +88,15 @@ export async function loadCsrf(): Promise<void> {
   csrfToken = data.csrfToken;
 }
 
+export type ModuleConfigResponse = {
+  version: number;
+  modules: Record<string, boolean>;
+  labels: Record<string, string>;
+  /** What each switch controls. Absent when talking to an older server. */
+  details?: Record<string, { summary: string; roles: string[] }>;
+  /** Latest change; only sent to administrators. */
+  lastChange?: { at: string; by: string | null } | null;
+};
 export const api = {
   orderRecord: (id: string) => requestInner<OrderRecord>(`/api/order-records/${encodeURIComponent(id)}`),
   paidPerformance:()=>requestInner<{records:PaidPerformanceRecord[]}>('/api/finance/live-performance'),
@@ -130,8 +139,8 @@ export const api = {
   setCsAccountStatus: (id: string, isActive: boolean) => requestInner(`/api/cs-accounts/${encodeURIComponent(id)}/status`, { method: "PUT", body: JSON.stringify({ isActive }) }),
   csRegistrationOptions:(registrationCode:string)=>requestInner<{accounts:{id:string;platform:'whatsapp'|'messenger'|'legacy_wechat';accountIdentifier:string;label:string;phoneLabel:string|null;holderName:string|null}[]}>('/api/auth/cs-device/options',{method:'POST',body:JSON.stringify({registrationCode})}),
   registerCsDevice: (payload: { accountId: string; phoneLabel: string; registrationCode: string }) => requestInner<{ user: User; csrfToken: string; today: string; backfillDays: number }>("/api/auth/cs-device", { method: "POST", body: JSON.stringify(payload) }),
-  modules: () => requestInner<{ version: number; modules: Record<string, boolean>; labels: Record<string, string> }>("/api/modules"),
-  saveModules: (version: number, modules: Record<string, boolean>) => requestInner<{ version: number; modules: Record<string, boolean>; labels: Record<string, string> }>("/api/modules", { method: "PUT", body: JSON.stringify({ version, modules }) }),
+  modules: () => requestInner<ModuleConfigResponse>("/api/modules"),
+  saveModules: (version: number, modules: Record<string, boolean>) => requestInner<ModuleConfigResponse>("/api/modules", { method: "PUT", body: JSON.stringify({ version, modules }) }),
   loadCsrf,
   login: (username: string, password: string) =>
     requestInner<{ user: User; csrfToken: string; today?: string; timezone?: string; backfillDays?: number; disclaimer?: string }>("/api/auth/login", {
