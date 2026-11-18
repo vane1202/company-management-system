@@ -26,7 +26,7 @@ const spendTip = "售后费用是已登记的供货、加工、接待和发货�
 const presetKey = "cms-demo-boss-estimate-period";
 
 function InlinePaymentAmount({ value }: { value: string }) {
-  return <strong>{value.startsWith("约 ") ? <><span className="payment-inline-approximation">约</span>{" "}{value.slice(2)}</> : value}</strong>;
+  return <strong>{value.startsWith("约 ") ? <><span className="payment-inline-approximation">约{" "}</span>{value.slice(2)}</> : value}</strong>;
 }
 
 export default function BossEstimateBoard({ today, onError, onOpen, onDrill }: { today: string; onError: (value: string) => void; onOpen?: (page: Page, cash?: CashView) => void; onDrill?: (route: WorkspaceRoute) => void }) {

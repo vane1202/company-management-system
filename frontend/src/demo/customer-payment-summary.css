@@ -46,7 +46,6 @@
   }
 
   .payment-inline-approximation {
-    font-size: 12px;
-    font-weight: 500;
+    display: none;
   }
 }
