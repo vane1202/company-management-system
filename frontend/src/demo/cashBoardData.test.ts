@@ -1,6 +1,7 @@
 import {describe,it,expect} from 'vitest';
 import type {FinanceData,FinancePayment,SettlementRecord} from '../api';
-import {buildCashBoard,formatCashValue} from './cashBoardData';
+import {buildCashBoard,buildOutstandingPayments,formatCashValue} from './cashBoardData';
+import {convertCustomerPayments,type FxQuote} from './adExchangeRates';
 import {readFileSync} from 'node:fs';
 import {runInNewContext} from 'node:vm';
 const today='2026-11-11',period={from:today,to:today};
@@ -8,6 +9,24 @@ const p=(id:string,patch:Partial<FinancePayment>={}):FinancePayment=>({id,paymen
 const s=(patch:Partial<SettlementRecord>={}):SettlementRecord=>({id:'s1',reference:'s1',channel:'代收账户',currency:'USD',settled_on:today,fee_amount:'1.00',fee_currency:'USD',fee_percent:null,fx_rate:'6.60',net_cny:'323.40',note:'虚构',voided_at:null,void_reason:null,allocations:[{paymentId:'usd',foreignAmount:'50.00',netCny:'323.40'}],...patch});
 const data=(payments:FinancePayment[],settlements:SettlementRecord[]=[]):FinanceData=>({payments,settlements,summary:{pending:{CNY:'0.00',TWD:'0.00',USD:'0.00'},directCny:'0.00',settledCny:'0.00',totalCny:'0.00'}});
 describe('BOSS 收款与到账口径',()=>{
+ it('首页待收按截止日参考汇率折算，并标记无法核对的订单余额',async()=>{
+  const outstanding=buildOutstandingPayments(today,[
+   {currency:'CNY',balance:'100.10'},
+   {currency:'CNY',balance:'250.20'},
+   {currency:'TWD',balance:'1200.00'},
+   {currency:'USD',balance:'90.00'},
+   {currency:null,balance:null},
+  ]);
+  expect(outstanding.incomplete).toBe(true);
+  const getQuote=async (date:string,currency:FxQuote['currency']):Promise<FxQuote>=>{
+   expect(date).toBe(today);
+   return {date,currency,rate:currency==='TWD'?'0.20':'7.00',updatedAt:`${date}T00:00:00Z`,checkedAt:0,source:'test',sourceDate:date,delayed:false,stale:false};
+  };
+  expect(await convertCustomerPayments(outstanding.records,outstanding.totals,getQuote)).toMatchObject({cny:'1220.30',hasForeign:true});
+  expect(await convertCustomerPayments(outstanding.records,outstanding.totals,async()=>null)).toMatchObject({cny:null});
+  const empty=buildOutstandingPayments(today,[]);
+  expect(await convertCustomerPayments(empty.records,empty.totals,getQuote)).toMatchObject({cny:'0.00',hasForeign:false});
+ });
  it('实际到账只合并人民币直收和净到账，代收余额按原币重算且不重复扣费',()=>{
   const d=buildCashBoard(data([p('direct',{currency:'CNY',amount:'1290.50',third_party:false}),p('twd',{channel:'台币代收',currency:'TWD',amount:'1200.00'}),p('usd')],[s()]),period);
   expect(d.totalCny).toBe('1613.90');expect(d.thirdPartyCny).toBe('323.40');

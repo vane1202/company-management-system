@@ -19,3 +19,17 @@
 .be-board.be-board>.be-kpis>article>small{grid-column:2;grid-row:1;text-align:right}
 .be-board.be-board>.be-kpis>article>.be-baseline{grid-column:2;grid-row:2;margin:0;padding:0;align-self:center}
 @media(max-width:799px){.be-board.be-board>.be-kpis>article{min-height:94px;column-gap:12px;grid-template-columns:minmax(0,1fr) auto}.be-board.be-board>.be-kpis>article>.be-main-value{min-height:38px;padding:4px 0}}
+.bp-primary-grid .bp-performance-header {
+  align-self: stretch;
+  flex-wrap: wrap;
+}
+
+.bp-performance-header .info-tip-inline {
+  display: contents;
+}
+
+.bp-performance-header .info-tip-pop-inline {
+  position: static;
+  flex: 1 0 100%;
+  box-shadow: none;
+}

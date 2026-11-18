@@ -1,4 +1,4 @@
-import type {Currency,FinanceData,FinancePayment,SettlementRecord} from '../api';
+import type {Currency,FinanceData,FinancePayment,LiveOperationOrder,SettlementRecord} from '../api';
 import {cents,money} from '../commerceUi';
 import {isIsoDate} from '../dates';
 
@@ -17,6 +17,22 @@ function add(a:string|null,b:string|null):string|null{const x=aggregateCents(a),
 export function formatCashValue(v:string){
   const n=aggregateCents(v);if(n===null)return '待核对';
   return `${(n/100n).toLocaleString('zh-CN')}.${String(n%100n).padStart(2,'0')}`;
+}
+
+export function buildOutstandingPayments(date: string, orders: readonly Pick<LiveOperationOrder, 'currency' | 'balance'>[]) {
+  const balances: Record<Currency, bigint> = { CNY: 0n, TWD: 0n, USD: 0n };
+  let incomplete = false;
+  for (const order of orders) {
+    const balance = aggregateCents(order.balance);
+    if (!order.currency || balance === null) {
+      incomplete = true;
+      continue;
+    }
+    balances[order.currency] += balance;
+  }
+  const totals = { CNY: money(balances.CNY), TWD: money(balances.TWD), USD: money(balances.USD) };
+  const records = currencies.filter(currency => balances[currency] > 0n).map(currency => ({ date, currency, amount: totals[currency] }));
+  return { totals, records, incomplete };
 }
 function clean(v:string):string|null{const n=cents(v);return n===null?null:money(n);}
 function days(from:string,to:string){return Math.max(0,Math.floor((Date.parse(to+'T00:00:00Z')-Date.parse(from+'T00:00:00Z'))/86400000));}

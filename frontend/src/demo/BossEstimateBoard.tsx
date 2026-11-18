@@ -10,6 +10,7 @@ import { toErrorMessage } from "../errors";
 import { buildEstimateView, type EstimateSources } from "./estimateBoardData";
 import { convertAdSpend, referenceFxClient, FX_REFRESH_MS, type AdFxView } from "./adExchangeRates";
 import { CustomerPaymentSummary } from "./CustomerPaymentSummary";
+import { buildOutstandingPayments } from "./cashBoardData";
 import BossHomeTrend from "./BossHomeTrend";
 import "./boss-estimate-board.css";
 import { useReferenceQuotes } from "./useReferenceQuotes";
@@ -116,7 +117,7 @@ export default function BossEstimateBoard({ today, onError, onOpen, onDrill }: {
       {view && <span>全公司 · {view.period.from} 至 {view.period.to} · 今日未结束</span>}
     </div>
     {dateError&&<p className="error" role="alert">{dateError}</p>}
-    <BossPriority from={period.from} to={period.to} tick={trendTick} onSalary={()=>onOpen?.("salaries")} receipts={<CustomerPaymentSummary inline compact loading={loading} records={live?.events.filter(event=>event.kind==="receipt")??[]} totals={live?.totals.customerReceipts} onOpen={()=>view&&onOpen?.("finance",{...view.period,metric:"receipts",scope:"company"})} detailLabel="查看收款"/>}/>
+    <BossPriority from={period.from} to={period.to} tick={trendTick} onSalary={()=>onOpen?.("salaries")} receipts={<CustomerPaymentSummary outstanding={live?.operations ? buildOutstandingPayments(live.operations.asOf, live.operations.orders) : null} loading={loading} records={live?.events.filter(event=>event.kind==="receipt")??[]} totals={live?.totals.customerReceipts} onOpen={()=>view&&onOpen?.("finance",{...view.period,metric:"receipts",scope:"company"})} detailLabel="查看收款"/>}/>
     <div className="be-kpis">
       <article aria-label="广告消耗">
         <header><h2>投流数据</h2><InfoTip scrollable label="广告消耗口径" text={`${spendTip}${fxInfo ? ` ${fxInfo}。` : ""}${adFx?.missingDates.length ? ` 缺少汇率：${adFx.missingDates.join("、")}。` : ""}${adFx?.incomplete ? " 消耗明细不完整，暂不折算。" : ""}`} /></header>
