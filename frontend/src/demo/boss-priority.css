@@ -38,6 +38,23 @@
   display: none;
 }
 
+.bp-unassigned {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin-top: 16px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.bp-unassigned > button {
+  min-height: 44px;
+}
+
 @media (max-width: 799px) {
   .bp-primary-grid .bp-performance-split {
     display: none;
