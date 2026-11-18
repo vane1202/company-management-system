@@ -582,7 +582,17 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
   const [userPending, setUserPending] = useState(false);
   const [userError, setUserError] = useState("");
   const [scopeUser, setScopeUser] = useState<AdminUser | null>(null);
-  const [editingUser, setEditingUser] = useState<{ id: string; username: string; displayName: string } | null>(null);
+  const [editingUser, setEditingUser] = useState<{
+    id: string;
+    role: string;
+    initialUsername: string;
+    initialDisplayName: string;
+    initialTeamId: string;
+    username: string;
+    displayName: string;
+    teamId: string;
+    effectiveDate: string;
+  } | null>(null);
   const [editError, setEditError] = useState("");
   const [resetUser, setResetUser] = useState<{ id: string; username: string; displayName: string; temporaryPassword: string } | null>(null);
   const [resetError, setResetError] = useState("");
@@ -613,7 +623,18 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
     setScopeUser(null);
     setResetUser(null);
     setEditError("");
-    setEditingUser({ id: item.id, username: item.username, displayName: item.displayName });
+    const currentTeamId = item.currentTeam?.id ?? "";
+    setEditingUser({
+      id: item.id,
+      role: item.role,
+      initialUsername: item.username,
+      initialDisplayName: item.displayName,
+      initialTeamId: currentTeamId,
+      username: item.username,
+      displayName: item.displayName,
+      teamId: currentTeamId,
+      effectiveDate: today
+    });
     scrollUserPanel();
   }
   function openResetPanel(item: AdminUser) {
@@ -726,13 +747,36 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
           event.preventDefault();
           if (savingUser) return;
           const target = editingUser;
+          const profileChanged = target.username !== target.initialUsername || target.displayName.trim() !== target.initialDisplayName;
+          const teamChanged = target.role !== "cs_supervisor" && target.teamId !== target.initialTeamId;
           setSavingUser(target.id); setEditError("");
+          let profileSaved = false;
           try {
-            await api.updateUser(target.id, { username: target.username, displayName: target.displayName });
+            if (profileChanged || !teamChanged) {
+              await api.updateUser(target.id, { username: target.username, displayName: target.displayName });
+              profileSaved = profileChanged;
+            }
+            if (teamChanged) {
+              await api.transferUser(target.id, {
+                teamId: target.teamId || "",
+                effectiveDate: target.effectiveDate || today
+              });
+            }
             setEditingUser(null); onError("");
-            toast.success("账号信息已更新，下次登录请使用新登录名");
+            const summary = target.username !== target.initialUsername
+              ? "账号信息已更新，下次登录请使用新登录名"
+              : teamChanged
+                ? (target.teamId ? "账号信息与所属小组已更新" : "账号信息已更新，已移出原小组")
+                : "账号信息已更新";
+            toast.success(summary);
             await refreshAfterSave();
           } catch (error) {
+            if (profileSaved) {
+              setEditingUser(current => current && current.id === target.id
+                ? { ...current, initialUsername: target.username, initialDisplayName: target.displayName.trim() }
+                : current);
+              await refreshAfterSave();
+            }
             fail("账号信息未保存", error, setEditError);
           } finally {
             setSavingUser("");
@@ -741,7 +785,15 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
           <h3>修改账号信息</h3>
           <label className="row field-label">姓名<input required maxLength={64} value={editingUser.displayName} disabled={!!savingUser} onChange={event => setEditingUser({ ...editingUser, displayName: event.target.value })} /></label>
           <label className="row field-label">登录名<input required minLength={3} maxLength={32} pattern="[a-z0-9][a-z0-9_-]{2,31}" value={editingUser.username} disabled={!!savingUser} autoCapitalize="none" autoCorrect="off" onChange={event => setEditingUser({ ...editingUser, username: event.target.value.toLowerCase() })} /></label>
-          <p className="notice">修改后密码、小组归属和历史记录保持关联，下次登录使用新登录名。</p>
+          {editingUser.role !== "cs_supervisor" && (
+            <>
+              <label className="row field-label">所属小组<select disabled={!!savingUser} value={editingUser.teamId} onChange={event => setEditingUser({ ...editingUser, teamId: event.target.value })}><option value="">不设置</option>{teams.map(team => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label>
+              {editingUser.teamId !== editingUser.initialTeamId && (
+                <label className="row field-label">{editingUser.teamId ? "小组生效日期" : "移出小组生效日期"}<input type="date" required value={editingUser.effectiveDate} disabled={!!savingUser} onChange={event => setEditingUser({ ...editingUser, effectiveDate: event.target.value })} /></label>
+              )}
+            </>
+          )}
+          <p className="notice">{editingUser.role === "cs_supervisor" ? "客服主管的负责小组请在列表中点「设置负责小组」维护。" : "修改登录名会要求员工重新登录；调整所属小组会保留生效日期前的历史归属与业务记录。"}</p>
           {editError && <p className="action-error" role="alert">{editError}</p>}
           <div className="actions"><button disabled={!!savingUser}>{savingUser ? "保存中…" : "保存修改"}</button><button className="secondary" type="button" disabled={!!savingUser} onClick={() => setEditingUser(null)}>取消</button></div>
         </form>}

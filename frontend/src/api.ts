@@ -113,7 +113,7 @@ export const api = {
   assessmentFoundation: () => requestInner<AssessmentFoundation>("/api/assessment/foundation"),
   csTeams: () => requestInner<{ teams: Team[] }>("/api/cs-accounts/teams"),
   createCsAccount:(payload:{platform:'whatsapp'|'messenger';accountIdentifier:string;teamId:string;phoneLabel:string;holderName:string})=>requestInner<{id:string}>('/api/cs-accounts',{method:'POST',body:JSON.stringify(payload)}),
-  updateCsAccount: (id: string, payload: { accountIdentifier: string; phoneLabel: string; holderName: string }) => requestInner<{ needsRegistration: boolean }>(`/api/cs-accounts/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  updateCsAccount: (id: string, payload: { accountIdentifier: string; phoneLabel: string; holderName: string; teamId?: string }) => requestInner<{ needsRegistration: boolean; teamChanged?: boolean }>(`/api/cs-accounts/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(payload) }),
   updateUser: (id: string, payload: Record<string, unknown>) => requestInner(`/api/admin/users/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(payload) }),
   resetUserPassword: (id: string, payload: { temporaryPassword?: string; generate?: boolean }) =>
     requestInner<{ ok: boolean; mustChangePassword: boolean; temporaryPassword?: string }>(
@@ -194,7 +194,7 @@ export const api = {
   createUser: (payload: Record<string, unknown>) =>
     requestInner("/api/admin/users", { method: "POST", body: JSON.stringify(payload) }),
   transferUser: (id: string, payload: Record<string, unknown>) =>
-    requestInner(`/api/admin/users/${id}/transfer`, { method: "POST", body: JSON.stringify(payload) }),
+    requestInner(`/api/admin/users/${encodeURIComponent(id)}/transfer`, { method: "POST", body: JSON.stringify(payload) }),
   grantScope: (id: string, payload: Record<string, unknown>) =>
     requestInner(`/api/admin/users/${id}/scopes`, { method: "POST", body: JSON.stringify(payload) }),
   salaries: (userId?: string) => requestInner<{ salaries: Salary[] }>(`/api/salaries${userId?`?userId=${encodeURIComponent(userId)}`:""}`),

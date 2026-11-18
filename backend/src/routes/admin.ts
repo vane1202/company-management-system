@@ -5,7 +5,7 @@ import { query, queryOne } from "../db.js";
 import { isIsoDate } from "../lib/dates.js";
 import { generateTemporaryPassword, hashPassword, validatePassword } from "../lib/password.js";
 import { HttpError, type UserRole } from "../types.js";
-import { isBossOrAdmin, normalizeUsername } from "../users.js";
+import { isBossOrAdmin, normalizeUsername, setUserTeamMembership } from "../users.js";
 
 const ROLES: UserRole[] = ["boss", "admin", "finance", "assistant", "ops", "editor", "cs", "cs_supervisor", "warehouse"];
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -154,6 +154,9 @@ export function createAdminRouter(db: Pool): Router {
           [username, passwordHash, displayName, role]
         );
         if (teamId) {
+          if (!UUID_RE.test(teamId)) throw new HttpError(400, "请选择有效小组");
+          const team = await queryOne(client, "SELECT id FROM teams WHERE id = $1 AND is_active = TRUE FOR SHARE", [teamId]);
+          if (!team) throw new HttpError(400, "请选择有效小组");
           if (!membershipStart || !isIsoDate(membershipStart)) {
             throw new HttpError(400, "加入小组时须提供有效的归属起始日");
           }
@@ -340,54 +343,58 @@ export function createAdminRouter(db: Pool): Router {
   });
 
   router.post("/users/:id/transfer", async (req, res, next) => {
+    let client: PoolClient | undefined;
     try {
-      const userId = String(req.params.id);
-      const teamId = String(req.body?.teamId ?? "");
+      const userId = String(req.params.id ?? "");
+      if (!UUID_RE.test(userId)) throw new HttpError(400, "员工标识无效");
+      if (!req.body || !Object.prototype.hasOwnProperty.call(req.body, "teamId")) {
+        throw new HttpError(400, "请选择新小组");
+      }
+      const rawTeamId = req.body.teamId === null || req.body.teamId === undefined ? "" : String(req.body.teamId).trim();
       const effectiveDate = String(req.body?.effectiveDate ?? "");
-      if (!teamId) throw new HttpError(400, "请选择新小组");
       if (!isIsoDate(effectiveDate)) throw new HttpError(400, "生效日期无效");
-      const current = await queryOne<{ id: string; team_id: string; start_date: string }>(
-        db,
-        `SELECT id, team_id, start_date::text FROM team_memberships
-          WHERE user_id = $1 AND end_date IS NULL
-          ORDER BY start_date DESC LIMIT 1`,
+      if (rawTeamId && !UUID_RE.test(rawTeamId)) throw new HttpError(400, "请选择有效小组");
+
+      client = await db.connect();
+      await client.query("BEGIN");
+      const user = await queryOne<{ id: string; account_kind: string; role: UserRole }>(
+        client,
+        "SELECT id, account_kind, role FROM users WHERE id = $1 FOR UPDATE",
         [userId]
       );
-      const client = await db.connect();
-      try {
-        await client.query("BEGIN");
-        if (current) {
-          if (current.team_id === teamId) throw new HttpError(400, "员工已在该小组");
-          if (current.start_date > effectiveDate) throw new HttpError(400, "调组日期不能早于当前归属起始日");
-          const endDate = previousDay(effectiveDate);
-          if (endDate >= current.start_date) {
-            await client.query("UPDATE team_memberships SET end_date = $1 WHERE id = $2", [endDate, current.id]);
-          } else {
-            await client.query("UPDATE team_memberships SET end_date = start_date WHERE id = $1", [current.id]);
-          }
-        }
-        await client.query(
-          "INSERT INTO team_memberships (user_id, team_id, start_date) VALUES ($1, $2, $3)",
-          [userId, teamId, effectiveDate]
-        );
-        await client.query("COMMIT");
-      } catch (error) {
-        await client.query("ROLLBACK");
-        throw error;
-      } finally {
-        client.release();
+      if (!user) throw new HttpError(404, "员工不存在");
+      if (["cs_wechat", "cs_service"].includes(user.account_kind ?? "")) {
+        throw new HttpError(400, "客服接待账号请在客服账号管理页面调整小组");
       }
-      await writeAudit(db, {
-        actorId: req.actor!.id,
-        action: "user_transfer",
-        entityType: "user",
-        entityId: userId,
-        after: { teamId, effectiveDate },
-        ip: req.ip
+      const nextTeamId = rawTeamId || null;
+      if (nextTeamId) {
+        const team = await queryOne(client, "SELECT id FROM teams WHERE id = $1 AND is_active = TRUE FOR SHARE", [nextTeamId]);
+        if (!team) throw new HttpError(400, "请选择有效小组");
+      }
+      const result = await setUserTeamMembership(client, {
+        userId,
+        teamId: nextTeamId,
+        effectiveDate,
+        errorIfSameTeam: Boolean(nextTeamId)
       });
+      if (result.changed) {
+        await writeAudit(client, {
+          actorId: req.actor!.id,
+          action: "user_transfer",
+          entityType: "user",
+          entityId: userId,
+          before: { teamId: result.previousTeamId },
+          after: { teamId: nextTeamId, effectiveDate },
+          ip: req.ip
+        });
+      }
+      await client.query("COMMIT");
       res.json({ ok: true });
     } catch (error) {
+      if (client) await client.query("ROLLBACK");
       next(error);
+    } finally {
+      client?.release();
     }
   });
 
@@ -496,11 +503,6 @@ export function createAdminRouter(db: Pool): Router {
   });
 
   return router;
-}
-
-function previousDay(iso: string): string {
-  const [year, month, day] = iso.split("-").map(Number);
-  return new Date(Date.UTC(year, month - 1, day - 1)).toISOString().slice(0, 10);
 }
 
 async function revokeEmployeeSessions(client: PoolClient, userId: string): Promise<void> {

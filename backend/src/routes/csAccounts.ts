@@ -9,7 +9,7 @@ import { businessToday, isIsoDate } from "../lib/dates.js";
 import { hashPassword } from "../lib/password.js";
 import { newRegistrationCode, normalizeRegistrationCode, parseAccountId, parseWechatId, parseServiceIdentity, registrationHash, serviceLabel } from "../lib/csAccounts.js";
 import { getBackfillDays } from "../settings.js";
-import { assertTeamScope, isBossOrAdmin, managedTeamIds, membershipOnDate, toPublicUser, type DbUser } from "../users.js";
+import { assertTeamScope, isBossOrAdmin, managedTeamIds, membershipOnDate, setUserTeamMembership, toPublicUser, type DbUser } from "../users.js";
 import { establishSession } from "./auth.js";
 import type { AppConfig } from "../config.js";
 
@@ -106,6 +106,9 @@ export function createCsAccountsRouter(db: Pool, config: AppConfig): Router {
       if (phoneLabel.length > 64) throw new HttpError(400, "设备备注最多64字");
       const holderProvided = !!req.body && Object.prototype.hasOwnProperty.call(req.body, "holderName");
       const holderName = holderProvided ? parseHolderName(req.body.holderName) : null;
+      const teamProvided = !!req.body && Object.prototype.hasOwnProperty.call(req.body, "teamId");
+      const nextTeamId = teamProvided ? parseAccountId(req.body.teamId) : null;
+      const today = businessToday(new Date(), config.businessTimezone);
       const client = await db.connect();
       try {
         await client.query("BEGIN");
@@ -115,10 +118,22 @@ export function createCsAccountsRouter(db: Pool, config: AppConfig): Router {
         if(req.body?.platform&&req.body.platform!==before.service_platform)throw new HttpError(400,'更换平台请新增接待账号，历史数据继续保留原归属');
         const wechatId=before.service_platform==='legacy_wechat'?parseWechatId(req.body?.wechatId??req.body?.accountIdentifier):parseServiceIdentity(before.service_platform,req.body?.accountIdentifier).identifier;
         const changedId = before.wechat_id !== wechatId;
+        let teamChanged = false;
+        let teamName: string | null = null;
+        let previousTeamId: string | null = null;
+        if (nextTeamId) {
+          await assertTeamScope(client, req.actor!, nextTeamId);
+          const team = await queryOne<{ id: string; name: string }>(client, "SELECT id, name FROM teams WHERE id=$1 AND is_active=TRUE FOR SHARE", [nextTeamId]);
+          if (!team) throw new HttpError(400, "请选择有效小组");
+          teamName = team.name;
+          const transfer = await setUserTeamMembership(client, { userId: id, teamId: nextTeamId, effectiveDate: today });
+          teamChanged = transfer.changed;
+          previousTeamId = transfer.previousTeamId;
+        }
         await client.query("UPDATE users SET wechat_id=$2,display_name=$5,phone_label=$3,holder_name=COALESCE($6,holder_name),device_version=device_version+$4,updated_at=now() WHERE id=$1", [id, wechatId, phoneLabel || null, changedId ? 1 : 0,serviceLabel(String(before.service_platform),wechatId),holderProvided?holderName||null:null]);
-        if (changedId) await client.query("UPDATE cs_registration_codes SET revoked_at=now() WHERE bound_user_id=$1 AND used_at IS NULL", [id]);
-        await writeAudit(client, { actorId: req.actor!.id, action: "cs_account_update", entityType: "user", entityId: id, before, after: { wechatId, phoneLabel, holderName: holderProvided ? holderName : before.holder_name }, ip: req.ip });
-        await client.query("COMMIT"); res.json({ ok: true, needsRegistration: changedId });
+        if (changedId || teamChanged) await client.query("UPDATE cs_registration_codes SET revoked_at=now() WHERE bound_user_id=$1 AND used_at IS NULL AND revoked_at IS NULL", [id]);
+        await writeAudit(client, { actorId: req.actor!.id, action: "cs_account_update", entityType: "user", entityId: id, before: teamChanged ? { ...before, teamId: previousTeamId } : before, after: { wechatId, phoneLabel, holderName: holderProvided ? holderName : before.holder_name, ...(teamChanged ? { teamId: nextTeamId, teamName } : {}) }, ip: req.ip });
+        await client.query("COMMIT"); res.json({ ok: true, needsRegistration: changedId, teamChanged });
       } catch (error) { await client.query("ROLLBACK"); throw error; }
       finally { client.release(); }
     } catch (error) { next(error); }

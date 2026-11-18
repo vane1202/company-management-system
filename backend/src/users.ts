@@ -1,6 +1,7 @@
 import type { Pool, PoolClient } from "pg";
 import { HttpError, type PublicUser, type UserRole } from "./types.js";
 import { query, queryOne } from "./db.js";
+import { addDays } from "./lib/dates.js";
 
 export type DbUser = {
   id: string;
@@ -126,4 +127,59 @@ export async function membersOnDate(
       ORDER BY u.display_name, u.username`,
     [teamId, businessDate]
   );
+}
+
+/**
+ * Updates an employee or service account's active team membership as of `effectiveDate`.
+ * Closes any prior open membership on the day before `effectiveDate` (or removes it when
+ * replaced on the exact same start date) so same-day queries never see duplicate teams.
+ */
+export async function setUserTeamMembership(
+  client: PoolClient,
+  options: {
+    userId: string;
+    teamId: string | null;
+    effectiveDate: string;
+    errorIfSameTeam?: boolean;
+  }
+): Promise<{ changed: boolean; previousTeamId: string | null }> {
+  const { userId, teamId, effectiveDate, errorIfSameTeam = false } = options;
+  const current = await queryOne<{ id: string; team_id: string; start_date: string }>(
+    client,
+    `SELECT id, team_id, start_date::text
+       FROM team_memberships
+      WHERE user_id = $1 AND end_date IS NULL
+      ORDER BY start_date DESC
+      LIMIT 1
+      FOR UPDATE`,
+    [userId]
+  );
+
+  if (current) {
+    if (teamId && current.team_id === teamId) {
+      if (errorIfSameTeam) throw new HttpError(400, "员工已在该小组");
+      return { changed: false, previousTeamId: current.team_id };
+    }
+    if (current.start_date > effectiveDate) {
+      throw new HttpError(400, teamId ? "调组日期不能早于当前归属起始日" : "移出日期不能早于当前归属起始日");
+    }
+    if (current.start_date === effectiveDate) {
+      await client.query("DELETE FROM team_memberships WHERE id = $1", [current.id]);
+    } else {
+      await client.query("UPDATE team_memberships SET end_date = $1 WHERE id = $2", [
+        addDays(effectiveDate, -1),
+        current.id
+      ]);
+    }
+  } else if (!teamId) {
+    return { changed: false, previousTeamId: null };
+  }
+
+  if (teamId) {
+    await client.query(
+      "INSERT INTO team_memberships (user_id, team_id, start_date) VALUES ($1, $2, $3)",
+      [userId, teamId, effectiveDate]
+    );
+  }
+  return { changed: true, previousTeamId: current?.team_id ?? null };
 }
