@@ -1,5 +1,6 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import type { Pool, PoolClient } from "pg";
+import { withTransaction } from "../db.js";
 import { writeAudit } from "../audit.js";
 import { businessToday, diffDays, isIsoDate, toDateOnly } from "../lib/dates.js";
 import { addMoney, formatMoney, parseMoney } from "../lib/money.js";
@@ -66,19 +67,12 @@ export function createSalaryRouter(db: Pool): Router {
     } catch (e) { next(e); }
   });
   const mutate = (handler: (client: PoolClient, req: Request) => Promise<unknown>) => (req: Request, res: Response, next: NextFunction) => {
-    void (async () => {
-      const client = await db.connect();
-      try {
-        await client.query("BEGIN");
-        const result = await handler(client, req);
-        await client.query("COMMIT");
-        res.status(req.method === "POST" && !(result as { replayed?: boolean }).replayed ? 201 : 200).json(result);
-      } catch (e) {
-        await client.query("ROLLBACK");
+    void withTransaction(db, (client) => handler(client, req))
+      .then((result) => res.status(req.method === "POST" && !(result as { replayed?: boolean }).replayed ? 201 : 200).json(result))
+      .catch((e: unknown) => {
         if (typeof e === "object" && e && "code" in e && e.code === "23P01") next(new HttpError(409, "该员工在此期间已有工资记录，请先调整生效区间，不能重叠"));
         else next(e);
-      } finally { client.release(); }
-    })();
+      });
   };
   router.post("/", mutate(async (client, req) => {
     const userId = uuid(req.body?.userId), payload = readBody(req.body);

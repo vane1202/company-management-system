@@ -1,5 +1,6 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import type { Pool, PoolClient } from 'pg';
+import { withTransaction } from '../db.js';
 import type { AppConfig } from '../config.js';
 import { HttpError } from '../types.js';
 import { amount, dateField, hashPayload, replay, textField, uuid, writeOrder } from '../lib/commerce.js';
@@ -10,7 +11,9 @@ import { writeAudit } from '../audit.js';
 export function createOrderChargesRouter(db: Pool, config: AppConfig) {
   const router = Router({mergeParams:true});
   const mutate = (handler:(c:PoolClient,req:Request)=>Promise<unknown>) => (req:Request,res:Response,next:NextFunction) => {
-    void (async()=>{const c=await db.connect();try{await c.query('BEGIN');const result=await handler(c,req);await c.query('COMMIT');res.json(result);}catch(e){await c.query('ROLLBACK');next(e);}finally{c.release();}})();
+    void withTransaction(db, (client) => handler(client, req))
+      .then((result) => res.json(result))
+      .catch(next);
   };
   router.post('/', mutate(async(c,req)=>{
     const id=uuid(req.params.id), {order,details}=await writeOrder(c,req.actor!,id), b=req.body??{};

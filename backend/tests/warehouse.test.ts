@@ -109,12 +109,39 @@ describe("production warehouse workflow in an isolated database", () => {
     expect(expense.status).toBe(200);
     const paid = await post("finance", { expenseId: expense.body.id, paidOn: today, payee: "测试供货方", account: "测试公司", reference: randomUUID(), amountCny: "100.00", requestKey: randomUUID() }, "/api/finance/payables/payments");
     expect(paid.status).toBe(200);
-    const body = billBody(orderId, { expenseId: expense.body.id }), bill = await create(body);
+    const body = billBody(orderId, { expenseId: expense.body.id });
+    const incomplete = await post("warehouse", { ...body, amount: "399.00" });
+    expect(incomplete.status).toBe(409);
+    expect(incomplete.body.error).toContain("400.00");
+    const bill = await create(body);
     expect((await post("warehouse", { ...body, requestKey: randomUUID() })).status).toBe(409);
     const approval = await approve(bill); expect(approval.status).toBe(200);
     expect((await db.query("SELECT count(*) FROM order_expenses WHERE order_id=$1", [orderId])).rows[0].count).toBe("1");
     expect((await post("finance", { expenseId: expense.body.id, paidOn: today, payee: "测试供货方", account: "测试公司", reference: randomUUID(), amountCny: "1.00", requestKey: randomUUID() }, "/api/finance/payables/payments")).status).toBe(409);
     expect((await post("cs", { reason: "测试作废", requestKey: randomUUID() }, `/api/order-records/${orderId}/expenses/${expense.body.id}/void`)).status).toBe(409);
+  });
+  it("allows the uncovered remainder of a legacy approved bill without consuming its reserved balance", async () => {
+    const orderId = await order();
+    const expense = await post("cs", { businessDate: today, category: "goods", label: "历史成本", amountCny: "500.00", requestKey: randomUUID() }, `/api/order-records/${orderId}/expenses`);
+    expect(expense.status).toBe(200);
+    const expenseId = expense.body.id;
+    const created = await create(billBody(orderId, { expenseId, amount: "500.00" }));
+    const approval = await approve(created);
+    expect(approval.status).toBe(200);
+    // A bill written by the previous release could reserve only part of its linked expense.
+    await db.query("UPDATE warehouse_bills SET amount_cny=400 WHERE id=$1", [created.id]);
+    const bill = approval.body.state.bills.find((row: { id: string }) => row.id === created.id);
+    const supplierPayment = (amountCny: string) => post("finance", {
+      expenseId, paidOn: today, payee: "测试供货方", account: "测试公司", reference: randomUUID(), amountCny, requestKey: randomUUID()
+    }, "/api/finance/payables/payments");
+    expect((await supplierPayment("100.01")).status).toBe(409);
+    const results = await Promise.all([supplierPayment("100.00"), pay(bill, { amount: "400.00" })]);
+    expect(results.map(result => result.status)).toEqual([200, 200]);
+    const ledger = (await clients.finance.agent.get("/api/finance/payables").expect(200)).body;
+    expect(ledger.expenses.find((row: { id: string }) => row.id === expenseId)).toMatchObject({
+      paid_cny: "500.00", pending_cny: "0.00"
+    });
+    expect((await supplierPayment("0.01")).status).toBe(409);
   });
   it("returns a bill for correction only by its original warehouse operator", async () => {
     const body = billBody(await order()), bill = await create(body);

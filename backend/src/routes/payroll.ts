@@ -1,5 +1,6 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import type { Pool, PoolClient } from "pg";
+import { withTransaction } from "../db.js";
 import { writeAudit } from "../audit.js";
 import { toDateOnly } from "../lib/dates.js";
 import { addMoney, formatMoney, parseMoney } from "../lib/money.js";
@@ -135,19 +136,12 @@ const ITEM_SELECT = `SELECT i.*,cu.display_name AS created_by_name,vu.display_na
 type TxResult = { status: number; body: unknown };
 function tx(db: Pool, handler: (client: PoolClient, req: Request) => Promise<TxResult>) {
   return (req: Request, res: Response, next: NextFunction) => {
-    void (async () => {
-      const client = await db.connect();
-      try {
-        await client.query("BEGIN");
-        const result = await handler(client, req);
-        await client.query("COMMIT");
-        res.status(result.status).json(result.body);
-      } catch (e) {
-        await client.query("ROLLBACK").catch(() => undefined);
+    void withTransaction(db, (client) => handler(client, req))
+      .then((result) => res.status(result.status).json(result.body))
+      .catch((e: unknown) => {
         if (typeof e === "object" && e && "code" in e && e.code === "23505") next(new HttpError(409, "记录已被并发修改或重复提交，请刷新后重试"));
         else next(e);
-      } finally { client.release(); }
-    })();
+      });
   };
 }
 

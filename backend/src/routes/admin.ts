@@ -1,7 +1,7 @@
 import { Router } from "express";
 import type { Pool, PoolClient } from "pg";
 import { writeAudit } from "../audit.js";
-import { query, queryOne } from "../db.js";
+import { query, queryOne, withTransaction } from "../db.js";
 import { isIsoDate } from "../lib/dates.js";
 import { generateTemporaryPassword, hashPassword, validatePassword } from "../lib/password.js";
 import { HttpError, type UserRole } from "../types.js";
@@ -143,10 +143,8 @@ export function createAdminRouter(db: Pool): Router {
       if (role === "assistant") throw new HttpError(400, "助理审核流程已停用，请选择其他角色");
       validatePassword(password, username);
       const passwordHash = await hashPassword(password);
-      const client = await db.connect();
-      try {
-        await client.query("BEGIN");
-        const user = await queryOne(
+      const user = await withTransaction(db, async (client) => {
+        const created = await queryOne(
           client,
           `INSERT INTO users (username, password_hash, display_name, role, must_change_password)
            VALUES ($1, $2, $3, $4, TRUE)
@@ -162,7 +160,7 @@ export function createAdminRouter(db: Pool): Router {
           }
           await client.query(
             `INSERT INTO team_memberships (user_id, team_id, start_date) VALUES ($1, $2, $3)`,
-            [user!.id, teamId, membershipStart]
+            [created!.id, teamId, membershipStart]
           );
         }
         if (role === "cs_supervisor") {
@@ -170,35 +168,30 @@ export function createAdminRouter(db: Pool): Router {
             await client.query(
               `INSERT INTO supervisor_scopes (supervisor_id, team_id, is_explicit_cross_grant, granted_by)
                VALUES ($1, $2, FALSE, $3)`,
-              [user!.id, managedId, req.actor!.id]
+              [created!.id, managedId, req.actor!.id]
             );
           }
         }
-        await client.query("COMMIT");
-        await writeAudit(db, {
+        await writeAudit(client, {
           actorId: req.actor!.id,
           action: "user_create",
           entityType: "user",
-          entityId: user!.id,
+          entityId: created!.id,
           after: { username, displayName, role, teamId: teamId || null },
           ip: req.ip
         });
-        res.status(201).json({
-          user: {
-            id: user!.id,
-            username: user!.username,
-            displayName: user!.display_name,
-            role: user!.role,
-            isActive: user!.is_active,
-            mustChangePassword: user!.must_change_password
-          }
-        });
-      } catch (error) {
-        await client.query("ROLLBACK");
-        throw error;
-      } finally {
-        client.release();
-      }
+        return created!;
+      });
+      res.status(201).json({
+        user: {
+          id: user.id,
+          username: user.username,
+          displayName: user.display_name,
+          role: user.role,
+          isActive: user.is_active,
+          mustChangePassword: user.must_change_password
+        }
+      });
     } catch (error) {
       next(error);
     }
@@ -254,96 +247,86 @@ export function createAdminRouter(db: Pool): Router {
       });
       await client.query("COMMIT"); res.json({ ok: true });
     } catch (error) {
-      if (client) await client.query("ROLLBACK");
+      if (client) await client.query("ROLLBACK").catch(() => { client?.release(true); client = undefined; });
       next(error);
     } finally { client?.release(); }
   });
 
   router.post("/users/:id/reset-password", async (req, res, next) => {
-    let client: PoolClient | undefined;
     try {
       const id = String(req.params.id ?? "");
       if (!UUID_RE.test(id)) throw new HttpError(400, "员工标识无效");
       if (id === req.actor!.id) throw new HttpError(400, "不能重置当前登录管理员自己的密码，请使用修改密码功能");
       const generate = req.body?.generate === true && !req.body?.temporaryPassword;
-      client = await db.connect();
-      await client.query("BEGIN");
-      const user = await queryOne<{ id: string; username: string; account_kind: string }>(
-        client,
-        "SELECT id, username, account_kind FROM users WHERE id = $1 FOR UPDATE",
-        [id]
-      );
-      if (!user) throw new HttpError(404, "员工不存在");
-      if (["cs_wechat", "cs_service"].includes(user.account_kind ?? "")) {
-        throw new HttpError(400, "客服接待账号不使用员工密码，请由主管重新发放登记码");
-      }
-      const temporaryPassword = generate
-        ? generateTemporaryPassword(user.username)
-        : String(req.body?.temporaryPassword ?? "");
-      validatePassword(temporaryPassword, user.username);
-      const passwordHash = await hashPassword(temporaryPassword);
-      await client.query(
-        "UPDATE users SET password_hash = $1, must_change_password = TRUE, session_version = session_version + 1, updated_at = now() WHERE id = $2",
-        [passwordHash, user.id]
-      );
-      await client.query("DELETE FROM session WHERE sess->>'userId' = $1", [user.id]);
-      await writeAudit(client, {
-        actorId: req.actor!.id,
-        action: "user_password_reset",
-        entityType: "user",
-        entityId: user.id,
-        after: { mustChangePassword: true, sessionsRevoked: true, generated: generate },
-        ip: req.ip
+      const result = await withTransaction(db, async (client) => {
+        const user = await queryOne<{ id: string; username: string; account_kind: string }>(
+          client,
+          "SELECT id, username, account_kind FROM users WHERE id = $1 FOR UPDATE",
+          [id]
+        );
+        if (!user) throw new HttpError(404, "员工不存在");
+        if (["cs_wechat", "cs_service"].includes(user.account_kind ?? "")) {
+          throw new HttpError(400, "客服接待账号不使用员工密码，请由主管重新发放登记码");
+        }
+        const temporaryPassword = generate
+          ? generateTemporaryPassword(user.username)
+          : String(req.body?.temporaryPassword ?? "");
+        validatePassword(temporaryPassword, user.username);
+        const passwordHash = await hashPassword(temporaryPassword);
+        await client.query(
+          "UPDATE users SET password_hash = $1, must_change_password = TRUE, session_version = session_version + 1, updated_at = now() WHERE id = $2",
+          [passwordHash, user.id]
+        );
+        await client.query("DELETE FROM session WHERE sess->>'userId' = $1", [user.id]);
+        await writeAudit(client, {
+          actorId: req.actor!.id,
+          action: "user_password_reset",
+          entityType: "user",
+          entityId: user.id,
+          after: { mustChangePassword: true, sessionsRevoked: true, generated: generate },
+          ip: req.ip
+        });
+        return generate ? { temporaryPassword } : {};
       });
-      await client.query("COMMIT");
       res.setHeader("Cache-Control", "no-store");
-      res.json({ ok: true, mustChangePassword: true, ...(generate ? { temporaryPassword } : {}) });
+      res.json({ ok: true, mustChangePassword: true, ...result });
     } catch (error) {
-      if (client) await client.query("ROLLBACK");
       next(error);
-    } finally {
-      client?.release();
     }
   });
 
   router.post("/users/:id/revoke-sessions", async (req, res, next) => {
-    let client: PoolClient | undefined;
     try {
       const id = String(req.params.id ?? "");
       if (!UUID_RE.test(id)) throw new HttpError(400, "员工标识无效");
       if (id === req.actor!.id) throw new HttpError(400, "请使用退出登录结束当前会话");
-      client = await db.connect();
-      await client.query("BEGIN");
-      const user = await queryOne<{ id: string; account_kind: string }>(
-        client,
-        "SELECT id, account_kind FROM users WHERE id = $1 FOR UPDATE",
-        [id]
-      );
-      if (!user) throw new HttpError(404, "员工不存在");
-      if (["cs_wechat", "cs_service"].includes(user.account_kind ?? "")) {
-        throw new HttpError(400, "客服接待账号请在客服接待账号页面停用或换机");
-      }
-      await revokeEmployeeSessions(client, user.id);
-      await writeAudit(client, {
-        actorId: req.actor!.id,
-        action: "user_sessions_revoked",
-        entityType: "user",
-        entityId: user.id,
-        after: { sessionsRevoked: true },
-        ip: req.ip
+      await withTransaction(db, async (client) => {
+        const user = await queryOne<{ id: string; account_kind: string }>(
+          client,
+          "SELECT id, account_kind FROM users WHERE id = $1 FOR UPDATE",
+          [id]
+        );
+        if (!user) throw new HttpError(404, "员工不存在");
+        if (["cs_wechat", "cs_service"].includes(user.account_kind ?? "")) {
+          throw new HttpError(400, "客服接待账号请在客服接待账号页面停用或换机");
+        }
+        await revokeEmployeeSessions(client, user.id);
+        await writeAudit(client, {
+          actorId: req.actor!.id,
+          action: "user_sessions_revoked",
+          entityType: "user",
+          entityId: user.id,
+          after: { sessionsRevoked: true },
+          ip: req.ip
+        });
       });
-      await client.query("COMMIT");
       res.json({ ok: true });
     } catch (error) {
-      if (client) await client.query("ROLLBACK");
       next(error);
-    } finally {
-      client?.release();
     }
   });
 
   router.post("/users/:id/transfer", async (req, res, next) => {
-    let client: PoolClient | undefined;
     try {
       const userId = String(req.params.id ?? "");
       if (!UUID_RE.test(userId)) throw new HttpError(400, "员工标识无效");
@@ -355,46 +338,42 @@ export function createAdminRouter(db: Pool): Router {
       if (!isIsoDate(effectiveDate)) throw new HttpError(400, "生效日期无效");
       if (rawTeamId && !UUID_RE.test(rawTeamId)) throw new HttpError(400, "请选择有效小组");
 
-      client = await db.connect();
-      await client.query("BEGIN");
-      const user = await queryOne<{ id: string; account_kind: string; role: UserRole }>(
-        client,
-        "SELECT id, account_kind, role FROM users WHERE id = $1 FOR UPDATE",
-        [userId]
-      );
-      if (!user) throw new HttpError(404, "员工不存在");
-      if (["cs_wechat", "cs_service"].includes(user.account_kind ?? "")) {
-        throw new HttpError(400, "客服接待账号请在客服账号管理页面调整小组");
-      }
-      const nextTeamId = rawTeamId || null;
-      if (nextTeamId) {
-        const team = await queryOne(client, "SELECT id FROM teams WHERE id = $1 AND is_active = TRUE FOR SHARE", [nextTeamId]);
-        if (!team) throw new HttpError(400, "请选择有效小组");
-      }
-      const result = await setUserTeamMembership(client, {
-        userId,
-        teamId: nextTeamId,
-        effectiveDate,
-        errorIfSameTeam: Boolean(nextTeamId)
-      });
-      if (result.changed) {
-        await writeAudit(client, {
-          actorId: req.actor!.id,
-          action: "user_transfer",
-          entityType: "user",
-          entityId: userId,
-          before: { teamId: result.previousTeamId },
-          after: { teamId: nextTeamId, effectiveDate },
-          ip: req.ip
+      await withTransaction(db, async (client) => {
+        const user = await queryOne<{ id: string; account_kind: string; role: UserRole }>(
+          client,
+          "SELECT id, account_kind, role FROM users WHERE id = $1 FOR UPDATE",
+          [userId]
+        );
+        if (!user) throw new HttpError(404, "员工不存在");
+        if (["cs_wechat", "cs_service"].includes(user.account_kind ?? "")) {
+          throw new HttpError(400, "客服接待账号请在客服账号管理页面调整小组");
+        }
+        const nextTeamId = rawTeamId || null;
+        if (nextTeamId) {
+          const team = await queryOne(client, "SELECT id FROM teams WHERE id = $1 AND is_active = TRUE FOR SHARE", [nextTeamId]);
+          if (!team) throw new HttpError(400, "请选择有效小组");
+        }
+        const result = await setUserTeamMembership(client, {
+          userId,
+          teamId: nextTeamId,
+          effectiveDate,
+          errorIfSameTeam: Boolean(nextTeamId)
         });
-      }
-      await client.query("COMMIT");
+        if (result.changed) {
+          await writeAudit(client, {
+            actorId: req.actor!.id,
+            action: "user_transfer",
+            entityType: "user",
+            entityId: userId,
+            before: { teamId: result.previousTeamId },
+            after: { teamId: nextTeamId, effectiveDate },
+            ip: req.ip
+          });
+        }
+      });
       res.json({ ok: true });
     } catch (error) {
-      if (client) await client.query("ROLLBACK");
       next(error);
-    } finally {
-      client?.release();
     }
   });
 
@@ -429,9 +408,7 @@ export function createAdminRouter(db: Pool): Router {
       const teamIds = req.body?.teamIds;
       if (!Array.isArray(teamIds) || teamIds.some((id) => typeof id !== "string" || !/^[a-f0-9-]{36}$/i.test(id))) throw new HttpError(400, "小组范围无效");
       const unique = [...new Set(teamIds)] as string[];
-      const client = await db.connect();
-      try {
-        await client.query("BEGIN");
+      await withTransaction(db, async (client) => {
         const user = await queryOne(client, "SELECT id,role FROM users WHERE id=$1 AND account_kind='employee' FOR UPDATE", [req.params.id]);
         if (!user || user.role !== "cs_supervisor") throw new HttpError(400, "只能为客服主管设置负责小组");
         const teams = await query(client, "SELECT id FROM teams WHERE id=ANY($1::uuid[]) AND is_active=TRUE", [unique]);
@@ -440,9 +417,8 @@ export function createAdminRouter(db: Pool): Router {
         await client.query("DELETE FROM supervisor_scopes WHERE supervisor_id=$1", [user.id]);
         for (const id of unique) await client.query("INSERT INTO supervisor_scopes(supervisor_id,team_id,granted_by) VALUES($1,$2,$3)", [user.id,id,req.actor!.id]);
         await writeAudit(client, { actorId: req.actor!.id, action: "supervisor_scopes_update", entityType: "user", entityId: String(user.id), before: { scopes: before }, after: { teamIds: unique }, ip: req.ip });
-        await client.query("COMMIT"); res.json({ ok: true });
-      } catch (error) { await client.query("ROLLBACK"); throw error; }
-      finally { client.release(); }
+      });
+      res.json({ ok: true });
     } catch (error) { next(error); }
   });
 

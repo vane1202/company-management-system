@@ -593,9 +593,21 @@ describe("公司内部管理系统集成测试", () => {
     }
   });
 
-  it("健康检查可用", async () => {
-    const res = await request(app).get("/health").expect(200);
-    expect(res.body.status).toBe("ok");
+  it("健康检查可用且不会写入会话", async () => {
+    const before = await db.query("SELECT count(*) AS count FROM session");
+    for (const path of ["/health", "/api/health"]) {
+      const res = await request(app).get(path).expect(200).expect("Cache-Control", "no-store");
+      expect(res.body.status).toBe("ok");
+      expect(res.headers["set-cookie"]).toBeUndefined();
+    }
+    const after = await db.query("SELECT count(*) AS count FROM session");
+    expect(after.rows).toEqual(before.rows);
+  });
+
+  it("仅公开定义的健康检查和鉴权入口", async () => {
+    await request(app).get("/api/modules").expect(401);
+    await request(app).get("/api/auth/csrf").expect(200);
+    await request(app).get("/API/health").expect(404);
   });
 
   it("登录限流对大小写和首尾空白标准化一致，支持 IP 总量限流与代理隔离", async () => {

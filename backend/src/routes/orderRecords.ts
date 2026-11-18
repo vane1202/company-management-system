@@ -1,6 +1,7 @@
 import express, { Router, type Request, type Response } from "express";
 import { createHash } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
+import { withTransaction } from "../db.js";
 import type { AppConfig } from "../config.js";
 import { HttpError } from "../types.js";
 import { writeAudit } from "../audit.js";
@@ -14,12 +15,11 @@ export function createOrderRecordsRouter(db: Pool, config: AppConfig) {
   const router=Router();
   router.use((req,_res,next)=>["boss","cs","cs_supervisor"].includes(req.actor!.role)?next():next(new HttpError(403,"无订单档案权限")));
   router.use("/:id/charges",createOrderChargesRouter(db,config));
-  const tx=(handler:(c:PoolClient,req:Request,res:Response)=>Promise<void>)=>(req:Request,res:Response,next:express.NextFunction)=>{
-    void (async()=>{const c=await db.connect();try{await c.query("BEGIN");await handler(c,req,res);await c.query("COMMIT");}catch(e){await c.query("ROLLBACK");next(e);}finally{c.release();}})();
-  };
   // Responses are sent only after commit; a failed commit must never look like a saved report.
   const mutate=(handler:(c:PoolClient,req:Request)=>Promise<unknown>)=>(req:Request,res:Response,next:express.NextFunction)=>{
-    void(async()=>{const c=await db.connect();try{await c.query("BEGIN");const result=await handler(c,req);await c.query("COMMIT");res.json(result);}catch(e){await c.query("ROLLBACK");next(e);}finally{c.release();}})();
+    void withTransaction(db, (client) => handler(client, req))
+      .then((result) => res.json(result))
+      .catch(next);
   };
   const audit=(c:PoolClient,req:Request,action:string,id:string,data:unknown)=>writeAudit(c,{actorId:req.actor!.id,action,entityType:"order",entityId:id,after:data,ip:req.ip});
   const touch=async(c:PoolClient,id:string)=>{await c.query("UPDATE orders SET updated_at=now(),review_version=review_version+1 WHERE id=$1",[id]);await c.query("UPDATE order_details SET version=version+1 WHERE order_id=$1",[id]);};
@@ -40,23 +40,24 @@ export function createOrderRecordsRouter(db: Pool, config: AppConfig) {
     await audit(c,req,"order_record_create",o.id,body);
     return {id:o.id};
   }));
-  router.get("/:id",tx(async(c,req,res)=>{
+  router.get("/:id", (req, res, next) => {
     // Repeatable read keeps the balance and its receipt list in the same snapshot.
-    await c.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
-    const order=await visibleOrder(c,req.actor!,req.params.id);
-    const cancellations=(await c.query('SELECT x.*,u.display_name AS created_by_name,v.display_name AS voided_by_name FROM order_cancellations x LEFT JOIN users u ON u.id=x.created_by LEFT JOIN users v ON v.id=x.voided_by WHERE x.order_id=$1 ORDER BY x.created_at,x.id',[order.id])).rows;
-    const details=(await c.query("SELECT * FROM order_details WHERE order_id=$1",[order.id])).rows[0];
-    if(!details){res.json({order,legacy:true});return;}
-    const items=(await c.query("SELECT * FROM order_items WHERE order_id=$1 ORDER BY id",[order.id])).rows;
-    const payments=(await c.query(`SELECT p.id,p.payment_date,p.amount,p.currency,p.credit_amount,p.purpose,p.channel,p.third_party,p.reference,p.note,p.created_at,p.voided_at,p.void_reason,p.after_sale_charge_id,COALESCE((SELECT sum(a.foreign_amount) FROM settlement_allocations a JOIN finance_settlements s ON s.id=a.settlement_id WHERE a.payment_id=p.id AND s.voided_at IS NULL),0)::numeric(14,2) AS settled_amount FROM customer_payments p WHERE p.order_id=$1 ORDER BY p.created_at,p.id`,[order.id])).rows;
-    const expenses=(await c.query("SELECT id,business_date,category,label,amount_cny,counterparty,item_id,note,created_at,voided_at,void_reason,after_sale_charge_id FROM order_expenses WHERE order_id=$1 ORDER BY created_at,id",[order.id])).rows;
-    const attachments=(await c.query("SELECT id,item_id,filename,mime_type,created_at FROM order_attachments WHERE order_id=$1 ORDER BY created_at,id",[order.id])).rows;
-    const charges=(await c.query("SELECT a.*,COALESCE((SELECT sum(e.amount_cny) FROM order_expenses e WHERE e.after_sale_charge_id=a.id AND e.voided_at IS NULL),0)::numeric(14,2)::text AS cost_cny FROM order_charges a WHERE a.order_id=$1 ORDER BY a.created_at,a.id",[order.id])).rows.map(a=>({...a,margin_cny:a.costs_completed_at?centsToMoney(moneyToCents(a.amount_cny)-moneyToCents(a.cost_cny)):null}));
-    const totalDue=await effectiveDue(c,String(order.id),String(details.customer_due));
-    const paid=addMoney(payments.filter(p=>!p.voided_at).map(p=>p.credit_amount));
-    const balance=centsToMoney(moneyToCents(totalDue)-moneyToCents(paid));
-    res.json({order,cancellations,details:{personaName:details.persona_name,operatorName:details.operator_name,source:details.source,customerCurrency:details.customer_currency,customerDue:totalDue,baseCustomerDue:details.customer_due,personaCode:details.persona_code,liveRoomCode:details.live_room_code,hostName:details.host_name,customerCode:details.customer_code,shippedOn:details.shipped_on,version:details.version},items,charges,payments,expenses,attachments,paid,balance,expenseTotal:addMoney(expenses.filter(e=>!e.voided_at).map(e=>e.amount_cny)),legacy:false});
-  }));
+    void withTransaction(db, async (c) => {
+      const order=await visibleOrder(c,req.actor!,req.params.id);
+      const cancellations=(await c.query('SELECT x.*,u.display_name AS created_by_name,v.display_name AS voided_by_name FROM order_cancellations x LEFT JOIN users u ON u.id=x.created_by LEFT JOIN users v ON v.id=x.voided_by WHERE x.order_id=$1 ORDER BY x.created_at,x.id',[order.id])).rows;
+      const details=(await c.query("SELECT * FROM order_details WHERE order_id=$1",[order.id])).rows[0];
+      if (!details) return {order, legacy:true};
+      const items=(await c.query("SELECT * FROM order_items WHERE order_id=$1 ORDER BY id",[order.id])).rows;
+      const payments=(await c.query(`SELECT p.id,p.payment_date,p.amount,p.currency,p.credit_amount,p.purpose,p.channel,p.third_party,p.reference,p.note,p.created_at,p.voided_at,p.void_reason,p.after_sale_charge_id,COALESCE((SELECT sum(a.foreign_amount) FROM settlement_allocations a JOIN finance_settlements s ON s.id=a.settlement_id WHERE a.payment_id=p.id AND s.voided_at IS NULL),0)::numeric(14,2) AS settled_amount FROM customer_payments p WHERE p.order_id=$1 ORDER BY p.created_at,p.id`,[order.id])).rows;
+      const expenses=(await c.query("SELECT id,business_date,category,label,amount_cny,counterparty,item_id,note,created_at,voided_at,void_reason,after_sale_charge_id FROM order_expenses WHERE order_id=$1 ORDER BY created_at,id",[order.id])).rows;
+      const attachments=(await c.query("SELECT id,item_id,filename,mime_type,created_at FROM order_attachments WHERE order_id=$1 ORDER BY created_at,id",[order.id])).rows;
+      const charges=(await c.query("SELECT a.*,COALESCE((SELECT sum(e.amount_cny) FROM order_expenses e WHERE e.after_sale_charge_id=a.id AND e.voided_at IS NULL),0)::numeric(14,2)::text AS cost_cny FROM order_charges a WHERE a.order_id=$1 ORDER BY a.created_at,a.id",[order.id])).rows.map(a=>({...a,margin_cny:a.costs_completed_at?centsToMoney(moneyToCents(a.amount_cny)-moneyToCents(a.cost_cny)):null}));
+      const totalDue=await effectiveDue(c,String(order.id),String(details.customer_due));
+      const paid=addMoney(payments.filter(p=>!p.voided_at).map(p=>p.credit_amount));
+      const balance=centsToMoney(moneyToCents(totalDue)-moneyToCents(paid));
+      return {order,cancellations,details:{personaName:details.persona_name,operatorName:details.operator_name,source:details.source,customerCurrency:details.customer_currency,customerDue:totalDue,baseCustomerDue:details.customer_due,personaCode:details.persona_code,liveRoomCode:details.live_room_code,hostName:details.host_name,customerCode:details.customer_code,shippedOn:details.shipped_on,version:details.version},items,charges,payments,expenses,attachments,paid,balance,expenseTotal:addMoney(expenses.filter(e=>!e.voided_at).map(e=>e.amount_cny)),legacy:false};
+    }, true).then((result) => res.json(result)).catch(next);
+  });
   router.post('/:id/cancellations',mutate(async(c,req)=>{
     const id=uuid(req.params.id),{order,details}=await cancellationOrder(c,req.actor!,id),b=req.body??{};
     if(Number(b.version)!==details.version)throw new HttpError(409,'订单已变更，请刷新后再登记跑单');

@@ -1,5 +1,6 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import type { Pool, PoolClient } from "pg";
+import { withTransaction } from "../db.js";
 import type { AppConfig } from "../config.js";
 import { HttpError } from "../types.js";
 import { writeAudit } from "../audit.js";
@@ -13,21 +14,20 @@ export function createFinanceRouter(db:Pool, config:AppConfig) {
   router.use('/live-performance',createPaidPerformanceRouter(db,config));
   const mutate=(handler:(c:PoolClient,req:Request)=>Promise<unknown>)=>(req:Request,res:Response,next:NextFunction)=>{
     if(req.actor!.role!=="finance"){next(new HttpError(403,"仅财务可登记结算"));return;}
-    void(async()=>{const c=await db.connect();try{await c.query("BEGIN");const result=await handler(c,req);await c.query("COMMIT");res.json(result);}catch(e){await c.query("ROLLBACK");next(e);}finally{c.release();}})();
+    void withTransaction(db, (client) => handler(client, req))
+      .then((result) => res.json(result))
+      .catch(next);
   };
-  router.get("/",async(_req,res,next)=>{
-    const c=await db.connect();
-    try{
-      await c.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+  router.get("/", (_req, res, next) => {
+    void withTransaction(db, async (c) => {
       // Deliberately excludes cost prices, private photos and unrelated personnel data.
       const payments=(await c.query(`SELECT p.id,p.order_id,o.order_ref,o.customer_label,d.persona_name,d.persona_code,d.live_room_code,d.host_name,d.customer_code,d.operator_name,u.service_account_label AS wechat_id,p.payment_date,p.amount,p.currency,p.credit_amount,d.customer_currency,p.purpose,p.channel,p.third_party,p.reference,p.voided_at,p.void_reason,COALESCE((SELECT sum(a.foreign_amount) FROM settlement_allocations a JOIN finance_settlements s ON s.id=a.settlement_id WHERE a.payment_id=p.id AND s.voided_at IS NULL),0)::numeric(14,2) AS settled_amount FROM customer_payments p JOIN orders o ON o.id=p.order_id JOIN order_details d ON d.order_id=o.id JOIN users u ON u.id=o.user_id ORDER BY p.payment_date DESC,p.created_at DESC`)).rows.map(p=>({...p,pendingAmount:p.voided_at||!p.third_party?"0.00":centsToMoney(moneyToCents(p.amount)-moneyToCents(p.settled_amount))}));
       const settlements=(await c.query(`SELECT s.id,s.reference,s.channel,s.currency,s.settled_on,s.fee_amount,s.fee_currency,s.fee_percent,s.fx_rate,s.net_cny,s.note,s.voided_at,s.void_reason,COALESCE((SELECT json_agg(json_build_object('paymentId',a.payment_id,'foreignAmount',a.foreign_amount::text,'netCny',a.net_cny::text)) FROM settlement_allocations a WHERE a.settlement_id=s.id),'[]'::json) AS allocations FROM finance_settlements s ORDER BY s.settled_on DESC,s.created_at DESC`)).rows;
       const pending=Object.fromEntries(["CNY","TWD","USD"].map(cur=>[cur,addMoney(payments.filter(p=>p.currency===cur).map(p=>p.pendingAmount))]));
       const directCny=addMoney(payments.filter(p=>!p.voided_at&&!p.third_party&&p.currency==="CNY").map(p=>p.amount));
       const settledCny=addMoney(settlements.filter(s=>!s.voided_at).map(s=>s.net_cny));
-      await c.query("COMMIT");
-      res.set("Cache-Control","private, no-store").json({payments,settlements,summary:{pending,directCny,settledCny,totalCny:addMoney([directCny,settledCny])}});
-    }catch(e){await c.query("ROLLBACK");next(e);}finally{c.release();}
+      return {payments,settlements,summary:{pending,directCny,settledCny,totalCny:addMoney([directCny,settledCny])}};
+    }, true).then((result) => res.set("Cache-Control", "private, no-store").json(result)).catch(next);
   });
   router.post("/settlements",mutate(async(c,req)=>{
     const b=req.body??{};
