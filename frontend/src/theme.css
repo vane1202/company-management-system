@@ -327,3 +327,10 @@ h1, h2, h3 { letter-spacing: -0.012em; }
 @media (prefers-reduced-motion: reduce) {
   :root *, :root *::before, :root *::after { transition: none !important; animation: none !important; }
 }
+
+:root .info-tip { z-index: 2; }
+:root .oa-kpis strong .oa-approx { font-size: 12px; }
+:root .ac-selection small { font-size: 12px; }
+@media (max-width: 799px) {
+  :root :is(.oa-period, .oa-secondary-value, .oa-benchmark, .oa-source-line, .oa-panel-heading > span, .oa-sort, .oa-trend-chart small, .oa-chart-ends, .oa-table-head, .oa-group-name small, .oa-balances b small) { font-size: 12px; }
+}
