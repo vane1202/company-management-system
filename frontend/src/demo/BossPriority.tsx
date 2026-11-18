@@ -17,7 +17,7 @@ export default function BossPriority({from,to,tick,onSalary,receipts}:{from:stri
  useEffect(()=>{const controller=new AbortController();setData(null);setError("");fetch('/api/demo/boss-priority?'+new URLSearchParams({from,to}),{signal:controller.signal,cache:'no-store'}).then(async r=>{const payload=await r.json();if(!r.ok||payload.version!=='boss-priority/v1')throw Error(payload.error||'首页数据读取失败');if(!controller.signal.aborted)setData(payload);}).catch(cause=>{if(!controller.signal.aborted)setError(cause instanceof Error?cause.message:'读取失败');});return()=>controller.abort();},[from,to,tick,retry]);
  const needsReview=data?.rooms.find(item=>item.status==='unassigned'&&item.count>0);
  const listedRooms=data?.rooms.filter(item=>item.status!=='unassigned')??[];
- const room=listedRooms.find(item=>item.id===roomId)??(needsReview?.id===roomId?needsReview:undefined);
+ const room=listedRooms.find(item=>item.id===roomId);
  function open(next:typeof view){setView(next);setRoomId("");setCategory("");}
  if(error)return <section className="boss-priority"><p className="error" role="alert">{error}</p><button type="button" onClick={()=>setRetry(n=>n+1)}>重试主数据</button></section>;
  return <section className={'boss-priority'+(view!=='home'?' bp-detail':'')} aria-label="优先经营数据">
@@ -33,10 +33,9 @@ export default function BossPriority({from,to,tick,onSalary,receipts}:{from:stri
   <span aria-hidden="true">›</span>
   {item.status!=='pending'&&<span className="bp-room-split"><span>直播间 <b>{yuan(item.live)}</b></span><span>私推 <b>{yuan(item.private)}</b></span></span>}
  </button>)}</div>
- {needsReview&&<div className="bp-unassigned">
-  <span>有 {needsReview.count} 笔订单待确认直播间，合计 {yuan(needsReview.total)}。</span>
-  <button type="button" className="text-action" onClick={()=>setRoomId(needsReview.id)}>查看归属待核对 →</button>
- </div>}
+ {needsReview&&<p className="bp-unassigned">
+  全公司总业绩中有 {needsReview.count} 笔、{yuan(needsReview.total)} 待确认直播间。
+ </p>}
  </>:room.status==='pending'?<p className="empty-state">海外二线的客服小组和人员资料待补，不复制秋菊组数据。</p>:<>
  <div className="bp-room-totals"><span>开单合计 <b>{yuan(room.total)}</b></span><span>直播间 <b>{yuan(room.live)}</b></span><span>私推 <b>{yuan(room.private)}</b></span><span>私推占比 <b>{share(room.privateShare)}</b></span></div>
  <p className="hint">已登记人员没有业务记录时显示未填报；演练成员与实际人员分开标注。<InfoTip label="成员数据口径" text={data.definitions.fans+' 业绩按开单当时的经办人归属，换号不改旧单；私推占比＝私推金额÷开单合计。'}/></p>
