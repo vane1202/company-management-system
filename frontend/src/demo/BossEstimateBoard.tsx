@@ -16,6 +16,7 @@ import "./boss-estimate-board.css";
 import "./customer-payment-summary.css";
 import { useReferenceQuotes } from "./useReferenceQuotes";
 import { dashboardPresetRange } from "../dates";
+import { PeriodToolbar } from "../PeriodToolbar";
 import { buildTrend, previousRange, type TrendKey } from "./bossTrendData";
 import { defaultLiveView } from "../liveBusinessNavigation";
 import type { WorkspaceRoute } from "../workspaceHistory";
@@ -130,14 +131,17 @@ export default function BossEstimateBoard({ today, onError, onOpen, onDrill }: {
       <div>
         <h1>经营总览 <InfoTip label="首页统计口径" text="开单按开单日、公司已到账按到账日、售后费用按发生日、广告按消耗日统计。待收金额含截至所选结束日的客户未付余额和第三方代收未转回，外币按截止日参考汇率折算。上期为紧邻的同等天数，今日未结束时只并列已登记金额。"/></h1>
       </div>
-      <button type="button" className="secondary" onClick={() => load()}>刷新</button>
     </header>
-    <div className="be-toolbar">
-      <div className="overview-segments" role="group" aria-label="估算区间">{presets.map(([key, label]) => <button key={key} type="button" className={!custom && preset === key ? "selected" : ""} aria-pressed={!custom && preset === key} onClick={() => pickPreset(key)}>{label}</button>)}</div>
-      <details className="bp-custom-date"><summary>自定义</summary><form onSubmit={e=>{e.preventDefault();if(!dateDraft.from||!dateDraft.to||dateDraft.from>dateDraft.to||dateDraft.to>today){setDateError("请选择有效日期，结束日不能晚于今天");return;}setDateError("");setCustom({...dateDraft});e.currentTarget.closest('details')?.removeAttribute('open');}}><label>开始日期<input required type="date" max={today} value={dateDraft.from} onChange={e=>setDateDraft({...dateDraft,from:e.target.value})}/></label><label>结束日期<input required type="date" min={dateDraft.from} max={today} value={dateDraft.to} onChange={e=>setDateDraft({...dateDraft,to:e.target.value})}/></label><button type="submit">查询</button></form></details>
-      {view && <span>全公司 · {view.period.from} 至 {view.period.to} · 今日未结束</span>}
-    </div>
-    {dateError&&<p className="error" role="alert">{dateError}</p>}
+    <PeriodToolbar
+      today={today}
+      preset={preset}
+      custom={custom}
+      onPreset={pickPreset}
+      onCustom={next => setCustom(next)}
+      caption={view ? `全公司 · ${view.period.from} 至 ${view.period.to} · 今日未结束` : undefined}
+      actions={<button type="button" className="secondary" onClick={() => load()}>刷新</button>}
+      ariaLabel="经营总览日期筛选"
+    />
     <BossPriority from={period.from} to={period.to} tick={trendTick} onSalary={()=>onOpen?.("salaries")} receipts={
       <button type="button" className="payment-inline-button"
         aria-label={`实收金额 ${receivedAmount}，待收金额 ${outstandingAmount}，查看收款与到账`}

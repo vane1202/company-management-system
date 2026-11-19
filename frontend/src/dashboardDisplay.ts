@@ -14,7 +14,12 @@ export function formatCents(value: bigint): string {
 }
 /** 人民币金额加 ¥；缺数据显示 —。 */
 export function yuan(value: string | null | undefined): string {
-  return value == null || value === "" ? "—" : `¥ ${value}`;
+  if (value == null || value === "") return "—";
+  const text = String(value).trim();
+  if (!text) return "—";
+  const num = Number(text);
+  if (!Number.isFinite(num)) return `¥${text}`;
+  return `¥${num.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 /** 有效金额 = 订单金额（含退款源订单）− 退款金额。两者都是后端已给的人民币金额。 */

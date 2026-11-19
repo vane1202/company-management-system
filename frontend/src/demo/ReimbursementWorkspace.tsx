@@ -13,7 +13,7 @@ const amount=(v:bigint)=>`${v/100n}.${String(v%100n).padStart(2,'0')}`;
 const yuan=(v:bigint)=>'¥'+Number(amount(v)).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});
 async function request(body?:object):Promise<Data>{const r=await fetch('/api/demo/reimbursements',body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{cache:'no-store'});const data=await r.json();if(!r.ok)throw Error(data.error||'报销数据读取失败');return data;}
 
-export default function ReimbursementWorkspace({today,onBack}:{today:string;onBack:()=>void}){
+export default function ReimbursementWorkspace({today,onBack}:{today:string;onBack?:()=>void}){
  const blank=()=>({claimant:'',department:'',category:'temporary',purpose:'',amount:'',expenseDate:today,claimDate:today,expenseId:'',receiptRef:'',note:'',requestKey:crypto.randomUUID()});
  const [data,setData]=useState<Data|null>(null),[form,setForm]=useState(blank),[creating,setCreating]=useState(false);
  const [error,setError]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false),[selected,setSelected]=useState<Claim|null>(null),[reason,setReason]=useState('');
@@ -27,7 +27,7 @@ export default function ReimbursementWorkspace({today,onBack}:{today:string;onBa
  const validRange=!filters.from||!filters.to||filters.from<=filters.to;
  const rows=(data?.state.claims||[]).filter(c=>validRange&&(!filters.category||c.category===filters.category)&&(!filters.status||state(c)===filters.status)&&(!filters.from||c.expenseDate>=filters.from)&&(!filters.to||c.expenseDate<=filters.to)&&`${c.claimant} ${c.department} ${c.purpose} ${c.receiptRef}`.toLowerCase().includes(filters.search.trim().toLowerCase()));
  return <div className="warehouse-workspace reimbursement-workspace" aria-busy={busy}>
-  <header className="commerce-heading"><div><h1>费用报销 <InfoTip label="报销统计口径" text="记录公司日常运营成本之外的费用报销。新增报销费用独立汇总，不自动计入运营成本；关联已有成本的报销仅跟踪待付和实际付款，不新增一笔成本。申请金额、核定待报销和实际报销分别统计，以下汇总跟随费用发生日期与筛选。"/></h1><small>费用登记 · 核对确认 · 报销付款</small></div><div className="actions"><button type="button" className="secondary" onClick={onBack}>返回</button><button type="button" className="secondary" disabled={busy} onClick={refresh}>刷新</button></div></header>
+  <header className="commerce-heading"><div><h1>费用报销 <InfoTip label="报销统计口径" text="记录公司日常运营成本之外的费用报销。新增报销费用独立汇总，不自动计入运营成本；关联已有成本的报销仅跟踪待付和实际付款，不新增一笔成本。申请金额、核定待报销和实际报销分别统计，以下汇总跟随费用发生日期与筛选。"/></h1><small>费用登记 · 核对确认 · 报销付款</small></div><div className="actions">{onBack&&<button type="button" className="secondary" onClick={onBack}>返回</button>}<button type="button" className="secondary" disabled={busy} onClick={refresh}>刷新</button></div></header>
   {error&&<p className="error" role="alert">{error}</p>}{message&&<p className="ok" role="status">{message}</p>}
   {!data?<p role="status">正在读取报销台账…</p>:<>
   <div className="wh-kpis"><article><span>报销申请额</span><b>{yuan(rows.filter(c=>c.status!=='rejected').reduce((n,c)=>n+cents(c.amount),0n))}</b></article><article><span>已核对待报销</span><b>{yuan(rows.filter(c=>c.status==='approved').reduce((n,c)=>n+cents(c.amount)-paid(c),0n))}</b></article><article><span>实际已报销</span><b>{yuan(rows.reduce((n,c)=>n+paid(c),0n))}</b></article></div>

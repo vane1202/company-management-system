@@ -6,6 +6,8 @@ import { api, type CsAccount } from "../api";
 import { loadSupervisorHome, loaded } from "../roleHomeData";
 import { toErrorMessage } from "../errors";
 import { InfoTip } from "../InfoTip";
+import { dashboardPresetRange } from "../dates";
+import { PeriodToolbar, type StandardPreset } from "../PeriodToolbar";
 import { customerStatus, customerTags, useCustomerCrm } from "./customerCrm";
 import { aggregate, money, type Source } from "./supervisorPerformanceData";
 import type { AssessmentFoundation } from "./assessmentFoundation";
@@ -22,6 +24,9 @@ export function SupervisorWorkbench({ today, onNavigate }: { today: string; onNa
   const crm = useCustomerCrm(today);
   const [loading, setLoading] = useState(true);
   const [tick, setTick] = useState(0);
+  const [preset, setPreset] = useState<StandardPreset>("day");
+  const [customRange, setCustomRange] = useState<{ from: string; to: string } | null>(null);
+  const period = customRange ?? dashboardPresetRange(today, preset);
   const [view, setView] = useState<"home" | "customers">("home");
   const [personId, setPersonId] = useState("");
   const [home, setHome] = useState<Awaited<ReturnType<typeof loadSupervisorHome>> | null>(null);
@@ -59,8 +64,8 @@ export function SupervisorWorkbench({ today, onNavigate }: { today: string; onNa
   const noScope = teams?.length === 0;
   const added = teams?.reduce((sum, team) => sum + team.totalAdded, 0);
   const missing = teams?.reduce((sum, team) => sum + team.missingCount, 0);
-  const opening = foundation ? openingSnapshot(foundation.leads ?? [], foundation.employees ?? [], today, supervisorTeamIds) : null;
-  const stats = sources && accounts ? aggregate(sources, { from: today, to: today, operator: "", account: "", persona: "", room: "" }, accounts) : null;
+  const opening = foundation ? openingSnapshot(foundation.leads ?? [], foundation.employees ?? [], period, supervisorTeamIds) : null;
+  const stats = sources && accounts ? aggregate(sources, { from: period.from, to: period.to, operator: "", account: "", persona: "", room: "" }, accounts) : null;
   const customers: DeskCustomer[] = crm.state.customers.filter((customer) => supervisorTeamIds.includes(customer.teamId)).map((customer) => ({
     id: customer.id, name: customer.name, employeeId: customer.employeeId, employeeName: customer.employeeName, spendTier: customer.spendTier,
     status: customerStatus(crm.state, customer), pending: crm.state.reviews.some((review) => review.customerId === customer.id && review.status === "pending"),
@@ -72,7 +77,17 @@ export function SupervisorWorkbench({ today, onNavigate }: { today: string; onNa
   const personCustomers = customers.filter((customer) => customer.employeeId === personId && customer.status !== "invalid");
   function openCustomers(id = "") { setPersonId(id); setView("customers"); window.scrollTo({ top: 0, behavior: "instant" }); }
   return <div className="role-desk supervisor-desk" aria-busy={loading}>
-    <header className="desk-heading"><div><p className="eyebrow">翠管家 · 岗位工作台</p><h1>{view === "home" ? "客服主管工作台" : person ? person.name + "的客资" : "本组客资情况"}</h1><span className="desk-caption">{view === "customers" ? "当前仍在客服名下的客户，不按今日清零" : today + " · 本组当日"}</span></div><div className="supervisor-heading-actions">{view !== "home" && <button type="button" className="secondary" onClick={() => person ? setPersonId("") : setView("home")}>{person ? "返回客资" : "返回工作台"}</button>}<button type="button" className="secondary" disabled={loading} onClick={() => setTick((value) => value + 1)}>刷新</button></div></header>
+    <header className="desk-heading"><div><p className="eyebrow">翠管家 · 岗位工作台</p><h1>{view === "home" ? "客服主管工作台" : person ? person.name + "的客资" : "本组客资情况"}</h1>{view === "customers" && <span className="desk-caption">当前仍在客服名下的客户，不按今日清零</span>}</div>{view !== "home" && <div className="supervisor-heading-actions"><button type="button" className="secondary" onClick={() => person ? setPersonId("") : setView("home")}>{person ? "← 返回客资" : "← 返回工作台"}</button><button type="button" className="secondary" disabled={loading} onClick={() => setTick((value) => value + 1)}>刷新</button></div>}</header>
+    {view === "home" && <PeriodToolbar
+      today={today}
+      preset={preset}
+      custom={customRange}
+      onPreset={(next) => { setPreset(next); setCustomRange(null); }}
+      onCustom={(next) => setCustomRange(next)}
+      caption={`${period.from} 至 ${period.to} · 本组`}
+      actions={<button type="button" className="secondary" disabled={loading} onClick={() => setTick((value) => value + 1)}>刷新</button>}
+      ariaLabel="客服主管日期筛选"
+    />}
     {errors.map((error) => <p className="error" role="alert" key={error}>{error}</p>)}
     {noScope ? <section className="desk-panel"><h2>暂未分配管理小组</h2><p>请联系管理员设置负责的小组。</p></section> : view === "customers" ? <section className="desk-panel" aria-label={person ? "客服客资明细" : "本组客资"}>
       {person ? <>

@@ -19,11 +19,11 @@ import { DashboardHome } from "./DashboardHome";
 import { AdminHome, SupervisorHome } from "./RoleHomes";
 import {AdminWorkbench,SupervisorWorkbench} from "./demo/RoleWorkbenches";
 import { DashboardIcon } from "./DashboardIcon";
-import { IdentityName, identityLabel, useIdentityPrivacy } from "./IdentityName";
+import { IdentityName, useIdentityPrivacy } from "./IdentityName";
 import { CsDeviceRegistration } from "./CsDeviceRegistration";
 import { CsAccountsPage } from "./CsAccountsPage";
 import { fillEntries, fillEntryFromPath, canUseFillEntry } from "./fillEntries";
-import { type FormEvent, type ReactNode, lazy, Suspense, useEffect, useId, useRef, useState } from "react";
+import { type FormEvent, type ReactNode, lazy, Suspense, useCallback, useEffect, useId, useRef, useState } from "react";
 import { canQueryByDate, isIsoDate } from "./dates";
 import { labelOrderStatus } from "./labels";
 import { bossLinkedPages, navItems, pageLabel, roleLabel, type Page } from "./access";
@@ -76,6 +76,8 @@ export function App() {
   const [backfillDays, setBackfillDays] = useState(3);
   const [disclaimer, setDisclaimer] = useState("");
   const [pageErrors, setPageErrors] = useState<Partial<Record<Page, string>>>({});
+  const [financeSub, setFinanceSub] = useState<{ label: string; onBack: () => void } | null>(null);
+  const handleFinanceSub = useCallback((sub: { label: string; onBack: () => void } | null) => setFinanceSub(sub), []);
   const entry = fillEntryFromPath(window.location.pathname);
   const hasUserRef = useRef(false);
   hasUserRef.current = user !== null;
@@ -170,7 +172,40 @@ export function App() {
   const bossBusiness=user.role==='boss'&&activePage==='orders';
   const businessContext=navigation.views.orders?.live??defaultLiveView();
   const currentBusiness=navigation.route.live??defaultLiveView();
-  const businessBackLabel=bossBusiness?(navigation.route.orderId?(navigation.route.orderList?'订单列表':liveViewLabel(currentBusiness)):navigation.route.orderList?'直播间经营':currentBusiness.view!=='rooms'?'直播间列表':undefined):undefined;
+  const homeLabel = items[0]?.label ?? pageLabel(user.role, rootPage);
+  const goHome = () => { financeSub?.onBack(); navigation.up({ page: rootPage }); };
+  type Crumb = { label: string; onClick?: () => void };
+  const breadcrumbs: Crumb[] = [];
+  if (activePage === rootPage) {
+    breadcrumbs.push({ label: homeLabel });
+  } else {
+    breadcrumbs.push({ label: homeLabel, onClick: goHome });
+    if (import.meta.env.MODE === "demo" && user.role === "finance" && activePage === "salaries") {
+      breadcrumbs.push({ label: pageLabel(user.role, "financeOut"), onClick: () => goTo("financeOut") });
+      breadcrumbs.push({ label: pageLabel(user.role, "salaries") });
+    } else if (bossBusiness) {
+      const hasList = !!navigation.route.orderList;
+      const hasOrder = !!navigation.route.orderId;
+      const liveRoot = () => navigation.navigate({ page: "orders", live: { ...currentBusiness, view: "rooms", roomKey: undefined } });
+      breadcrumbs.push({ label: pageLabel(user.role, "orders"), onClick: (hasList || hasOrder) ? liveRoot : undefined });
+      if (hasList) {
+        breadcrumbs.push({ label: "订单档案", onClick: hasOrder ? () => navigation.up() : undefined });
+      }
+      if (hasOrder) {
+        breadcrumbs.push({ label: "订单详情" });
+      }
+    } else if ((activePage === "finance" || activePage === "financeOut") && financeSub) {
+      breadcrumbs.push({ label: pageLabel(user.role, activePage), onClick: financeSub.onBack });
+      breadcrumbs.push({ label: financeSub.label });
+    } else if (activePage === "orders" && navigation.route.orderId) {
+      breadcrumbs.push({ label: pageLabel(user.role, "orders"), onClick: () => navigation.up() });
+      breadcrumbs.push({ label: "订单详情" });
+    } else {
+      breadcrumbs.push({ label: pageLabel(user.role, activePage) });
+    }
+  }
+  const level3Parent = breadcrumbs.length >= 3 ? breadcrumbs[breadcrumbs.length - 2] : null;
+  const currentCrumb = breadcrumbs[breadcrumbs.length - 1];
   function goTo(next: Page, cash?: CashView) {
     setError("");
     setMobileNavOpen(false);
@@ -212,12 +247,18 @@ export function App() {
           {managementRole && canChangePassword && <button type="button" className="mobile-menu-logout" onClick={() => { setMobileNavOpen(false); setPasswordOpen(true); window.scrollTo?.({ top: 0, behavior: "smooth" }); }}>修改密码</button>}
           {managementRole && <button type="button" className="mobile-menu-logout" onClick={logout}>退出登录</button>}
         </nav>}
-        <div className="sidebar-footer"><span className="sidebar-avatar">{identityPrivacy.hidden ? Array.from(user.displayName).at(-1) : user.displayName.slice(0, 1)}</span><span><strong>{identityLabel(user.displayName, identityPrivacy.hidden)}</strong><small>{roleLabel[user.role]} · 数据按权限展示</small></span></div>
       </aside>
       <div className="app-main">
       <header className="topbar app-toolbar">
-        <div className="toolbar-breadcrumb">工作台 <span>/</span> <strong>{pageLabel(user.role, activePage)}</strong></div>
-        <div className="toolbar-account"><IdentityName name={user.displayName} hidden={identityPrivacy.hidden} onToggle={identityPrivacy.toggle} />
+        <nav className="toolbar-breadcrumb" aria-label="面包屑导航">
+          {breadcrumbs.map((crumb, index) => (
+            <span className="toolbar-crumb-item" key={`${crumb.label}:${index}`}>
+              {index > 0 && <span className="toolbar-crumb-sep" aria-hidden="true">/</span>}
+              {crumb.onClick ? <button type="button" className="toolbar-crumb-link" onClick={crumb.onClick}>{crumb.label}</button> : <strong aria-current="page">{crumb.label}</strong>}
+            </span>
+          ))}
+        </nav>
+        <div className="toolbar-account"><IdentityName name={user.displayName} hidden={identityPrivacy.hidden} onToggle={identityPrivacy.toggle} /><span className="toolbar-role-badge">{roleLabel[user.role]}</span>
         {!isServiceAccount(user.accountKind) && (
           <button type="button" className="secondary" onClick={() => setPasswordOpen(open => !open)}>
             修改密码
@@ -235,7 +276,7 @@ export function App() {
       {passwordOpen && !isServiceAccount(user.accountKind) && (
         <SelfChangePasswordCard user={user} onClose={() => setPasswordOpen(false)} />
       )}
-      {activePage !== rootPage && <WorkspaceBackbar page={activePage} detail={activePage === "orders" && !!navigation.route.orderId} homeLabel={items[0].label} pageLabel={bossBusiness?(navigation.route.orderList?'订单档案':liveViewLabel(currentBusiness)):pageLabel(user.role, activePage)} backLabel={businessBackLabel} onUp={() => { const route = navigation.route; const insideOrders = route.page === "orders" && !!(route.orderId || route.orderList || route.live && route.live.view !== "rooms"); navigation.up(demoBoss && !insideOrders ? { page: "dashboard" } : undefined); }} onHome={() => navigation.up({ page: rootPage })} />}
+      {level3Parent?.onClick && <WorkspaceBackbar backLabel={level3Parent.label} currentLabel={currentCrumb.label} onUp={level3Parent.onClick} />}
       {error && <p className="error">{error}</p>}
       {isServiceAccount(user.accountKind) && <p className="notice">当前填报接待账号：<strong>{user.serviceAccountLabel??user.wechatId}</strong>{user.phoneLabel ? `（${user.phoneLabel}）` : ""}。加粉与订单长期归属于此接待账号；退出后需管理员重新发码。</p>}
       {pagePanel("home", <Home user={user} today={today} backfillDays={backfillDays} disclaimer={disclaimer} onNavigate={goTo} active={activePage==='home'} onOpenBusiness={live=>navigation.navigate({page:'orders',live})} />)}
@@ -252,8 +293,8 @@ export function App() {
       {pagePanel("modules", <><ModuleSettings onError={pageError("modules")} onChange={setModules} /><SystemSettings defaultDays={backfillDays} /></>)}
       {pagePanel("people", <PeoplePage today={today} currentUserId={user.id} onError={pageError("people")} />)}
       {pagePanel("csAccounts", DemoRegisteredAccounts ? <Suspense fallback={<p role="status">正在读取账号名册…</p>}><DemoRegisteredAccounts supervisor={user.role === "cs_supervisor"} /></Suspense> : <CsAccountsPage supervisor={user.role === "cs_supervisor"} />)}
-      {pagePanel("finance", import.meta.env.MODE==='demo'&&user.role==='finance'?<FinanceDesk today={today} section="finance" active={activePage==='finance'} onOpenSalary={()=>goTo('salaries')}/>:<FinanceWorkspace today={today} readOnly cashView={navigation.views.finance?.cash} />)}
-      {pagePanel("financeOut", <FinanceDesk today={today} section="financeOut" active={activePage==='financeOut'} onOpenSalary={()=>goTo('salaries')}/>)}
+      {pagePanel("finance", import.meta.env.MODE==='demo'&&user.role==='finance'?<FinanceDesk today={today} section="finance" active={activePage==='finance'} onOpenSalary={()=>goTo('salaries')} onSubViewChange={handleFinanceSub}/>:<FinanceWorkspace today={today} readOnly cashView={navigation.views.finance?.cash} />)}
+      {pagePanel("financeOut", <FinanceDesk today={today} section="financeOut" active={activePage==='financeOut'} onOpenSalary={()=>goTo('salaries')} onSubViewChange={handleFinanceSub}/>)}
       {pagePanel("salaries", <SalaryWorkspace today={today} readOnly={user.role !== "finance"} />)}
 
       </main>

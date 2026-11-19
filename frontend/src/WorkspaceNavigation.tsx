@@ -32,7 +32,7 @@ export function useWorkspaceNavigation(userId: string | undefined, role: Role | 
   };
 }
 
-export function WorkspaceBackbar({ page, detail, homeLabel, pageLabel, backLabel, onUp, onHome }: { page: Page; detail: boolean; homeLabel: string; pageLabel: string; backLabel?:string; onUp: () => void; onHome: () => void }) {
+export function WorkspaceBackbar({ backLabel, currentLabel, onUp }: { backLabel: string; currentLabel: string; onUp: () => void }) {
   const bar = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
     const banner = document.querySelector(".demo-preview-banner");
@@ -44,12 +44,7 @@ export function WorkspaceBackbar({ page, detail, homeLabel, pageLabel, backLabel
     return () => observer.disconnect();
   }, []);
   return <nav ref={bar} className="workspace-backbar" aria-label="页面返回导航">
-    <button type="button" className="workspace-back secondary" onClick={onUp}><span aria-hidden="true">←</span> 返回{backLabel??(detail ? "订单列表" : homeLabel)}</button>
-    <ol className="workspace-breadcrumb">
-      <li><button type="button" onClick={onHome}>{homeLabel}</button></li>
-      <li>{detail ? <button type="button" onClick={onUp}>{pageLabel}</button> : <span aria-current="page">{pageLabel}</span>}</li>
-      {detail && <li><span aria-current="page">订单详情</span></li>}
-    </ol>
-    <span className="workspace-mobile-title" aria-live="polite">{detail ? "订单详情" : pageLabel}</span>
+    <button type="button" className="workspace-back secondary" onClick={onUp}><span aria-hidden="true">←</span> 返回{backLabel}</button>
+    <span className="workspace-mobile-title" aria-live="polite">{currentLabel}</span>
   </nav>;
 }

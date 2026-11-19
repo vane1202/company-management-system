@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { dashboardPresetRange } from "../dates";
 import { InfoTip } from "../InfoTip";
+import { PeriodToolbar, type StandardPreset } from "../PeriodToolbar";
 import { Skeleton } from "../Skeleton";
 import { toErrorMessage } from "../errors";
 import { AnalysisPlot, ChartStyleControl, Ranking, useChartStyle } from "./AnalysisChart";
@@ -13,14 +14,10 @@ import "./ops-analysis.css";
 import "./analysis-chart.css";
 import "./staff-assessment.css";
 
-type Preset = "day" | "week7" | "month";
 type Kind = "opening" | "order";
-const presets: [Preset, string][] = [["day", "今日"], ["week7", "近7日"], ["month", "本月"]];
 
-function bounds(today: string, preset: Preset) {
-  if (preset === "week7") return { from: shiftDate(today, -6), to: today };
-  if (preset === "month") return dashboardPresetRange(today, "month");
-  return { from: today, to: today };
+function bounds(today: string, preset: StandardPreset) {
+  return dashboardPresetRange(today, preset);
 }
 
 function seriesOf(days: DayRate[], label: string): TrendSeries {
@@ -33,13 +30,11 @@ function prior(from: string, to: string) {
 }
 
 export default function StaffAssessment({ today, scope }: { today: string; scope: string }) {
-  const [preset, setPreset] = useState<Preset>("week7");
+  const [preset, setPreset] = useState<StandardPreset>("week");
   const [kind, setKind] = useState<Kind>("opening");
   const [person, setPerson] = useState("");
   const [team, setTeam] = useState("");
   const [customRange, setCustomRange] = useState<{from:string;to:string}|null>(null);
-  const [draftRange, setDraftRange] = useState({from:shiftDate(today,-6),to:today});
-  const [dateError, setDateError] = useState("");
   const [employment, setEmployment] = useState<"active" | "left">("active");
   const [minimumSample, setMinimumSample] = useState(5);
   const [sampleDraft, setSampleDraft] = useState("5");
@@ -97,13 +92,23 @@ export default function StaffAssessment({ today, scope }: { today: string; scope
   }
   if (!loading && data && data.view !== "review") return <section className="ops-analysis staff-assessment" aria-label="客服考核"><h1>客服考核</h1><p className="notice">{data.note}</p></section>;
   return <section className="ops-analysis staff-assessment" aria-label="客服考核" aria-busy={loading}>
-    <header className="oa-heading"><div><span className="oa-eyebrow">{scope} · 按使用人</span><h1>客服考核</h1></div><button className="secondary" type="button" disabled={loading} onClick={() => setTick((value) => value + 1)}>刷新</button></header>
-    <div className="oa-toolbar sa-toolbar"><div className="overview-segments" role="group" aria-label="考核日期范围">{presets.map(([key, label]) => <button type="button" key={key} className={!customRange && preset === key ? "selected" : ""} aria-pressed={!customRange && preset === key} onClick={() => { setPreset(key); setCustomRange(null); setDraftRange(bounds(today,key)); setDateError(""); setSelected(today); }}>{label}</button>)}</div>
-      <div className="sa-person-filters"><label className="oa-sort">人员范围<select aria-label="考核人员范围" value={employment} onChange={event => { setEmployment(event.target.value as typeof employment); setPerson(""); }}><option value="active">在职客服</option><option value="left">历史人员（已离任）</option></select></label>
-      <label className="oa-sort">客服<select aria-label="考核客服筛选" value={person} onChange={(event) => setPerson(event.target.value)}><option value="">{employment === "active" ? "全部在职客服" : "全部离任人员"}</option>{employees.map((item) => <option key={item.id} value={item.id}>{labelOf(item, item.id)}</option>)}</select></label></div></div>
-    <p className="oa-period"><span>{range.from} 至 {range.to}{range.to === today ? " · 今日未结束" : ""}</span><span>{employment === "active" ? "在职客服" : "已离任人员"} · 按人数合计</span></p>
-    <details className="sa-extended"><summary>小组与日期筛选{team||customRange?" · 已设置":""}</summary><label>小组<select aria-label="考核小组筛选" value={team} onChange={event=>{setTeam(event.target.value);setPerson("");}}><option value="">全部小组</option>{teams.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label><form onSubmit={event=>{event.preventDefault();try{daysIn(draftRange.from,draftRange.to);if(draftRange.to>today)throw Error("结束日期不能晚于今天");setCustomRange({...draftRange});setSelected(draftRange.to);setDateError("");}catch(cause){setDateError(toErrorMessage(cause));}}}><label>开始日期<input aria-label="考核开始日期" type="date" required max={draftRange.to||today} value={draftRange.from} onChange={event=>setDraftRange({...draftRange,from:event.target.value})}/></label><label>结束日期<input aria-label="考核结束日期" type="date" required min={draftRange.from} max={today} value={draftRange.to} onChange={event=>setDraftRange({...draftRange,to:event.target.value})}/></label><button type="submit" className="secondary">查询日期</button><small>最多31天</small></form>{dateError&&<p className="error" role="alert">{dateError}</p>}</details>
-    {team&&<p className="oa-period">当前小组：{teams.find(item=>item.id===team)?.name??team}</p>}
+    <header className="oa-heading"><div><span className="oa-eyebrow">{scope} · 按使用人</span><h1>客服考核</h1></div></header>
+    <PeriodToolbar
+      today={today}
+      preset={preset}
+      custom={customRange}
+      maxDays={31}
+      onPreset={(key) => { setPreset(key); setCustomRange(null); setSelected(today); }}
+      onCustom={(next) => { setCustomRange(next); setSelected(next.to); }}
+      filters={<>
+        {teams.length > 1 && <select aria-label="考核小组筛选" value={team} onChange={event => { setTeam(event.target.value); setPerson(""); }}><option value="">全部小组</option>{teams.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}
+        <select aria-label="考核人员范围" value={employment} onChange={event => { setEmployment(event.target.value as typeof employment); setPerson(""); }}><option value="active">在职客服</option><option value="left">历史人员（已离任）</option></select>
+        <select aria-label="考核客服筛选" value={person} onChange={(event) => setPerson(event.target.value)}><option value="">{employment === "active" ? "全部在职客服" : "全部离任人员"}</option>{employees.map((item) => <option key={item.id} value={item.id}>{labelOf(item, item.id)}</option>)}</select>
+      </>}
+      caption={`${range.from} 至 ${range.to}${range.to === today ? " · 今日未结束" : ""}`}
+      actions={<button className="secondary" type="button" disabled={loading} onClick={() => setTick((value) => value + 1)}>刷新</button>}
+      ariaLabel="客服考核日期与筛选"
+    />
     {error && <div className="overview-error" role="alert"><strong>{error}</strong><button type="button" onClick={() => setTick((value) => value + 1)}>重试</button></div>}
     {rangeError && <p className="error" role="alert">{rangeError}</p>}
     <div className="oa-kpis">

@@ -12,7 +12,7 @@ describe("订单有效金额（展示）", () => {
     expect(effectiveOrderAmount(undefined, "0.00")).toBeNull();
     expect(effectiveOrderAmount("abc", "0.00")).toBeNull();
     expect(yuan(null)).toBe("—");
-    expect(yuan("1970.50")).toBe("¥ 1970.50");
+    expect(yuan("1970.50")).toBe("¥1,970.50");
   });
   it("大额按分精确计算，不走浮点", () => {
     expect(effectiveOrderAmount("1234567890.13", "0.03")).toBe("1234567890.10");

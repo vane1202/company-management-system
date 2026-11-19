@@ -449,6 +449,16 @@
   }
   window.fetch=async(input,options={})=>{
     const url=new URL(typeof input==="string"?input:input.url,window.location.origin);
+    if(url.origin==="https://api.exchangerate.dev"&&url.pathname.startsWith("/v1/")){
+      const parts=url.pathname.split("/").filter(Boolean);
+      const period=parts[1],base=parts[2];
+      if((base==="USD"||base==="TWD")&&(period==="latest"||/^\d{4}-\d{2}-\d{2}$/.test(period))){
+        const rate=base==="USD"?7.24:0.2235;
+        const date=period==="latest"?today:period;
+        const updated=new Date(Math.min(Date.now(),Date.parse(date+"T12:00:00Z"))).toISOString();
+        return json({result:"success",base,date,rates:{CNY:rate},effective_at:{CNY:updated},data_updated_at:updated,source:"live",stale:{CNY:false}});
+      }
+    }
     if(!url.pathname.startsWith("/api/"))return nativeFetch(input,options);
     const method=(options.method||(typeof input!=="string"&&input.method)||"GET").toUpperCase();
     const path=url.pathname,q=url.searchParams;

@@ -20,9 +20,33 @@ import "./finance-menu.css";
 type Work = "reimbursement" | "warehouse" | "home" | "receipts" | "settlement" | "later" | "material" | "other" | "commission" | "dailyExpenses" | "ads" | "paidVerification";
 const demo = import.meta.env.MODE === "demo";
 
-export function FinanceDesk({ today, onOpenSalary, section, active:isActive=true }: { today: string; onOpenSalary?: () => void; section?: 'finance'|'financeOut'; active?:boolean }) {
+const workLabels: Record<Exclude<Work, "home">, string> = {
+  receipts: demo ? "订单收款" : "订单收款核对",
+  settlement: "第三方结算",
+  later: demo ? "售后费用收款" : "后续费用核对",
+  paidVerification: "已付款业绩核定",
+  warehouse: "库房结账",
+  reimbursement: "费用报销",
+  material: demo ? "料子货款台账" : "料子货款结算",
+  other: demo ? "加工与发货台账" : "其他财务事项",
+  ads: "广告充值",
+  dailyExpenses: "日常运营费用",
+  commission: "业绩提成"
+};
+
+export function FinanceDesk({ today, onOpenSalary, section, active:isActive=true, onSubViewChange }: { today: string; onOpenSalary?: () => void; section?: 'finance'|'financeOut'; active?:boolean; onSubViewChange?: (sub: { label: string; onBack: () => void } | null) => void }) {
   const [work, setWork] = useState<Work>("home");
   useEffect(()=>{if(!section||!isActive)return;const requested=sessionStorage.getItem('cms-demo-finance-task');sessionStorage.removeItem('cms-demo-finance-task');const allowed=section==='finance'?['receipts','settlement','later','paidVerification']:['reimbursement','warehouse','material','other','commission','dailyExpenses','ads'];setWork(allowed.includes(requested||'')?requested as Work:'home');},[section,isActive]);
+  useEffect(() => {
+    if (!onSubViewChange) return;
+    if (!isActive || work === "home") {
+      onSubViewChange(null);
+      return;
+    }
+    onSubViewChange({ label: workLabels[work], onBack: () => setWork("home") });
+    return () => onSubViewChange(null);
+  }, [isActive, work, onSubViewChange]);
+  const inlineBack = onSubViewChange ? undefined : () => setWork("home");
   const [payments, setPayments] = useState<FinancePayment[] | null>(null);
   const [error, setError] = useState("");
   const [refreshTick,setRefreshTick]=useState(0);
@@ -37,17 +61,17 @@ export function FinanceDesk({ today, onOpenSalary, section, active:isActive=true
   const immediate = active.filter(payment => !payment.after_sale_charge_id && payment.purpose !== "balance");
   const balances = active.filter(payment => !payment.after_sale_charge_id && payment.purpose === "balance");
   const later = active.filter(payment => !!payment.after_sale_charge_id);
-  if (demo && work === "reimbursement") return <ReimbursementWorkspace today={today} onBack={()=>setWork("home")}/>;
-  if (work === "warehouse") return <WarehouseWorkspace today={today} finance onBack={()=>setWork("home")}/>;
-  if (work === "settlement") return <WorkFrame title="第三方结算" onBack={() => setWork("home")}><FinanceLedgerWorkspace today={today} heading="第三方结算" hideCompanions /></WorkFrame>;
-  if (work === "material") return <WorkFrame title="料子货款结算" onBack={() => setWork("home")}><p className="notice">此处查看料子供货成本与原付款台账；新结账单由库房提交，在「库房结账」中审核和登记付款。客户已付款不在这里抵扣。</p><CompanyPayments today={today} readOnly={demo} categories={["goods", "sourcing"]} heading="翡翠料子货款" /></WorkFrame>;
-  if (demo && work === "ads") return <WorkFrame title="广告充值" onBack={() => setWork("home")}><AdAccountsWorkspace today={today} readOnly={false} /></WorkFrame>;
-  if (work === "other") return <WorkFrame title={demo?"加工与发货台账":"其他财务事项"} onBack={() => setWork("home")}><CompanyPayments today={today} readOnly={demo} excludeCategories={["goods", "sourcing"]} heading="加工、证书、包装和运费" />{!demo&&<><PaidPerformance today={today} readOnly={false} /><AdAccountsWorkspace today={today} readOnly={false} /></>}</WorkFrame>;
-  if (work === "receipts") return <WorkFrame title={demo ? "订单收款" : "订单收款核对"} onBack={() => setWork("home")}><p className="notice">实时收款指开单当时收到的定金或全款。尾款按约定日后另记。客户付给公司或第三方后，都减少客户欠款；第三方扣点和汇差不向客户追收。</p><ReceiptLists error={error} groups={[{ title: "实时收款", rows: immediate }, { title: "尾款", rows: balances }]} /><ReceiptDraft today={today} mode="order" /></WorkFrame>;
-  if (work === "later") return <WorkFrame title={demo ? "后续费用收款" : "后续费用核对"} onBack={() => setWork("home")}><p className="notice">设计、雕刻、配货等费用向客户另收，不计入原开单营业额。公司支付给加工方或商家的成本在料子货款和其他付款里登记。</p><ReceiptLists error={error} groups={[{ title: "已登记的后续收款", rows: later }]} /><ReceiptDraft today={today} mode="later" /></WorkFrame>;
-  if (demo && work === "commission") return <WorkFrame title="业绩提成" onBack={() => setWork("home")}><CommissionPanel today={today} /></WorkFrame>;
-  if (demo && work === "paidVerification") return <WorkFrame title="已付款业绩核定" onBack={() => setWork("home")}><PaidPerformance today={today} readOnly={false} /></WorkFrame>;
-  if (demo && work === "dailyExpenses") return <WorkFrame title="日常运营费用" onBack={() => setWork("home")}><DailyOperatingExpenses today={today}/></WorkFrame>;
+  if (demo && work === "reimbursement") return <ReimbursementWorkspace today={today} onBack={inlineBack}/>;
+  if (work === "warehouse") return <WarehouseWorkspace today={today} finance onBack={inlineBack}/>;
+  if (work === "settlement") return <WorkFrame title="第三方结算" onBack={inlineBack}><FinanceLedgerWorkspace today={today} heading="第三方结算" hideCompanions /></WorkFrame>;
+  if (work === "material") return <WorkFrame title="料子货款结算" onBack={inlineBack}><p className="notice">此处查看料子供货成本与原付款台账；新结账单由库房提交，在「库房结账」中审核和登记付款。客户已付款不在这里抵扣。</p><CompanyPayments today={today} readOnly={demo} categories={["goods", "sourcing"]} heading="翡翠料子货款" /></WorkFrame>;
+  if (demo && work === "ads") return <WorkFrame title="广告充值" onBack={inlineBack}><AdAccountsWorkspace today={today} readOnly={false} /></WorkFrame>;
+  if (work === "other") return <WorkFrame title={demo?"加工与发货台账":"其他财务事项"} onBack={inlineBack}><CompanyPayments today={today} readOnly={demo} excludeCategories={["goods", "sourcing"]} heading="加工、证书、包装和运费" />{!demo&&<><PaidPerformance today={today} readOnly={false} /><AdAccountsWorkspace today={today} readOnly={false} /></>}</WorkFrame>;
+  if (work === "receipts") return <WorkFrame title={demo ? "订单收款" : "订单收款核对"} onBack={inlineBack}><p className="notice">实时收款指开单当时收到的定金或全款。尾款按约定日后另记。客户付给公司或第三方后，都减少客户欠款；第三方扣点和汇差不向客户追收。</p><ReceiptLists error={error} groups={[{ title: "实时收款", rows: immediate }, { title: "尾款", rows: balances }]} /><ReceiptDraft today={today} mode="order" /></WorkFrame>;
+  if (work === "later") return <WorkFrame title={demo ? "售后费用收款" : "后续费用核对"} onBack={inlineBack}><p className="notice">设计、雕刻、配货等费用向客户另收，不计入原开单营业额。公司支付给加工方或商家的成本在料子货款和其他付款里登记。</p><ReceiptLists error={error} groups={[{ title: "已登记的后续收款", rows: later }]} /><ReceiptDraft today={today} mode="later" /></WorkFrame>;
+  if (demo && work === "commission") return <WorkFrame title="业绩提成" onBack={inlineBack}><CommissionPanel today={today} /></WorkFrame>;
+  if (demo && work === "paidVerification") return <WorkFrame title="已付款业绩核定" onBack={inlineBack}><PaidPerformance today={today} readOnly={false} /></WorkFrame>;
+  if (demo && work === "dailyExpenses") return <WorkFrame title="日常运营费用" onBack={inlineBack}><DailyOperatingExpenses today={today}/></WorkFrame>;
   if(demo&&section) {
     const groups: {title: string; items: [Work|'salary',string,string,Parameters<typeof DashboardIcon>[0]['name']][]}[] = section==='finance'
       ? [{title:'收款业务',items:[['receipts','订单收款','定金、全款与尾款','finance'],['settlement','第三方结算','代收扣点、结汇与到账','refresh'],['later','售后费用收款','设计、雕刻与接待收费','orders'],['paidVerification','已付款业绩核定','核定客户已付款业绩','assessment']]}]
@@ -78,8 +102,8 @@ export function FinanceDesk({ today, onOpenSalary, section, active:isActive=true
   </div>;
 }
 
-function WorkFrame({ title, onBack, children }: { title: string; onBack: () => void; children: ReactNode }) {
-  return <div className="commerce-workspace finance-desk"><header className="commerce-heading"><div><p className="eyebrow">财务工作台</p><h1>{title}</h1></div><button type="button" className="secondary" onClick={onBack}>返回</button></header>{children}</div>;
+function WorkFrame({ title, onBack, children }: { title: string; onBack?: () => void; children: ReactNode }) {
+  return <div className="commerce-workspace finance-desk"><header className="commerce-heading"><div><p className="eyebrow">财务工作台</p><h1>{title}</h1></div>{onBack && <button type="button" className="secondary" onClick={onBack}>返回</button>}</header>{children}</div>;
 }
 
 function ReceiptLists({ error, groups }: { error: string; groups: { title: string; rows: FinancePayment[] }[] }) {

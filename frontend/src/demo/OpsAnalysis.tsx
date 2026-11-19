@@ -1,4 +1,3 @@
-import {opsBossPeriod} from "./opsBossPeriod";
 import OpsBalanceStrip from "./OpsBalanceStrip";
 import OpsScopeBar from "./OpsScopeBar";
 import {opsScopeStorageKey,readScopePreference,type OpsScope} from "./opsScope";
@@ -7,6 +6,7 @@ import OpsAccountTrends from "./OpsAccountTrends";
 import { useEffect, useRef, useState } from 'react';
 import { dashboardPresetRange } from '../dates';
 import { InfoTip } from '../InfoTip';
+import { PeriodToolbar, type StandardPreset } from '../PeriodToolbar';
 import { Skeleton } from '../Skeleton';
 import './ops-analysis.css';
 import { buildOpsReference } from './opsReferenceView';
@@ -34,9 +34,10 @@ const clockTime=(s:string|null|undefined)=>s?new Date(s).toLocaleString('zh-CN',
 export default function OpsAnalysis({today,onOpenReports,onOpenFeedback,context}:{today:string;onOpenReports?:()=>void;onOpenFeedback?:(account?:string)=>void;context?:OpsView}){
   const [scopeKey]=useState(()=>onOpenReports?opsScopeStorageKey():"");
   const [initial]=useState(()=>scopeKey?readScopePreference(scopeKey,today):{filters:zeroFilters(),preset:"day",range:undefined});
-  const [preset,setPreset]=useState(initial.preset),[range,setRange]=useState<{from:string;to:string}|undefined>(initial.range),[draft,setDraft]=useState(initial.range||{from:today,to:today});
+  const initialPreset:StandardPreset=(['day','week','month'].includes(initial.preset)?initial.preset:'day') as StandardPreset;
+  const [preset,setPreset]=useState<StandardPreset>(initialPreset),[range,setRange]=useState<{from:string;to:string}|undefined>(initial.range);
   const [filters,setFilters]=useState<Filters>({...initial.filters,operator:''}),[dimension,setDimension]=useState<Dimension>(onOpenReports?'persona':'operator'),[sort,setSort]=useState('spend'),[tick,setTick]=useState(0);
-  const [rawData,setData]=useState<Data|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState(''),[dateError,setDateError]=useState('');
+  const [rawData,setData]=useState<Data|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState('');
   useEffect(()=>{if(!scopeKey)return;try{sessionStorage.setItem(scopeKey,JSON.stringify({filters,preset,range}));}catch{/* The dashboard remains usable without storage. */}},[scopeKey,filters,preset,range?.from,range?.to]);
   function changeScope(next:OpsScope){setFilters({...next,operator:''});setData(null);setLoading(true);setDetailsOpen(false);}
   const revision=useReferenceQuotes();
@@ -50,9 +51,9 @@ export default function OpsAnalysis({today,onOpenReports,onOpenFeedback,context}
   const data:Data|null=rawData?{...rawData,summary:pricing?.summary??blank(rawData.summary),groups:pricing?.groups??rawData.groups.map(g=>({...g,...blank(g)})),comparison:{...rawData.comparison,totals:pricing?.comparison??blank(rawData.comparison.totals)},trend:{...rawData.trend,days:rawData.trend.days.map(d=>({...d,...pricing?.days.find(p=>p.date===d.date)??blank(d)}))}}:null;
   const [detailKey,setDetailKey]=useState<string|null>(null),[expanded,setExpanded]=useState<string[]>([]),[detailsOpen,setDetailsOpen]=useState(false);
   const detailsRef=useRef<HTMLElement>(null),groupsRef=useRef<HTMLElement>(null);
-  useEffect(()=>{if(!context||context.to>today)return;setRange({...context});setDraft({...context});setPreset('custom');setFilters(zeroFilters());setDateError('');setDetailsOpen(false);setSelectedDay(context.to);},[context,today]);
+  useEffect(()=>{if(!context||context.to>today)return;setRange({...context});setFilters(zeroFilters());setDetailsOpen(false);setSelectedDay(context.to);},[context,today]);
   useEffect(()=>{const controller=new AbortController();setLoading(true);setError('');setData(null);setDetailKey(null);setExpanded([]);
-    const q=new URLSearchParams({preset:['day','week','month'].includes(preset)?preset:'day',...range,dimension,...filters,...(!onOpenReports?{trendScope:'period'}:{})});
+    const q=new URLSearchParams({preset,...(range??dashboardPresetRange(today,preset)),dimension,...filters,...(!onOpenReports?{trendScope:'period'}:{})});
     fetch('/api/demo/ops-analysis?'+q,{signal:controller.signal,cache:'no-store'}).then(async response=>{
       const d=await response.json();if(!response.ok)throw Error(d.error||'投放数据暂不可用');
       if(d.version!=='ops-analysis/v1'||d.demo!==true)throw Error('演示投放指标版本不匹配');if(!controller.signal.aborted)setData(d);
@@ -64,7 +65,7 @@ export default function OpsAnalysis({today,onOpenReports,onOpenFeedback,context}
     if(x==null&&y==null)return a.name.localeCompare(b.name,'zh-CN');if(x==null)return 1;if(y==null)return-1;
     return (sort==='cost'?1:-1)*(Number(x)-Number(y))||a.name.localeCompare(b.name,'zh-CN');
   });
-  const selectedRange=range??(onOpenReports?dashboardPresetRange(today,preset):opsBossPeriod(today,preset)),s=data?.summary,base=data?.comparison.totals;
+  const selectedRange=range??dashboardPresetRange(today,preset),s=data?.summary,base=data?.comparison.totals;
   const activeFilters=Object.values(filters).some(Boolean);
   const detailRecords=data?.records.filter(r=>!detailKey||(r[dimension==='persona'?'personaName':dimension==='platform'?'platform':dimension==='operator'?'operatorName':'adAccountRef']||'__unassigned__')===detailKey)??[];
   const filteredName=data?.groups.find(g=>g.key===detailKey)?.name;
@@ -79,12 +80,22 @@ export default function OpsAnalysis({today,onOpenReports,onOpenFeedback,context}
   function coverage(t:Totals){return t.missingSpendCount+t.missingConsultCount+t.missingClickCount>0?'字段待补':t.costStatus==='no_consultation'?'有消耗无咨询':t.costStatus==='no_spend'?'零消耗／零咨询':'';}
   return <section className="ops-analysis" aria-label="运营投放分析" aria-busy={loading}>
     {onOpenReports && <OpsIdentity />}
-    <header className="oa-heading"><div><span className="oa-eyebrow">{onOpenReports?"运营 · 本人投放日报":"BOSS · 运营投入与咨询"}</span><h1>{onOpenReports?"运营工作台":"投流数据"}</h1></div><div className="oa-heading-actions"><button className="secondary" type="button" disabled={loading} onClick={()=>setTick(n=>n+1)}>刷新</button></div></header>
-    <div className="oa-toolbar"><div className="overview-segments">{(onOpenReports?[['day','今日'],['week','本周'],['month','本月']]:[['day','日'],['month','月'],['quarter','季'],['year','年']]).map(([key,label])=><button type="button" key={key} className={(onOpenReports?!range:preset!=='custom')&&preset===key?'selected':''} aria-pressed={(onOpenReports?!range:preset!=='custom')&&preset===key} onClick={()=>{setPreset(key);setRange(onOpenReports?undefined:opsBossPeriod(today,key));setDraft(onOpenReports?dashboardPresetRange(today,key):opsBossPeriod(today,key));setDateError('');}}>{label}</button>)}</div><details className="oa-date"><summary>自定义{preset==='custom'?' · 已选':''}</summary><form onSubmit={e=>{e.preventDefault();if(!draft.from||!draft.to||draft.from>draft.to||draft.to>today){setDateError('请选择有效日期，结束日不能晚于今天');return;}setDateError('');setRange({...draft});setPreset('custom');e.currentTarget.closest('details')?.removeAttribute('open');}}><label>开始日期<input required type="date" max={today} value={draft.from} onChange={e=>setDraft({...draft,from:e.target.value})}/></label><label>结束日期<input required type="date" min={draft.from} max={today} value={draft.to} onChange={e=>setDraft({...draft,to:e.target.value})}/></label><button type="submit" className="secondary">查询</button></form></details></div>
-    {dateError&&<p className="error" role="alert">{dateError}</p>}
-    <p className="oa-period"><span>{selectedRange.from} 至 {selectedRange.to}{data?.period.partial?' · 今日未结束':''}</span><span>更新 {data?.updatedAt?clockTime(data.updatedAt):loading?'读取中':'尚无数据'}</span></p>
-    {!onOpenReports&&<div className="boss-ops-operator"><label>运营人员<select aria-label="投放运营人员筛选" value={filters.operator} onChange={e=>{setFilters({...filters,operator:e.target.value,account:'',persona:'',platform:''});setData(null);setLoading(true);}}><option value="">全部运营人员</option>{[...new Set([...(data?.options.operator||[]),...(filters.operator?[filters.operator]:[])])].map(name=><option key={name}>{name}</option>)}</select></label><small>人员姓名为已登记资料，当前日报归属为演练示例。</small></div>}
-    {onOpenReports ? <OpsScopeBar value={filters} onChange={changeScope} refresh={tick}/> : <details className="oa-filters"><summary>筛选{activeFilters?' · 已设置':' · 全部'}</summary><div className="oa-filter-fields">{(['persona','platform','account'] as const).map(key=><label key={key}>{labels[key]}<select aria-label={`投放${labels[key]}筛选`} value={filters[key]} onChange={e=>setFilters({...filters,[key]:e.target.value})}><option value="">全部</option>{[...new Set([...(data?.options[key]??[]),...(filters[key]?[filters[key]]:[])])].map(value=><option key={value} value={value}>{value==='__unassigned__'?'未关联':value}</option>)}</select></label>)}<button type="button" className="secondary" onClick={()=>setFilters(zeroFilters())}>清除筛选</button></div></details>}
+    <header className="oa-heading"><div><span className="oa-eyebrow">{onOpenReports?"运营 · 本人投放日报":"BOSS · 运营投入与咨询"}</span><h1>{onOpenReports?"运营工作台":"投流数据"}</h1></div></header>
+    <PeriodToolbar
+      today={today}
+      preset={preset}
+      custom={range}
+      onPreset={key=>{setPreset(key);setRange(undefined);}}
+      onCustom={next=>setRange(next)}
+      filters={!onOpenReports ? <>
+        <select aria-label="投放运营人员筛选" value={filters.operator} onChange={e=>{setFilters({...filters,operator:e.target.value,account:'',persona:'',platform:''});setData(null);setLoading(true);}}><option value="">全部运营人员</option>{[...new Set([...(data?.options.operator||[]),...(filters.operator?[filters.operator]:[])])].map(name=><option key={name}>{name}</option>)}</select>
+        <details className={`pt-more-filters${(filters.persona||filters.platform||filters.account)?' is-active':''}`}><summary>更多筛选{(filters.persona||filters.platform||filters.account)?' · 已选':''}</summary><div className="pt-more-filters-panel">{(['persona','platform','account'] as const).map(key=><label key={key}>{labels[key]}<select aria-label={`投放${labels[key]}筛选`} value={filters[key]} onChange={e=>setFilters({...filters,[key]:e.target.value})}><option value="">全部</option>{[...new Set([...(data?.options[key]??[]),...(filters[key]?[filters[key]]:[])])].map(value=><option key={value} value={value}>{value==='__unassigned__'?'未关联':value}</option>)}</select></label>)}<button type="button" className="secondary pt-filter-clear" onClick={()=>setFilters(zeroFilters())}>清除筛选</button></div></details>
+      </> : undefined}
+      caption={`${selectedRange.from} 至 ${selectedRange.to}${data?.period.partial?' · 今日未结束':''}`}
+      actions={<button className="secondary" type="button" disabled={loading} onClick={()=>setTick(n=>n+1)}>刷新</button>}
+      ariaLabel="投放日期与筛选"
+    />
+    {onOpenReports && <OpsScopeBar value={filters} onChange={changeScope} refresh={tick}/>}
     {!onOpenReports&&activeFilters&&<div className="oa-filter-chips">{Object.entries(filters).filter(([,value])=>value).map(([key,value])=><button type="button" className="secondary" key={key} aria-label={`清除${labels[key as Dimension]}筛选`} onClick={()=>setFilters({...filters,[key]:''})}>{value==='__unassigned__'?'未关联':value} ×</button>)}</div>}
     {onOpenReports && <OpsBalanceStrip key={filters.account+":"+filters.persona+":"+selectedRange.to} account={filters.account} rows={data?.balances.accounts||[]} loading={loading} error={error} endDate={selectedRange.to}/>}
     {error?<div className="overview-error" role="alert"><strong>{error}</strong><button type="button" onClick={()=>setTick(n=>n+1)}>重试</button></div>:<>

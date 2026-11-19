@@ -36,6 +36,7 @@ export function createAdFxClient(options: FxOptions = {}) {
   const memory = new Map<string, FxQuote>();
   const pending = new Map<string, Promise<FxQuote | null>>();
   const failures = new Map<string, number>();
+  let hostFailedAt = -Infinity;
   function read(key: string): FxQuote | null {
     if (memory.has(key)) return memory.get(key)!;
     try {
@@ -59,11 +60,11 @@ export function createAdFxClient(options: FxOptions = {}) {
     const cached = read(key);
     const fallback = () => cached ? { ...cached, date, stale: true } : null;
     if (cached && (!latest || clock - cached.checkedAt < FX_REFRESH_MS && cached.date === today)) return { ...cached, stale: cached.stale || latest && clock - Date.parse(cached.updatedAt) > 2 * FX_REFRESH_MS };
-    if (clock - (failures.get(key) ?? -Infinity) < 60000) return fallback();
+    if (clock - (failures.get(key) ?? -Infinity) < 60000 || clock - hostFailedAt < 60000) return fallback();
     if (pending.has(key)) return pending.get(key)!;
     const work = (async () => {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
+      const timeout = setTimeout(() => controller.abort(), 2500);
       try {
         const response = await fetcher(`${sourceUrl}/${latest ? "latest" : date}/${currency}?symbols=CNY`, { signal: controller.signal, credentials: "omit", referrerPolicy: "no-referrer" });
         if (!response.ok) throw Error("Rate unavailable");
@@ -73,8 +74,8 @@ export function createAdFxClient(options: FxOptions = {}) {
         const sourceDate = latest && timestampOk(updatedAt, clock) ? businessDay(Date.parse(updatedAt)) : data.date;
         if (data.result !== "success" || data.base !== currency || scaled === null || !timestampOk(updatedAt, clock) || !validDate(sourceDate) || sourceDate > date || !latest && (!validDate(data.date) || data.date > date)) throw Error("Invalid quote");
         const quote: FxQuote = { currency, date, rate: (Number(scaled) / 1000000).toFixed(6), updatedAt, checkedAt: clock, source: sourceName, sourceDate, delayed: latest && (data.sources?.CNY ?? data.source) === "live", stale: latest && (data.stale === true || data.stale?.CNY === true || clock - Date.parse(updatedAt) > 2 * FX_REFRESH_MS) };
-        save(key, quote); failures.delete(key); return quote;
-      } catch { failures.set(key, clock); return fallback(); }
+        save(key, quote); failures.delete(key); hostFailedAt = -Infinity; return quote;
+      } catch { failures.set(key, clock); hostFailedAt = clock; return fallback(); }
       finally { clearTimeout(timeout); pending.delete(key); }
     })();
     pending.set(key, work);
