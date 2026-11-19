@@ -30,7 +30,10 @@ export default function BossPriority({from,to,tick,onSalary,receipts}:{from:stri
  <article><header><h2>运营成本</h2><InfoTip label="运营成本口径" text={data?.definitions.expenses||'房租、水电、员工工资、接待和其他，广告不计入。'}/></header><button type="button" className={'bp-main-number'+(data?.expenses.registered===null?' bp-pending-value':'')} aria-label="查看运营成本" disabled={!data} onClick={()=>open('expenses')}>{!data?'…':data.expenses.registered===null?'待补齐':yuan(data.expenses.registered)}</button><div className="bp-mini"><span>{data?.expenses.registered?'已登记小计':'费用资料待补'}</span></div><div className="bp-cost-status">工资待核算<InfoTip label="运营成本完整性" text="工资及其他费用未全部确认，已登记小计不代表公司完整运营成本。广告仍在投流数据。"/></div></article>
  </div>:<>
  <div className="bp-backbar"><button type="button" className="secondary" onClick={()=>room?setRoomId(""):open('home')}>← {room?'返回直播间':'返回经营总览'}</button>{room&&<button type="button" className="text-action" onClick={()=>open('home')}>经营总览</button>}</div>
- <header className="bp-detail-heading"><h2>{view==='expenses'?'运营成本':room?(room.team?room.name+' · '+room.team:room.name):'总业绩 · 按直播间'}</h2><span>{from} 至 {to}</span></header>
+ <header className="bp-detail-heading">
+  <h2>{view==='expenses' ? '运营成本' : room ? (room.team ? room.name+' · '+room.team : room.name) : <>总业绩<span className="bp-room-heading-qualifier"> · 按直播间</span></>}</h2>
+  <span className="bp-detail-date">{from} 至 {to}</span>
+ </header>
  {!data?<p role="status">正在读取…</p>:view==='rooms'?!room?<><div className="bp-room-list">{listedRooms.map(item=><button type="button" className="bp-room" key={item.id} onClick={()=>setRoomId(item.id)}>
   <span><strong>{item.name}</strong><small>{item.status==='pending'?'资料待补，暂不分配小组':item.team}</small></span>
   <span><b>{item.status==='pending'?'资料待补':yuan(item.total)}</b>{item.status!=='pending'&&<small>私推占比 {share(item.privateShare)} · {item.count}笔</small>}</span>

@@ -49,6 +49,12 @@
   display: none;
 }
 
+.bp-detail-heading .bp-room-heading-qualifier {
+  font: inherit;
+  color: inherit;
+  white-space: nowrap;
+}
+
 .bp-unassigned {
   margin: 16px 0 0;
   padding-top: 10px;
@@ -63,10 +69,27 @@
     display: none;
   }
 
+  .bp-detail-heading:has(.bp-room-heading-qualifier) {
+    align-items: baseline;
+    gap: 6px 12px;
+  }
+
+  .bp-detail-heading .bp-room-heading-qualifier {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--muted);
+  }
+
+  .bp-detail-heading:has(.bp-room-heading-qualifier) .bp-detail-date {
+    white-space: nowrap;
+  }
+
   .bp-room-list .bp-room {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto auto;
+    padding-block: 20px;
     column-gap: 10px;
+    row-gap: 12px;
   }
 
   .bp-room-split {
