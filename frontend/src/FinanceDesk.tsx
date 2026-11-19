@@ -1,7 +1,7 @@
 import ReimbursementWorkspace from "./demo/ReimbursementWorkspace";
 import WarehouseWorkspace from "./demo/WarehouseWorkspace";
 import DailyOperatingExpenses from "./demo/DailyOperatingExpenses";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api, type FinancePayment } from "./api";
 import { CompanyPayments } from "./CompanyPayments";
 import { PaidPerformance } from "./PaidPerformance";
@@ -46,6 +46,7 @@ export function FinanceDesk({ today, onOpenSalary, section, active:isActive=true
   const defaultWork: Work = demo && section ? (section === "finance" ? "receipts" : "warehouse") : "home";
   const [work, setWork] = useState<Work>(defaultWork);
   const [draftOpen, setDraftOpen] = useState(false);
+  const projectMenu = useRef<HTMLDetailsElement>(null);
   useEffect(()=>{
     if(!section||!isActive)return;
     const requested=sessionStorage.getItem('cms-demo-finance-task');
@@ -101,6 +102,19 @@ export function FinanceDesk({ today, onOpenSalary, section, active:isActive=true
         { id: "commission", label: "业绩提成" },
         { id: "salary", label: "员工工资核算" }
       ];
+  function selectProject(id: Work | "salary") {
+    if (projectMenu.current?.open) {
+      projectMenu.current.open = false;
+      projectMenu.current.querySelector("summary")?.focus();
+    }
+    if (id === "salary") {
+      onOpenSalary?.();
+      return;
+    }
+    setWork(id);
+    setDraftOpen(false);
+  }
+
   const wrapWithTabs = (content: ReactNode) => {
     if (!(demo && section)) return content;
     return <div className="finance-tabbed-shell">
@@ -114,20 +128,30 @@ export function FinanceDesk({ today, onOpenSalary, section, active:isActive=true
             role="tab"
             aria-selected={activeTab}
             className={activeTab ? "selected" : ""}
-            onClick={() => {
-              if (tab.id === "salary") {
-                onOpenSalary?.();
-              } else {
-                setWork(tab.id);
-                setDraftOpen(false);
-              }
-            }}
+            onClick={() => selectProject(tab.id)}
           >
             <span>{tab.label}</span>
             {badge?.attention && <em className="finance-tab-badge">{badge.text}</em>}
           </button>;
         })}
       </nav>
+      <details ref={projectMenu} className="finance-project-menu" key={section}>
+        <summary>
+          <strong>{sectionTabs.find(tab => tab.id === work)?.label}</strong>
+          <span>全部项目 <span aria-hidden="true">▾</span></span>
+        </summary>
+        <ul aria-label="全部财务项目">
+          {sectionTabs.map(tab => {
+            const badge = badges[tab.id as keyof FinanceBadges];
+            return <li key={tab.id}>
+              <button type="button" aria-current={work === tab.id ? "true" : undefined} onClick={() => selectProject(tab.id)}>
+                <span>{tab.label}</span>
+                {badge?.attention && <em className="finance-tab-badge">{badge.text}</em>}
+              </button>
+            </li>;
+          })}
+        </ul>
+      </details>
       {content}
     </div>;
   };
