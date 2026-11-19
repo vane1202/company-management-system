@@ -18,7 +18,7 @@ export function FinanceWorkspace({today,readOnly=false,cashView}:{today:string;r
   return readOnly&&DemoBossCashBoard?<Suspense fallback={<p role="status">正在读取收款与到账…</p>}><DemoBossCashBoard today={today} context={cashView} financialDetail={(query,range)=><FinanceLedgerWorkspace today={today} readOnly initialQuery={query} initialRange={range} initialPendingOnly={false}/>} /></Suspense>:<FinanceLedgerWorkspace today={today} readOnly={readOnly}/>;
 }
 
-export function FinanceLedgerWorkspace({today,readOnly=false,initialQuery='',initialRange,initialPendingOnly=true,heading,hideCompanions=false}:{today:string;readOnly?:boolean;initialQuery?:string;initialRange?:{from:string;to:string};initialPendingOnly?:boolean;heading?:string;hideCompanions?:boolean}) {
+export function FinanceLedgerWorkspace({today,readOnly=false,initialQuery='',initialRange,initialPendingOnly=true,heading,hideCompanions=false,onBack}:{today:string;readOnly?:boolean;initialQuery?:string;initialRange?:{from:string;to:string};initialPendingOnly?:boolean;heading?:string;hideCompanions?:boolean;onBack?:()=>void}) {
   const [data,setData]=useState<FinanceData|null>(null),[error,setError]=useState(""),[busy,setBusy]=useState(false);
   const [filters,setFilters]=useState({from:initialRange?.from??"",to:initialRange?.to??"",query:initialQuery,currency:"",channel:"",pendingOnly:initialPendingOnly});
   const [selected,setSelected]=useState<Record<string,{foreignAmount:string;netCny:string}>>({});
@@ -38,7 +38,17 @@ export function FinanceLedgerWorkspace({today,readOnly=false,initialQuery='',ini
   const candidates=data?.payments.filter(p=>!p.voided_at&&p.third_party&&p.currency===form.currency&&p.channel===form.channel&&cents(p.pendingAmount)!==0n)??[];
   const allocations=Object.entries(selected).map(([paymentId,a])=>({paymentId,...a}));
   const allocationTotal=allocations.every(a=>cents(a.netCny)!==null)?money(allocations.reduce((n,a)=>n+(cents(a.netCny)??0n),0n)):"—";
-  return <div className="commerce-workspace"><header className="commerce-heading"><div><p className="eyebrow">客户付款 · 第三方结算</p><h1>{heading??(readOnly?"收款与结算":"财务工作台")}<InfoTip label="收款与结算说明" text={`${readOnly?"BOSS 只读查看。":"由财务登记扣点、结汇与人民币到账。"}客户付款已抵扣客户应收，结算扣费和汇差由公司承担。`}/></h1></div><button className="secondary" disabled={busy} onClick={()=>void reload()}>{busy?"读取中…":"刷新"}</button></header>
+  return <div className="commerce-workspace">
+    <header className="commerce-heading">
+      <div>
+        {!heading && <p className="eyebrow">客户付款 · 第三方结算</p>}
+        <h1>{heading ?? (readOnly ? "收款与结算" : "财务工作台")}<InfoTip label="收款与结算说明" text={`${readOnly ? "BOSS 只读查看。" : "由财务登记扣点、结汇与人民币到账。"}客户付款已抵扣客户应收，结算扣费和汇差由公司承担。`} /></h1>
+      </div>
+      <div className="actions">
+        {onBack && <button type="button" className="secondary" onClick={onBack}>返回</button>}
+        <button type="button" className="secondary" disabled={busy} onClick={() => void reload()}>{busy ? "读取中…" : "刷新"}</button>
+      </div>
+    </header>
     {error&&<p className="error" role="alert">{error}</p>}
     {!data?(error?<section className="card overview-error" role="alert"><p>未能读取财务数据，可点击重试。</p><button type="button" className="secondary" disabled={busy} onClick={()=>void reload()}>{busy?"读取中…":"重新读取"}</button></section>:<section className="card" role="status">正在读取财务数据…</section>):<>
     <section className="card"><p className="eyebrow">全部已登记流水 · 累计<InfoTip label="累计口径" text="人民币流入已扣除结算手续费，不再重复扣费。此处不含旧订单未知收款，也不计算退款流出与利润。"/></p><div className="commerce-kpis"><div><small>实际人民币累计流入</small><strong>{yuan(data.summary.totalCny)}</strong></div><div><small>直接收款</small><strong>{yuan(data.summary.directCny)}</strong></div><div><small>第三方净到账</small><strong>{yuan(data.summary.settledCny)}</strong></div></div><div className="commerce-pending">{Object.entries(data.summary.pending).map(([cur,value])=><span key={cur}>待第三方结算 · {currencies[cur as Currency]}<b>{value} {cur}</b></span>)}</div></section>

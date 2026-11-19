@@ -157,7 +157,7 @@ export function FinanceDesk({ today, onOpenSalary, section, active:isActive=true
   };
   if (demo && work === "reimbursement") return wrapWithTabs(<ReimbursementWorkspace today={today} onBack={inlineBack}/>);
   if (work === "warehouse") return wrapWithTabs(<WarehouseWorkspace today={today} finance onBack={inlineBack}/>);
-  if (work === "settlement") return wrapWithTabs(<WorkFrame title="第三方结算" onBack={inlineBack}><FinanceLedgerWorkspace today={today} heading="第三方结算" hideCompanions /></WorkFrame>);
+  if (work === "settlement") return wrapWithTabs(<FinanceLedgerWorkspace today={today} heading="第三方结算" hideCompanions onBack={inlineBack} />);
   if (work === "material") return wrapWithTabs(<WorkFrame title="料子货款结算" tip="此处查看料子供货成本与原付款台账；新结账单由库房提交，在「库房结账」中审核和登记付款。客户已付款不在这里抵扣。" onBack={inlineBack}><CompanyPayments today={today} readOnly={demo} categories={["goods", "sourcing"]} heading="翡翠料子货款" /></WorkFrame>);
   if (demo && work === "ads") return wrapWithTabs(<WorkFrame title="广告充值" onBack={inlineBack}><AdAccountsWorkspace today={today} readOnly={false} /></WorkFrame>);
   if (work === "other") return wrapWithTabs(<WorkFrame title={demo?"加工与发货台账":"其他财务事项"} onBack={inlineBack}><CompanyPayments today={today} readOnly={demo} excludeCategories={["goods", "sourcing"]} heading="加工、证书、包装和运费" />{!demo&&<><PaidPerformance today={today} readOnly={false} /><AdAccountsWorkspace today={today} readOnly={false} /></>}</WorkFrame>);
