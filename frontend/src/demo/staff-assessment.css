@@ -8,7 +8,7 @@
 .sa-toolbar .overview-segments button{white-space:nowrap}
 .sa-person-filters{display:flex;gap:12px;min-width:0;flex:1;justify-content:flex-end}
 .staff-assessment .oa-sort{display:flex;align-items:center;gap:8px;min-width:0;margin:0}
-.staff-assessment .oa-sort select{min-height:44px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:inherit;padding:6px 8px;max-width:210px}
+.staff-assessment .oa-sort select{min-height:44px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:inherit;padding:6px 8px;max-width:210px}
 .sa-coverage{display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:12px;color:var(--muted);line-height:1.6;min-width:0}
 .sa-coverage b{font-variant-numeric:tabular-nums;color:var(--ink)}
 .sa-coverage.is-attention{border-color:#caa874;color:#80501e;background:#b77f2210}
@@ -32,14 +32,14 @@
  .sa-toolbar .overview-segments{display:flex;width:100%;box-sizing:border-box}
  .staff-assessment .sa-toolbar .overview-segments button{flex:1;min-width:0;min-height:44px;padding:6px 8px;font-size:13px}
  .sa-person-filters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;width:100%}
- .staff-assessment .oa-sort{display:grid;gap:5px;font-size:11px}
+ .staff-assessment .oa-sort{display:grid;gap:5px;font-size:12px}
  .staff-assessment .oa-sort select{max-width:none;width:100%;font-size:12px;margin:0}
  .staff-assessment .oa-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
  .staff-assessment .oa-kpis>article{gap:6px;padding:12px 10px}
  .staff-assessment .oa-kpis h2{font-size:12px}
- .staff-assessment .oa-kpis>article>strong{font-size:28px;gap:4px}
+ .staff-assessment .oa-kpis>article>strong{font-size:24px;gap:4px}
  .staff-assessment .oa-kpis strong small{flex-basis:100%;font-size:12px}
- .sa-rate-basis{font-size:10px;line-height:1.5}
- .sa-coverage{padding:8px 10px;font-size:11px;align-items:flex-start}
+ .sa-rate-basis{font-size:12px;line-height:1.5}
+ .sa-coverage{padding:8px 10px;font-size:12px;align-items:flex-start}
  .staff-assessment .oa-group-row{grid-template-columns:repeat(2,minmax(0,1fr))}
 }

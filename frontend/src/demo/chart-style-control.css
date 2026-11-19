@@ -1,8 +1,8 @@
 /* Self-contained control: chart pages must not rely on Boss page CSS loading first. */
-.chart-style-control.chart-style-control{display:inline-flex;align-items:center;gap:2px;flex-shrink:0;width:max-content;max-width:100%;padding:3px;border:0;border-radius:9px;background:var(--bg);box-sizing:border-box}
-.chart-style-control.chart-style-control>button{display:inline-flex;align-items:center;justify-content:center;min-width:58px;min-height:40px;margin:0;padding:8px 10px;border:0;border-radius:7px;background:transparent;color:var(--muted);box-shadow:none;font-size:12px;font-weight:400;line-height:1.4;white-space:nowrap;cursor:pointer;touch-action:manipulation}
+.chart-style-control.chart-style-control{display:inline-flex;align-items:center;gap:2px;flex-shrink:0;width:max-content;max-width:100%;padding:3px;border:0;border-radius:10px;background:var(--bg);box-sizing:border-box}
+.chart-style-control.chart-style-control>button{display:inline-flex;align-items:center;justify-content:center;min-width:58px;min-height:40px;margin:0;padding:8px 10px;border:0;border-radius:10px;background:transparent;color:var(--muted);box-shadow:none;font-size:12px;font-weight:400;line-height:1.4;white-space:nowrap;cursor:pointer;touch-action:manipulation}
 .chart-style-control.chart-style-control>button:hover{background:var(--line);color:var(--ink)}
 .chart-style-control.chart-style-control>button[aria-pressed=true]{background:var(--card);color:var(--jade-dark,var(--ink));font-weight:500}
 .chart-style-control.chart-style-control>button:focus-visible{outline:2px solid var(--jade);outline-offset:1px}
-@media(max-width:799px){.chart-style-control.chart-style-control>button{min-width:54px;min-height:44px;padding:7px 8px;font-size:11px}}
+@media(max-width:799px){.chart-style-control.chart-style-control>button{min-width:54px;min-height:44px;padding:7px 8px;font-size:12px}}
 @media(forced-colors:active){.chart-style-control.chart-style-control{border:1px solid CanvasText}.chart-style-control.chart-style-control>button[aria-pressed=true]{outline:1px solid Highlight;outline-offset:-2px;color:Highlight}}
