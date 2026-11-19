@@ -16,14 +16,12 @@ import CommissionPanel from "./demo/CommissionPanel";
 import {FinanceWorkbenchHome} from "./demo/RoleWorkbenches";
 import "./finance-menu.css";
 
-type Work = "reimbursement" | "warehouse" | "home" | "receipts" | "settlement" | "later" | "material" | "other" | "commission" | "dailyExpenses" | "ads";
+type Work = "reimbursement" | "warehouse" | "home" | "receipts" | "settlement" | "later" | "material" | "other" | "commission" | "dailyExpenses" | "ads" | "paidVerification";
 const demo = import.meta.env.MODE === "demo";
 
 export function FinanceDesk({ today, onOpenSalary, section, active:isActive=true }: { today: string; onOpenSalary?: () => void; section?: 'finance'|'financeOut'; active?:boolean }) {
   const [work, setWork] = useState<Work>("home");
-  const [commissionView,setCommissionView]=useState<'calculation'|'verification'>('calculation');
-  useEffect(()=>{if(work!=='commission')setCommissionView('calculation');},[work]);
-  useEffect(()=>{if(!section||!isActive)return;const requested=sessionStorage.getItem('cms-demo-finance-task');sessionStorage.removeItem('cms-demo-finance-task');const allowed=section==='finance'?['receipts','settlement','later']:['reimbursement','warehouse','material','other','commission','dailyExpenses','ads'];setWork(allowed.includes(requested||'')?requested as Work:'home');},[section,isActive]);
+  useEffect(()=>{if(!section||!isActive)return;const requested=sessionStorage.getItem('cms-demo-finance-task');sessionStorage.removeItem('cms-demo-finance-task');const allowed=section==='finance'?['receipts','settlement','later','paidVerification']:['reimbursement','warehouse','material','other','commission','dailyExpenses','ads'];setWork(allowed.includes(requested||'')?requested as Work:'home');},[section,isActive]);
   const [payments, setPayments] = useState<FinancePayment[] | null>(null);
   const [error, setError] = useState("");
   const [refreshTick,setRefreshTick]=useState(0);
@@ -45,13 +43,15 @@ export function FinanceDesk({ today, onOpenSalary, section, active:isActive=true
   if (work === "other") return <WorkFrame title={demo?"加工与发货台账":"其他财务事项"} onBack={() => setWork("home")}><CompanyPayments today={today} readOnly={demo} excludeCategories={["goods", "sourcing"]} heading="加工、证书、包装和运费" />{!demo&&<><PaidPerformance today={today} readOnly={false} /><AdAccountsWorkspace today={today} readOnly={false} /></>}</WorkFrame>;
   if (work === "receipts") return <WorkFrame title={demo ? "订单收款" : "订单收款核对"} onBack={() => setWork("home")}><p className="notice">实时收款指开单当时收到的定金或全款。尾款按约定日后另记。客户付给公司或第三方后，都减少客户欠款；第三方扣点和汇差不向客户追收。</p><ReceiptLists error={error} groups={[{ title: "实时收款", rows: immediate }, { title: "尾款", rows: balances }]} /><ReceiptDraft today={today} mode="order" /></WorkFrame>;
   if (work === "later") return <WorkFrame title={demo ? "后续费用收款" : "后续费用核对"} onBack={() => setWork("home")}><p className="notice">设计、雕刻、配货等费用向客户另收，不计入原开单营业额。公司支付给加工方或商家的成本在料子货款和其他付款里登记。</p><ReceiptLists error={error} groups={[{ title: "已登记的后续收款", rows: later }]} /><ReceiptDraft today={today} mode="later" /></WorkFrame>;
-  if (demo && work === "commission") return <WorkFrame title="业绩提成" onBack={() => setWork("home")}><nav className="finance-subnav" aria-label="业绩提成子菜单"><button type="button" aria-pressed={commissionView==='calculation'} onClick={()=>setCommissionView('calculation')}>净利润提成</button><button type="button" aria-pressed={commissionView==='verification'} onClick={()=>setCommissionView('verification')}>已付款业绩核定</button></nav>{commissionView==='calculation'?<CommissionPanel today={today} />:<PaidPerformance today={today} readOnly={false} />}</WorkFrame>;
+  if (demo && work === "commission") return <WorkFrame title="业绩提成" onBack={() => setWork("home")}><CommissionPanel today={today} /></WorkFrame>;
+  if (demo && work === "paidVerification") return <WorkFrame title="已付款业绩核定" onBack={() => setWork("home")}><PaidPerformance today={today} readOnly={false} /></WorkFrame>;
   if (demo && work === "dailyExpenses") return <WorkFrame title="日常运营费用" onBack={() => setWork("home")}><DailyOperatingExpenses today={today}/></WorkFrame>;
   if(demo&&section) {
     const groups: {title: string; items: [Work|'salary',string,string,Parameters<typeof DashboardIcon>[0]['name']][]}[] = section==='finance'
-      ? [{title:'收款业务',items:[['receipts','订单收款','定金、全款与尾款','finance'],['settlement','第三方结算','代收扣点、结汇与到账','refresh'],['later','售后费用收款','设计、雕刻与接待收费','orders']]}]
-      : [{title:'对外付款',items:[['reimbursement','费用报销','申请核对与报销付款','orders'],['warehouse','库房结账','账单审核与实际付款','financeOut'],['material','料子货款台账','供货成本与付款记录','modules'],['other','加工与发货台账','加工、证书、包装与运费','reportHistory'],['ads','广告充值','预存充值、实际付款与余额','ops']]},
-         {title:'费用与薪酬',items:[['commission','业绩提成','按订单净利润核算','assessment'],['dailyExpenses','日常运营费用','房租、水电、接待与其他','home'],['salary','员工工资核算','基本工资、提成、奖金与扣款','salaries']]}];
+      ? [{title:'收款业务',items:[['receipts','订单收款','定金、全款与尾款','finance'],['settlement','第三方结算','代收扣点、结汇与到账','refresh'],['later','售后费用收款','设计、雕刻与接待收费','orders'],['paidVerification','已付款业绩核定','核定客户已付款业绩','assessment']]}]
+      : [{title:'待付款处理',items:[['warehouse','库房结账','账单审核与实际付款','financeOut'],['reimbursement','费用报销','员工报销核对与付款（不计入运营成本）','orders']]},
+         {title:'业务成本与广告',items:[['material','料子货款台账','供货成本与付款记录','modules'],['other','加工与发货台账','加工、证书、包装与运费','reportHistory'],['ads','广告充值','预存充值、实际付款与余额','ops']]},
+         {title:'日常费用与薪酬',items:[['dailyExpenses','日常运营费用','房租、水电、接待与其他（BOSS 运营成本来源）','home'],['salary','员工工资核算','基本工资、提成、奖金与扣款','salaries'],['commission','业绩提成','按订单净利润核算，结果登记到工资','assessment']]}];
     return <div className="finance-desk fh-section finance-menu"><header className="commerce-heading"><h1>{section==='finance'?'收款与结算':'付款与工资'}</h1></header>
       {groups.map(group=><section className="finance-menu-group" key={group.title} aria-label={group.title}>
         {section==='financeOut'&&<h2>{group.title}</h2>}
