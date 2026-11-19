@@ -13,6 +13,7 @@ import { FinanceLedgerWorkspace } from "./FinanceWorkspace";
 import { CurrencySelect, Field } from "./OrderWorkspace";
 
 import CommissionPanel from "./demo/CommissionPanel";
+import { useFinanceBadges, type FinanceBadges } from "./demo/financeBadges";
 import {FinanceWorkbenchHome} from "./demo/RoleWorkbenches";
 import "./finance-menu.css";
 
@@ -25,6 +26,7 @@ export function FinanceDesk({ today, onOpenSalary, section, active:isActive=true
   const [payments, setPayments] = useState<FinancePayment[] | null>(null);
   const [error, setError] = useState("");
   const [refreshTick,setRefreshTick]=useState(0);
+  const badges=useFinanceBadges(demo&&isActive&&work==="home"&&(section==="financeOut"||!section),today.slice(0,7),refreshTick);
   useEffect(() => {
     let live = true;
     setPayments(null);setError("");
@@ -56,12 +58,12 @@ export function FinanceDesk({ today, onOpenSalary, section, active:isActive=true
       {groups.map(group=><section className="finance-menu-group" key={group.title} aria-label={group.title}>
         {section==='financeOut'&&<h2>{group.title}</h2>}
         <div className={`finance-menu-grid${group.items.length===4?' finance-menu-grid-four':''}`}>{group.items.map(([key,title,note,icon])=><button className="finance-menu-item" type="button" key={key} onClick={()=>key==='salary'?onOpenSalary?.():setWork(key)}>
-          <span className="finance-menu-icon"><DashboardIcon name={icon}/></span><span className="finance-menu-copy"><strong>{title}</strong><small>{note}</small></span><span className="finance-menu-arrow" aria-hidden="true">›</span>
+          <span className="finance-menu-icon"><DashboardIcon name={icon}/></span><span className="finance-menu-copy"><strong>{title}</strong><small>{note}</small>{badges[key as keyof FinanceBadges]&&<em className={'finance-menu-badge'+(badges[key as keyof FinanceBadges]!.attention?' is-attention':'')}>{badges[key as keyof FinanceBadges]!.text}</em>}</span><span className="finance-menu-arrow" aria-hidden="true">›</span>
         </button>)}</div>
       </section>)}
     </div>;
   }
-  if(demo) return <FinanceWorkbenchHome today={today} payments={payments} error={error} onOpen={setWork} onSalary={()=>onOpenSalary?.()} onRetry={()=>setRefreshTick(t=>t+1)}/>;
+  if(demo) return <FinanceWorkbenchHome today={today} payments={payments} error={error} onOpen={setWork} onSalary={()=>onOpenSalary?.()} badges={badges} onRetry={()=>setRefreshTick(t=>t+1)}/>;
   return <div className="role-home finance-desk"><header className="role-home-heading"><div><p className="eyebrow">录入与核对</p><h1>财务工作台</h1><p>先处理待登记的款项，再核对已经入账的记录。</p></div><button type="button" className="secondary overview-refresh" onClick={() => setRefreshTick(t => t + 1)}>刷新</button></header>
     {error && <div className="overview-error" role="alert"><p>{error}</p><button type="button" className="secondary" onClick={() => setRefreshTick(t => t + 1)}>重新读取</button></div>}
     <section className="role-home-panel"><div className="role-action-list finance-work-list">
