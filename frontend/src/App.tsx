@@ -76,8 +76,8 @@ export function App() {
   const [backfillDays, setBackfillDays] = useState(3);
   const [disclaimer, setDisclaimer] = useState("");
   const [pageErrors, setPageErrors] = useState<Partial<Record<Page, string>>>({});
-  const [financeSub, setFinanceSub] = useState<{ label: string; onBack: () => void } | null>(null);
-  const handleFinanceSub = useCallback((sub: { label: string; onBack: () => void } | null) => setFinanceSub(sub), []);
+  const [financeSub, setFinanceSub] = useState<{ label: string; onBack?: () => void } | null>(null);
+  const handleFinanceSub = useCallback((sub: { label: string; onBack?: () => void } | null) => setFinanceSub(sub), []);
   const entry = fillEntryFromPath(window.location.pathname);
   const hasUserRef = useRef(false);
   hasUserRef.current = user !== null;
@@ -173,7 +173,7 @@ export function App() {
   const businessContext=navigation.views.orders?.live??defaultLiveView();
   const currentBusiness=navigation.route.live??defaultLiveView();
   const homeLabel = items[0]?.label ?? pageLabel(user.role, rootPage);
-  const goHome = () => { financeSub?.onBack(); navigation.up({ page: rootPage }); };
+  const goHome = () => { financeSub?.onBack?.(); navigation.up({ page: rootPage }); };
   type Crumb = { label: string; onClick?: () => void };
   const breadcrumbs: Crumb[] = [];
   if (activePage === rootPage) {

@@ -1,8 +1,9 @@
 import {useEffect,useMemo,useRef,useState,type ReactNode} from 'react';
 import {api,type FinanceData} from '../api';
 import {InfoTip} from '../InfoTip';
-import {dashboardPresetRange,isIsoDate} from '../dates';
+import {dashboardPresetRange} from '../dates';
 import {toErrorMessage} from '../errors';
+import {PeriodToolbar,type StandardPreset} from '../PeriodToolbar';
 import {buildCashBoard,formatCashValue,formatPendingCash} from './cashBoardData';
 import {CustomerPaymentSummary} from './CustomerPaymentSummary';
 import {loadCashOrderBalances,useBossCashPending,type CashOrderBalances} from './useBossCashPending';
@@ -27,9 +28,8 @@ type Props={today:string;context?:CashView;financialDetail:(query?:string,range?
 export default function BossCashBoard({today,financialDetail,context}:Props){
   const [data,setData]=useState<FinanceData|null>(null),[error,setError]=useState(''),[loading,setLoading]=useState(true),[refresh,setRefresh]=useState(0);
   const [orderState,setOrderState]=useState<{key:string;operations?:CashOrderBalances}>();
-  const [preset,setPreset]=useState('day'),[custom,setCustom]=useState<{from:string;to:string}|null>(null);
+  const [preset,setPreset]=useState<StandardPreset>('day'),[custom,setCustom]=useState<{from:string;to:string}|null>(null);
   const period=custom??dashboardPresetRange(today,preset);
-  const [draft,setDraft]=useState(()=>dashboardPresetRange(today,'day')),[dateError,setDateError]=useState('');
   const [channel,setChannel]=useState(''),[currency,setCurrency]=useState(''),[detailOpen,setDetailOpen]=useState(false),[query,setQuery]=useState('');
   const [detailPeriodOnly,setDetailPeriodOnly]=useState(true);
   const [focused,setFocused]=useState<'arrivals'|'pending'|null>(null);
@@ -38,8 +38,8 @@ export default function BossCashBoard({today,financialDetail,context}:Props){
   useEffect(()=>{
     if(!context || context.to>today)return;
     const inherited={from:context.from,to:context.to};
-    const matching=['day','week','month'].find(key=>{const range=dashboardPresetRange(today,key);return range.from===inherited.from&&range.to===inherited.to;});
-    setPreset(matching??'day');setCustom(matching?null:inherited);setDraft(inherited);setDateError('');
+    const matching=(['day','week','month'] as const).find(key=>{const range=dashboardPresetRange(today,key);return range.from===inherited.from&&range.to===inherited.to;});
+    setPreset(matching??'day');setCustom(matching?null:inherited);
     setChannel('');setCurrency('');setQuery('');setDetailOpen(false);setDetailPeriodOnly(true);setFocused(null);
   },[context,today]);
   useEffect(()=>{let active=true;setLoading(true);setData(null);setError('');api.finance().then(d=>{if(active)setData(d);}).catch(e=>{if(active)setError(toErrorMessage(e));}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[refresh]);
@@ -60,13 +60,21 @@ export default function BossCashBoard({today,financialDetail,context}:Props){
   const unknownOrders=operations?.orders.filter(order=>order.status==='unknown').length??0;
   const groups=board?.groups.filter(g=>(!channel||g.channel===channel)&&(!currency||g.currency===currency))??[];
   const accountOptions=[...new Set([...(data?.payments.filter(p=>p.third_party&&!p.voided_at).map(p=>p.channel||'账户待补')??[]),...(channel?[channel]:[])])];
-  function pickPreset(value:string){setPreset(value);setCustom(null);setDateError('');setDraft(dashboardPresetRange(today,value));setFocused(null);}
+  function pickPreset(value:StandardPreset){setPreset(value);setCustom(null);setFocused(null);}
   function showDetails(search='',periodOnly=false){setQuery(search);setDetailPeriodOnly(periodOnly);setDetailOpen(true);detailRef.current?.scrollIntoView({block:'start'});}
   function jump(section:'arrivals'|'pending'){setFocused(section);(section==='pending'?pendingRef:arrivalsRef).current?.scrollIntoView({block:'start'});}
   return <div className="cb-board" aria-label="BOSS收款与到账" aria-busy={loading}>
-    <header className="cb-heading"><div><h1>收款与到账</h1><p>{period.from} 至 {period.to}</p></div><button type="button" className="secondary" disabled={loading} onClick={()=>{setDetailOpen(false);setRefresh(v=>v+1);}}> {loading?'读取中…':'刷新'}</button></header>
-    <section className="cb-toolbar" aria-label="资金日期筛选"><div className="overview-segments">{[['day','今日'],['week','本周'],['month','本月']].map(([key,label])=><button key={key} type="button" className={!custom&&preset===key?'selected':''} aria-pressed={!custom&&preset===key} onClick={()=>pickPreset(key)}>{label}</button>)}</div><details><summary>自定义日期{custom?' · 已设置':''}</summary><form onSubmit={e=>{e.preventDefault();if(!isIsoDate(draft.from)||!isIsoDate(draft.to)||draft.from>draft.to||draft.to>today){setDateError('请选择有效日期，结束日期不能晚于今天');return;}setCustom({...draft});setDateError('');setFocused(null);}}><label>开始日期<input type="date" required max={today} value={draft.from} onChange={e=>setDraft({...draft,from:e.target.value})}/></label><label>结束日期<input type="date" required min={draft.from} max={today} value={draft.to} onChange={e=>setDraft({...draft,to:e.target.value})}/></label><button type="submit" className="secondary">查询</button></form></details></section>
-    {dateError&&<p role="alert" className="error">{dateError}</p>}
+    <header className="cb-heading"><div><h1>收款与到账</h1></div></header>
+    <PeriodToolbar
+      today={today}
+      preset={preset}
+      custom={custom}
+      onPreset={pickPreset}
+      onCustom={next=>{setCustom(next);setFocused(null);}}
+      caption={`${period.from} 至 ${period.to}`}
+      actions={<button type="button" className="secondary" disabled={loading} onClick={()=>{setDetailOpen(false);setRefresh(v=>v+1);}}>{loading?'读取中…':'刷新'}</button>}
+      ariaLabel="资金日期筛选"
+    />
     {error&&<div className="overview-error" role="alert"><strong>资金数据暂不可用</strong><p>{error}</p><button type="button" onClick={()=>setRefresh(v=>v+1)}>重新读取</button></div>}
     <section className="cb-kpis" aria-label="资金位置概览">
       <CashCard title="实收金额（公司已到账）" tip="所选区间登记的人民币直接到账与第三方代收净到账合计。净到账已包含扣费。"

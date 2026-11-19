@@ -15,8 +15,8 @@ describe("工资单前端辅助", () => {
     expect(payrollAmountError("0.00")).not.toBe("");
     expect(payrollAmountError("-1")).not.toBe("");
     expect(payrollAmountError("1.005")).not.toBe("");
-    expect(signedLabel("deduction", "5.00")).toBe("− ¥ 5.00");
-    expect(signedLabel("bonus", "5.00")).toBe("+ ¥ 5.00");
+    expect(signedLabel("deduction", "5.00")).toBe("− ¥5.00");
+    expect(signedLabel("bonus", "5.00")).toBe("+ ¥5.00");
   });
   it("备注预检：去掉空格后不能为空", () => {
     expect(payrollNoteError("")).toBe(PAYROLL_NOTE_REQUIRED);

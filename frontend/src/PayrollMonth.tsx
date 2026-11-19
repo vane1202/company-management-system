@@ -6,7 +6,7 @@ import { toErrorMessage } from "./errors";
 import { Field } from "./OrderWorkspace";
 import { submissionKey } from "./commerceUi";
 import { isPayMonth, payrollAmountError, payrollKindLabel, payrollNoteError, shiftMonth, signedLabel } from "./payrollUi";
-import { payrollStatusSplit } from "./dashboardDisplay";
+import { payrollStatusSplit, yuan } from "./dashboardDisplay";
 import { InfoTip } from "./InfoTip";
 import { toast } from "./Toast";
 import { Skeleton } from "./Skeleton";
@@ -65,14 +65,14 @@ export function PayrollMonth({ today, readOnly, employees }: { today: string; re
     </section>
     {error && <p className="error" role="alert">{error} <button className="secondary" disabled={loading} onClick={() => void load()}>刷新</button></p>}
     <section className="card payroll-totals" aria-label="工资单合计">
-      <div className="payroll-net"><small>{month} 核算净额（含草稿）· 人民币</small><strong className={t?.netNegative ? "negative" : ""}>{t ? `¥ ${t.net}` : loading ? <Skeleton width="7em" height="1.3em" /> : "—"}</strong></div>
+      <div className="payroll-net"><small>{month} 核算净额（含草稿）· 人民币</small><strong className={t?.netNegative ? "negative" : ""}>{t ? yuan(t.net) : loading ? <Skeleton width="7em" height="1.3em" /> : "—"}</strong></div>
       {split?.matchesTotal && <div className="payroll-status-split" aria-label="按工资单状态拆分">
-        <div><span>已锁定 {split.locked.count} 人</span><b>¥ {split.locked.net}</b></div>
-        <div><span>草稿待核定 {split.draft.count} 人</span><b className={split.draft.net.startsWith("-") ? "negative" : ""}>¥ {split.draft.net}</b></div>
+        <div><span>已锁定 {split.locked.count} 人</span><b>{yuan(split.locked.net)}</b></div>
+        <div><span>草稿待核定 {split.draft.count} 人</span><b className={split.draft.net.startsWith("-") ? "negative" : ""}>{yuan(split.draft.net)}</b></div>
       </div>}
       {!!split?.negatives.length && <div className="payroll-negatives" aria-label="核算净额为负">
         <span>核算净额为负 {split.negatives.length} 人 · 已计入上方合计，需财务核对</span>
-        {split.negatives.map(n => <b key={n.userId} className="negative-chip">{n.displayName} ¥ {n.net} · {n.status === "locked" ? "已锁定" : "草稿"}</b>)}
+        {split.negatives.map(n => <b key={n.userId} className="negative-chip">{n.displayName} {yuan(n.net)} · {n.status === "locked" ? "已锁定" : "草稿"}</b>)}
       </div>}
       <dl className="payroll-breakdown">
         <div><dt>底薪</dt><dd>{t ? t.base : pending}</dd></div>
@@ -82,7 +82,7 @@ export function PayrollMonth({ today, readOnly, employees }: { today: string; re
       </dl>
       {t && !split?.matchesTotal && <p className="notice">{t.employeeCount} 人 · 已锁定 {t.lockedCount} 人{t.negativeCount ? <> · <b className="negative">{t.negativeCount} 人核算净额为负，需财务核对</b></> : null}</p>}
     </section>
-    {data && data.roles.length > 1 && <section className="card"><h2>各岗位合计</h2>{data.roles.map(r => <article key={r.role} className="commerce-record"><span><strong>{roleLabel[r.role]}</strong><small>{r.employeeCount} 人 · 底薪 {r.base} · 提成 {r.commission} · 奖金 {r.bonus} · 扣款 {r.deduction}</small></span><span className={`commerce-amount ${r.netNegative ? "negative" : ""}`}>¥ {r.net}<small>核算净额</small></span></article>)}</section>}
+    {data && data.roles.length > 1 && <section className="card"><h2>各岗位合计</h2>{data.roles.map(r => <article key={r.role} className="commerce-record"><span><strong>{roleLabel[r.role]}</strong><small>{r.employeeCount} 人 · 底薪 {r.base} · 提成 {r.commission} · 奖金 {r.bonus} · 扣款 {r.deduction}</small></span><span className={`commerce-amount ${r.netNegative ? "negative" : ""}`}>{yuan(r.net)}<small>核算净额</small></span></article>)}</section>}
     <section className="card" aria-busy={loading}>
       <h2>员工工资单{data?.note && <InfoTip label="工资单口径" text={data.note+' 核算净额不代表已发放；草稿待核定，锁定只代表核算结果已确认。'} />}</h2>
       {loading && !data && [0, 1, 2].map(i => <div key={i} className="payroll-slip-skeleton" aria-hidden="true"><span><Skeleton width="5em" height="1em" /><Skeleton width="8em" height=".75em" /></span><Skeleton width="5.5em" height="1.1em" /></div>)}
@@ -112,21 +112,21 @@ function EmployeeSlip({ emp, month, readOnly, open, onToggle, onSaved }: { emp: 
     const all = { amount: true, note: true }; setTouched(all);
     const errors = draftErrors(draft, all); if (errors.amount || errors.note) return;
     const body = { userId: emp.userId, month, ...draft, amount: draft.amount.trim(), note: draft.note.trim() };
-    void run(() => api.createPayrollItem({ ...body, requestKey: key.current(body) }), `已录入${payrollKindLabel[draft.kind]} ¥ ${body.amount}（${body.note}）`, () => { key.current = submissionKey(); setDraft(emptyDraft()); setTouched(untouched()); });
+    void run(() => api.createPayrollItem({ ...body, requestKey: key.current(body) }), `已录入${payrollKindLabel[draft.kind]} ${yuan(body.amount)}（${body.note}）`, () => { key.current = submissionKey(); setDraft(emptyDraft()); setTouched(untouched()); });
   }
   function submitAction(e: FormEvent) {
     e.preventDefault(); if (!action) return;
-    if (action.mode === "void") { void run(() => api.voidPayrollItem(action.item.id, { version: action.item.version, reason: action.reason.trim() }), `${payrollKindLabel[action.item.kind]} ¥ ${action.item.amount}（${action.item.note}）已作废`, () => setAction(null)); return; }
+    if (action.mode === "void") { void run(() => api.voidPayrollItem(action.item.id, { version: action.item.version, reason: action.reason.trim() }), `${payrollKindLabel[action.item.kind]} ${yuan(action.item.amount)}（${action.item.note}）已作废`, () => setAction(null)); return; }
     const all = { amount: true, note: true }; setActionTouched(all);
     const errors = draftErrors(action.draft, all); if (errors.amount || errors.note) return;
     const body = { ...action.draft, amount: action.draft.amount.trim(), note: action.draft.note.trim(), version: action.item.version, reason: action.reason.trim() };
-    void run(() => api.correctPayrollItem(action.item.id, { ...body, requestKey: correctKey.current({ id: action.item.id, ...body }) }), `${payrollKindLabel[action.item.kind]}已更正为${payrollKindLabel[body.kind]} ¥ ${body.amount}（原项目作废留痕）`, () => { correctKey.current = submissionKey(); setAction(null); });
+    void run(() => api.correctPayrollItem(action.item.id, { ...body, requestKey: correctKey.current({ id: action.item.id, ...body }) }), `${payrollKindLabel[action.item.kind]}已更正为${payrollKindLabel[body.kind]} ${yuan(body.amount)}（原项目作废留痕）`, () => { correctKey.current = submissionKey(); setAction(null); });
   }
   const active = emp.items.filter(i => !i.voided), voided = emp.items.filter(i => i.voided);
   return <article className={`payroll-slip ${emp.netNegative ? "is-negative" : ""}`}>
     <button type="button" className="payroll-slip-head" aria-expanded={open} onClick={onToggle}>
       <span><strong>{emp.displayName}</strong><small>{roleLabel[emp.role]}{!emp.isActive ? " · 已停用" : ""} · <span className={`payroll-badge ${locked ? "locked" : ""}`}>{locked ? "已锁定" : "草稿"}</span></small></span>
-      <span className={`commerce-amount ${emp.netNegative ? "negative" : ""}`}>¥ {emp.net}<small>{emp.netNegative ? "核算净额为负·待核对" : locked ? "核算净额" : "核算净额 · 待核定"}</small></span>
+      <span className={`commerce-amount ${emp.netNegative ? "negative" : ""}`}>{yuan(emp.net)}<small>{emp.netNegative ? "核算净额为负·待核对" : locked ? "核算净额" : "核算净额 · 待核定"}</small></span>
     </button>
     {open && <div className="payroll-slip-body" ref={panelRef}>
       <dl className="payroll-breakdown">

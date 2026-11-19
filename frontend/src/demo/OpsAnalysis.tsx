@@ -80,24 +80,25 @@ export default function OpsAnalysis({today,onOpenReports,onOpenFeedback,context}
   function coverage(t:Totals){return t.missingSpendCount+t.missingConsultCount+t.missingClickCount>0?'字段待补':t.costStatus==='no_consultation'?'有消耗无咨询':t.costStatus==='no_spend'?'零消耗／零咨询':'';}
   return <section className="ops-analysis" aria-label="运营投放分析" aria-busy={loading}>
     {onOpenReports && <OpsIdentity />}
-    <header className="oa-heading"><div><span className="oa-eyebrow">{onOpenReports?"运营 · 本人投放日报":"BOSS · 运营投入与咨询"}</span><h1>{onOpenReports?"运营工作台":"投流数据"}</h1></div></header>
+    <header className="oa-heading">
+      <div><span className="oa-eyebrow">{onOpenReports?"运营 · 本人投放日报":"BOSS · 运营投入与咨询"}</span><h1>{onOpenReports?"运营工作台":"投流数据"}</h1></div>
+      {onOpenReports && <OpsBalanceStrip compact key={filters.account+":"+filters.persona+":"+selectedRange.to} account={filters.account} rows={data?.balances.accounts||[]} loading={loading} error={error} endDate={selectedRange.to}/>}
+    </header>
     <PeriodToolbar
       today={today}
       preset={preset}
       custom={range}
       onPreset={key=>{setPreset(key);setRange(undefined);}}
       onCustom={next=>setRange(next)}
-      filters={!onOpenReports ? <>
+      filters={onOpenReports ? <OpsScopeBar inline value={filters} onChange={changeScope} refresh={tick}/> : <>
         <select aria-label="投放运营人员筛选" value={filters.operator} onChange={e=>{setFilters({...filters,operator:e.target.value,account:'',persona:'',platform:''});setData(null);setLoading(true);}}><option value="">全部运营人员</option>{[...new Set([...(data?.options.operator||[]),...(filters.operator?[filters.operator]:[])])].map(name=><option key={name}>{name}</option>)}</select>
         <details className={`pt-more-filters${(filters.persona||filters.platform||filters.account)?' is-active':''}`}><summary>更多筛选{(filters.persona||filters.platform||filters.account)?' · 已选':''}</summary><div className="pt-more-filters-panel">{(['persona','platform','account'] as const).map(key=><label key={key}>{labels[key]}<select aria-label={`投放${labels[key]}筛选`} value={filters[key]} onChange={e=>setFilters({...filters,[key]:e.target.value})}><option value="">全部</option>{[...new Set([...(data?.options[key]??[]),...(filters[key]?[filters[key]]:[])])].map(value=><option key={value} value={value}>{value==='__unassigned__'?'未关联':value}</option>)}</select></label>)}<button type="button" className="secondary pt-filter-clear" onClick={()=>setFilters(zeroFilters())}>清除筛选</button></div></details>
-      </> : undefined}
+      </>}
       caption={`${selectedRange.from} 至 ${selectedRange.to}${data?.period.partial?' · 今日未结束':''}`}
       actions={<button className="secondary" type="button" disabled={loading} onClick={()=>setTick(n=>n+1)}>刷新</button>}
       ariaLabel="投放日期与筛选"
     />
-    {onOpenReports && <OpsScopeBar value={filters} onChange={changeScope} refresh={tick}/>}
     {!onOpenReports&&activeFilters&&<div className="oa-filter-chips">{Object.entries(filters).filter(([,value])=>value).map(([key,value])=><button type="button" className="secondary" key={key} aria-label={`清除${labels[key as Dimension]}筛选`} onClick={()=>setFilters({...filters,[key]:''})}>{value==='__unassigned__'?'未关联':value} ×</button>)}</div>}
-    {onOpenReports && <OpsBalanceStrip key={filters.account+":"+filters.persona+":"+selectedRange.to} account={filters.account} rows={data?.balances.accounts||[]} loading={loading} error={error} endDate={selectedRange.to}/>}
     {error?<div className="overview-error" role="alert"><strong>{error}</strong><button type="button" onClick={()=>setTick(n=>n+1)}>重试</button></div>:<>
       <div className="oa-kpis">
         <article aria-label="广告消耗"><h2>广告消耗 {tip('spend','广告消耗')}</h2><strong>{cny(s?.spendCny)}</strong><span className="oa-secondary-value">{amount(s?.spendUsd)} USD</span>{benchmark(base?.spendCny,true)}</article>

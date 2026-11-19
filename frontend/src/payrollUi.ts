@@ -1,4 +1,5 @@
 import type { PayrollKind } from "./api";
+import { yuan } from "./dashboardDisplay";
 
 export const payrollKindLabel: Record<PayrollKind, string> = { commission: "提成", bonus: "奖金", deduction: "扣款" };
 
@@ -23,7 +24,7 @@ export function payrollAmountError(value: string): string {
 }
 
 export function signedLabel(kind: PayrollKind, amount: string): string {
-  return `${kind === "deduction" ? "−" : "+"} ¥ ${amount}`;
+  return `${kind === "deduction" ? "−" : "+"} ${yuan(amount)}`;
 }
 
 export const PAYROLL_NOTE_REQUIRED = "备注必填，写明项目或依据";

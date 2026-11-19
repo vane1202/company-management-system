@@ -13,7 +13,7 @@ function ScopeSelect({ label, allLabel, value, options, onChange }: { label: str
   </div>;
 }
 
-export default function OpsScopeBar({ value, onChange, refresh }: { value: OpsScope; onChange: (value: OpsScope) => void; refresh: number }) {
+export default function OpsScopeBar({ value, onChange, refresh, inline = false }: { value: OpsScope; onChange: (value: OpsScope) => void; refresh: number; inline?: boolean }) {
   const [accounts, setAccounts] = useState<OpsAccount[]>([]), [error, setError] = useState(""), [ready, setReady] = useState(false);
   const callback = useRef(onChange), current = useRef(value); callback.current = onChange; current.current = value;
   useEffect(() => {
@@ -28,6 +28,22 @@ export default function OpsScopeBar({ value, onChange, refresh }: { value: OpsSc
     return () => controller.abort();
   }, [refresh]);
   const personas = [...new Set(accounts.filter(account => !value.account || account.id === value.account).flatMap(account => account.personas))];
+  if (inline) {
+    if (error) return <span className="error" role="alert">{error}</span>;
+    if (!ready) return <span className="period-toolbar-caption" role="status">读取筛选…</span>;
+    const hasFilter = Boolean(value.account || value.persona);
+    return <>
+      <select aria-label="首页广告户" value={value.account} onChange={event => onChange(changeScopeAccount(value, event.target.value, accounts))}>
+        <option value="">全部广告户</option>
+        {accounts.map(account => <option key={account.id} value={account.id}>{account.id}</option>)}
+      </select>
+      <select aria-label="首页人设／主页" value={value.persona} onChange={event => onChange({ ...value, persona: event.target.value, platform: "" })}>
+        <option value="">全部人设</option>
+        {personas.map(persona => <option key={persona} value={persona}>{persona}</option>)}
+      </select>
+      {hasFilter && <button type="button" className="secondary pt-inline-reset" onClick={() => onChange(emptyOpsScope())}>重置</button>}
+    </>;
+  }
   return <section className="ops-scope-bar" aria-label="首页数据范围">
     {error ? <p className="error" role="alert">{error}</p> : ready ? <><div className="ops-scope-head"><span>数据范围</span><button type="button" className="secondary ops-scope-reset" onClick={() => onChange(emptyOpsScope())}>重置</button></div><div className="ops-scope-fields"><ScopeSelect label="广告户" allLabel="全部广告户" value={value.account} options={accounts.map(account => account.id)} onChange={account => onChange(changeScopeAccount(value, account, accounts))} /><ScopeSelect label="人设／主页" allLabel="全部人设" value={value.persona} options={personas} onChange={persona => onChange({ ...value, persona, platform: "" })} /></div><p className="ops-scope-caption" aria-live="polite">当前范围：<strong>{value.account || "全部广告户"} · {value.persona || "全部人设"}</strong></p></> : <p role="status">正在读取本人广告户与人设…</p>}
   </section>;
