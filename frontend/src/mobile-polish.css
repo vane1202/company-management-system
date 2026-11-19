@@ -50,7 +50,7 @@
   color: var(--ink);
 }
 :root .ops-scope-head .ops-scope-reset {
-  min-height: 40px;
+  min-height: var(--h-btn-sm);
   padding: 4px 10px;
   font-size: 12px;
   background: var(--bg);

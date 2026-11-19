@@ -152,7 +152,8 @@ button, .btn {
   background: var(--jade-dark);
   color: #fff;
   border-radius: 14px;
-  padding: 11px 16px;
+  padding: 8px 16px;
+  line-height: 1.25;
   cursor: pointer;
 }
 button.secondary, .btn.secondary { background: #e8efe9; color: var(--jade-dark); }
@@ -426,7 +427,7 @@ progress::-moz-progress-bar { background: #4c7954; border-radius: 14px; }
 .channel-ms { background: #5b819a; }.channel-ws { background: #589271; }
 .boss-costs { grid-column: 1 / -1; }
 .boss-cost-body { display: grid; grid-template-columns: minmax(0,.9fr) minmax(0,1.8fr); gap: 30px; align-items: center; }
-.boss-feature-value em { font-size: 12px; font-style: normal; padding: 3px 6px; margin-left: 6px; background: #eef1eb; border-radius: 4px; }
+.boss-feature-value em { font-size: 12px; font-style: normal; padding: 3px 6px; margin-left: 6px; background: #eef1eb; border-radius: 999px; }
 .boss-cost-body .boss-feature-value strong { margin-bottom: 0; font-size: 52px; color: #214f3e; }
 .boss-cost-stats { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 20px; }
 .boss-cost-stats > div { border-left: 1px solid #e2e7df; padding-left: 24px; }
@@ -684,7 +685,7 @@ progress::-moz-progress-bar { background: #4c7954; border-radius: 14px; }
 .fan-seg-unclassified { background: #c9cfc9; }
 .fan-state-legend { display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 0; padding: 0; list-style: none; color: #5d6b61; font-size: 12px; }
 .fan-state-legend li { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
-.fan-state-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; }
+.fan-state-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 999px; }
 .fan-state-legend b { color: #244b39; font-variant-numeric: tabular-nums; }
 .fan-state .data-flag { margin-top: 6px; background: #fbf0d6; color: #7d5200; }
 .fan-state-empty { margin: 0; color: #7d8a80; font-size: 13px; }
@@ -852,7 +853,7 @@ label.row small.hint,label.row>small{display:block;margin-top:4px;color:var(--mu
   .toast-host { left: 12px; right: 12px; width: auto; bottom: calc(16px + env(safe-area-inset-bottom)); }
   body:has(.bottom-nav) .toast-host { bottom: calc(76px + env(safe-area-inset-bottom)); }
 }
-.skeleton { display: inline-block; vertical-align: middle; border-radius: 4px; background: #e4e9e2; animation: skeleton-fade 1.4s ease-in-out infinite; }
+.skeleton { display: inline-block; vertical-align: middle; border-radius: 10px; background: #e4e9e2; animation: skeleton-fade 1.4s ease-in-out infinite; }
 .skeleton-block { display: block; margin: 0 0 12px; }
 @keyframes skeleton-fade { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
 .boot-skeleton { max-width: 720px; margin: 0 auto; padding-top: 32px; }
@@ -881,4 +882,4 @@ label.row small.hint,label.row>small{display:block;margin-top:4px;color:var(--mu
 
 .item-photo{display:grid;gap:8px;min-width:0}.item-photo input[type=file]{max-width:100%;font-size:16px}.item-photo img{width:100%;max-height:220px;object-fit:contain;background:#f4f1ea;border-radius:10px}
 .mobile-identity{display:none}.toolbar-account .identity-name,.mobile-identity .identity-name{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;max-width:100%;padding:8px 10px;border:1px solid transparent;border-radius:10px;background:transparent;color:var(--ink);font-size:13px;box-shadow:none;touch-action:manipulation}.identity-name span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px}.identity-name svg{width:17px;height:17px;flex-shrink:0;color:var(--muted)}.identity-name:hover{background:var(--card);border-color:var(--line)}.identity-name:active{background:var(--line)}.identity-name:focus-visible{outline:2px solid var(--jade);outline-offset:2px}.toolbar-account{gap:8px}@media(max-width:799px){.management-shell .mobile-identity{display:flex;min-width:0;margin-left:auto}.management-shell .sidebar-brand-row{gap:4px}.management-shell .sidebar-brand{flex-shrink:0}.management-shell .sidebar-brand b{font-size:12px}.mobile-identity .identity-name{padding:6px;gap:5px;font-size:12px}.mobile-identity .identity-name span{max-width:110px}.management-shell .mobile-menu-toggle{min-width:44px;min-height:44px;padding:8px 10px;flex-shrink:0}}
-.fx-pending{font-size:.62em;font-weight:500;color:var(--muted);letter-spacing:0}
+.fx-pending{font-size:var(--fs-xs,12px);font-weight:500;color:var(--muted);letter-spacing:0}

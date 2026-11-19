@@ -7,7 +7,7 @@ const statusLabel = { ready: "可计提", pending: "待核算", reversed: "已�
 
 export default function CommissionPanel({ today, readOnly = false }: { today: string; readOnly?: boolean }) {
   const [month, setMonth] = useState(today.slice(0, 7));
-  if (readOnly) return <details className="commission-panel commission-collapsed" aria-label="本组提成"><summary className="commission-toggle"><strong>本组提成</strong><span>{month.replace("-", "年")}月</span><span className="commission-chevron" aria-hidden="true">⌄</span></summary><CommissionContent today={today} readOnly month={month} setMonth={setMonth} /></details>;
+  if (readOnly) return <details className="commission-panel commission-collapsed" aria-label="本组提成"><summary className="commission-toggle"><strong>本组提成</strong><span>{month.replace("-", "年")}月</span><span className="commission-chevron" aria-hidden="true">▸</span></summary><CommissionContent today={today} readOnly month={month} setMonth={setMonth} /></details>;
   return <CommissionContent today={today} readOnly={false} month={month} setMonth={setMonth} />;
 }
 

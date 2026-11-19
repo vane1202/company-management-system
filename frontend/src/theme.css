@@ -42,6 +42,8 @@
 }
 body { -webkit-font-smoothing: antialiased; }
 h1, h2, h3 { letter-spacing: -0.012em; }
+h3 { font-size: var(--fs-lg); }
+small { font-size: var(--fs-xs); }
 :root :focus-visible { outline: 2px solid var(--jade); outline-offset: 2px; }
 
 /* ---------- frame: sidebar ---------- */
@@ -64,7 +66,7 @@ h1, h2, h3 { letter-spacing: -0.012em; }
 :root .app-sidebar .nav { gap: 0.2rem; }
 :root .app-sidebar .nav button {
   color: var(--frame-ink); border-radius: var(--r-ctl); font-size: var(--fs-md); font-weight: 500;
-  padding: 0.78rem 0.9rem;
+  padding: 0.65rem 0.9rem; line-height: 1.25;
 }
 :root .app-sidebar .nav button .dashboard-icon { color: rgba(222, 238, 233, 0.5); }
 @media (hover: hover) and (pointer: fine) {
@@ -101,13 +103,20 @@ h1, h2, h3 { letter-spacing: -0.012em; }
 :root .workspace-backbar { border-bottom: 0; min-height: 48px; margin-bottom: 8px; }
 :root .workspace-backbar .workspace-back {
   background: transparent; border: 1px solid var(--line-strong); color: var(--ink);
-  min-height: var(--h-btn-sm); padding: 6px 12px; font-size: var(--fs-sm);
+  min-height: var(--h-btn-sm); padding: 4px 12px; line-height: 1.25; font-size: var(--fs-sm);
 }
 :root .workspace-breadcrumb { font-size: var(--fs-sm); }
 
 /* ---------- controls ---------- */
 :root button, :root .btn { border-radius: var(--r-ctl); font-weight: 500; min-height: var(--h-btn); }
 :root button.text-action, :root .text-action, :root .info-tip-button { min-height: var(--h-btn-sm); }
+:root .info-tip-button { min-width: var(--h-btn-sm); width: var(--h-btn-sm); height: var(--h-btn-sm); }
+:root :is(.overview-segments button, .bt-style button, .bh-trend nav button, .analysis-tabs button, .oa-dimensions button, .sp-presets button, .ops-scope-reset, .payroll-step, .payroll-this-month) {
+  min-height: var(--h-btn-sm); padding: 4px 12px; line-height: 1.25;
+}
+:root .chart-style-control.chart-style-control > button { min-height: var(--h-btn-sm); padding: 4px 10px; line-height: 1.25; }
+:root .lr-summary .lr-summary-value { min-height: var(--h-btn-sm); padding: 4px 0; line-height: 1.25; }
+:root .oa-filter-chips button { min-height: var(--h-btn-sm); padding: 4px 10px; line-height: 1.25; }
 :root button.secondary, :root .btn.secondary {
   background: #fff; color: var(--ink); border: 1px solid var(--line-strong);
   box-shadow: 0 1px 0 rgba(14, 44, 39, 0.04);
@@ -317,7 +326,7 @@ h1, h2, h3 { letter-spacing: -0.012em; }
   :root .app-sidebar { padding: 0.9rem 1rem 0.9rem; }
   :root .sidebar-brand-row { margin-bottom: 0; }
   :root .app-toolbar { min-height: 3.2rem; margin-bottom: 1rem; }
-  :root .workspace-backbar .workspace-back { min-height: 44px; }
+  :root .workspace-backbar .workspace-back, :root .oa-toolbar .overview-segments button, :root .sp-presets button { min-height: var(--h-btn-sm); }
   :root .bp-primary-grid > article, :root .fh-primary article, :root .be-kpis > article { padding: 16px; }
   :root .bp-primary-grid > article:first-child .bp-main-number { font-size: clamp(20px, 5.8vw, 26px); }
   :root .fh-primary article { padding: 14px 12px; container-type: inline-size; }
@@ -343,6 +352,19 @@ h1, h2, h3 { letter-spacing: -0.012em; }
 :root .info-tip { z-index: 2; }
 :root .oa-kpis strong .oa-approx { font-size: 12px; }
 :root .ac-selection small { font-size: 12px; }
+:root .desk-metric strong, :root .sp-kpis strong, :root .staff-assessment .oa-kpis > article > strong, :root .oa-kpis > article > strong, :root .wh-kpis b {
+  font-size: var(--fs-2xl);
+}
+:root .commission-panel .supervisor-figures strong { font-size: var(--fs-xl); }
+:root .commission-chevron, :root .ops-balance-expand span {
+  display: inline-block; transition: transform 150ms ease;
+}
+:root .commission-collapsed[open] > .commission-toggle > .commission-chevron,
+:root .ops-balance-list[open] > summary .ops-balance-expand span {
+  transform: rotate(90deg);
+}
 @media (max-width: 799px) {
   :root :is(.oa-period, .oa-secondary-value, .oa-benchmark, .oa-source-line, .oa-panel-heading > span, .oa-sort, .oa-trend-chart small, .oa-chart-ends, .oa-table-head, .oa-group-name small, .oa-balances b small) { font-size: 12px; }
+  :root .oa-kpis > article > strong { font-size: var(--fs-xl); }
+  :root .wh-kpis b, :root .supervisor-board .supervisor-figures strong { font-size: var(--fs-lg); }
 }

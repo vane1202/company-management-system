@@ -106,7 +106,7 @@
   display: flex; align-items: center; gap: 10px; margin: 28px 0 8px; padding-top: 22px;
   border-top: 1px solid var(--line); font-size: 16px; font-weight: 650; color: var(--ink);
 }
-:root main.customer-fill form h3::before { content: ""; width: 4px; height: 16px; flex-shrink: 0; border-radius: 2px; background: var(--jade); }
+:root main.customer-fill form h3::before { content: ""; width: 4px; height: 16px; flex-shrink: 0; border-radius: var(--r-pill); background: var(--jade); }
 :root main.customer-fill .card p.notice {
   max-width: none; margin: 6px 0 14px; padding: 10px 12px; border-radius: 10px;
   background: #f5f8f6; color: var(--muted); font-size: 13px; line-height: 1.7;

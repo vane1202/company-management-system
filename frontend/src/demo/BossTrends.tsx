@@ -58,7 +58,7 @@ export default function BossTrends({today,tick,onOpen,onDrill,baseRange}:{today:
         {group==='costs'&&<label className="bt-cost-choice">查看花费<select aria-label="花费趋势指标" value={cost} onChange={e=>setCost(e.target.value as typeof cost)}><option value="ads">广告消耗 · 全公司</option><option value="expenses">已登记售后费用</option></select></label>}
         <div className="bt-main-layout"><div>{metrics(metric)}<button type="button" className="text-action bt-drill" onClick={openDetail}>查看 {selected.slice(5)} 明细 →</button></div>
           <section className="bt-card bt-rooms"><header><h3>直播间营业额排名</h3><InfoTip label="直播间排名口径" text="当前趋势日期范围的开单营业额；按开单日期，跑单回冲原日。横条按最大已知金额比较，不表示收款率或利润。点击直播间可聚焦同区间趋势，广告始终为全公司。"/></header>
-          <Ranking label="直播间营业额排名" rows={data.rooms.map(s=>({key:s.key,label:s.label,value:sumPoints(s.points)===null?null:Number(sumPoints(s.points)),display:currency(sumPoints(s.points)),note:room===s.key?'当前已选 · 选择全公司可返回全部':'查看该直播间趋势 →'}))} onOpen={setRoom}/>
+          <Ranking label="直播间营业额排名" rows={data.rooms.map(s=>({key:s.key,label:s.label,value:sumPoints(s.points)===null?null:Number(sumPoints(s.points)),display:currency(sumPoints(s.points)),note:room===s.key?'当前已选 · 选择全公司可返回全部':'查看该直播间趋势 ›'}))} onOpen={setRoom}/>
           {room&&<button type="button" className="text-action" onClick={()=>setRoom('')}>返回全部直播间</button>}</section>
         </div>
       </>:<><button type="button" className="secondary analysis-back" onClick={back}>← 返回趋势与排名</button>

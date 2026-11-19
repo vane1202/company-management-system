@@ -58,7 +58,7 @@ export function PayrollMonth({ today, readOnly, employees }: { today: string; re
         {month !== currentMonth && <button type="button" className="secondary payroll-this-month" onClick={() => setMonth(currentMonth)}>本月</button>}
       </div>
       <details className="payroll-filter-more">
-        <summary>{selectedEmployee ? `筛选 · ${selectedEmployee.displayName}` : "筛选员工"} ▾</summary>
+        <summary>{selectedEmployee ? `筛选 · ${selectedEmployee.displayName}` : "筛选员工"} ▸</summary>
         <Field label="员工"><select value={userId} onChange={e => setUserId(e.target.value)}><option value="">全部员工</option>{employees.map(e => <option key={e.id} value={e.id}>{e.displayName} · {roleLabel[e.role]}{!e.isActive ? "（已停用）" : ""}</option>)}</select></Field>
         <Field label="指定月份"><input aria-label="工资月份" type="month" value={month} onChange={e => { if (isPayMonth(e.target.value)) setMonth(e.target.value); }} /></Field>
       </details>
