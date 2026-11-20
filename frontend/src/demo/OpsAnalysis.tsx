@@ -17,6 +17,8 @@ import InvalidLeadFacts from './InvalidLeadFacts';
 import type { OpsView } from '../opsNavigation';
 
 type Totals = {spendUsd:string|null;spendCny:string|null;consultationCostCny?:string|null;consultCount:number|null;clickCount:number|null;consultationCostUsd:string|null;costStatus:string;recordCount:number;reportedDays:number;missingSpendCount:number;missingConsultCount:number;missingClickCount:number};
+const isDemoMode=import.meta.env.MODE==='demo';
+const opsAnalysisApi=isDemoMode?'/api/demo/ops-analysis':'/api/dashboard/ops-analysis';
 type RecordRow={operatorName?:string;id:string;businessDate:string;personaName:string;adAccountRef:string;platform:string;spendUsd:string|null;consultCount:number|null;consultCostUsd:string|null;clickCount:number|null;ctrPercent:string|null;balanceUsd:string|null;promoVideoCount:number|null;promoCost:string|null;note:string};
 type Group=Totals&{key:string;name:string};
 type Dimension='persona'|'platform'|'account'|'operator';
@@ -57,9 +59,9 @@ export default function OpsAnalysis({today,onOpenReports,onOpenFeedback,context}
   useEffect(()=>{if(!context||context.to>today)return;setRange({...context});setFilters(zeroFilters());setDetailsOpen(false);setSelectedDay(context.to);},[context,today]);
   useEffect(()=>{const controller=new AbortController();setLoading(true);setError('');setData(null);setDetailKey(null);setExpanded([]);
     const q=new URLSearchParams({preset,...(range??dashboardPresetRange(today,preset)),dimension,...filters,...(!onOpenReports?{trendScope:'period'}:{})});
-    fetch('/api/demo/ops-analysis?'+q,{signal:controller.signal,cache:'no-store'}).then(async response=>{
+    fetch(opsAnalysisApi+'?'+q,{signal:controller.signal,cache:'no-store',credentials:'include'}).then(async response=>{
       const d=await response.json();if(!response.ok)throw Error(d.error||'投放数据暂不可用');
-      if(d.version!=='ops-analysis/v1'||d.demo!==true)throw Error('演示投放指标版本不匹配');if(!controller.signal.aborted)setData(d);
+      if(d.version!=='ops-analysis/v1'||(isDemoMode&&d.demo!==true))throw Error('投放指标版本不匹配');if(!controller.signal.aborted)setData(d);
     }).catch(e=>{if(!controller.signal.aborted)setError(e instanceof Error?e.message:'投放数据暂不可用');}).finally(()=>{if(!controller.signal.aborted)setLoading(false);});
     return()=>controller.abort();
   },[preset,range?.from,range?.to,filters.persona,filters.platform,filters.account,filters.operator,dimension,tick]);

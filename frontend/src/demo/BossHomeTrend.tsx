@@ -9,11 +9,12 @@ import { InfoTip } from "../InfoTip";
 type Key="total"|"operatingCost"|"ads";
 type Day={date:string;total:string|null;operatingCost:null};
 const labels:Record<Key,string>={total:'总业绩',operatingCost:'运营成本',ads:'投流消耗'};
+const bossPriorityApi = import.meta.env.MODE === "demo" ? "/api/demo/boss-priority" : "/api/dashboard/boss-priority";
 export default function BossHomeTrend({today,from,to,tick,live}:{today:string;from:string;to:string;tick:number;live:LiveBusinessData|null}){
  const [metric,setMetric]=useState<Key>('total'),[style,setStyle]=useChartStyle(),[selected,setSelected]=useState(to);
  const [days,setDays]=useState<Day[]|null>(null),[ads,setAds]=useState<TrendSeries|null>(null),[error,setError]=useState('');
  const revision=useReferenceQuotes();
- useEffect(()=>{const controller=new AbortController();setDays(null);setError('');fetch('/api/demo/boss-priority?'+new URLSearchParams({from,to}),{signal:controller.signal,cache:'no-store'}).then(async response=>{const data=await response.json();if(!response.ok)throw Error(data.error||'趋势读取失败');if(!controller.signal.aborted)setDays(data.days);}).catch(cause=>{if(!controller.signal.aborted)setError(cause instanceof Error?cause.message:'趋势读取失败');});setSelected(to);return()=>controller.abort();},[from,to,tick]);
+ useEffect(()=>{const controller=new AbortController();setDays(null);setError('');fetch(bossPriorityApi+'?'+new URLSearchParams({from,to}),{signal:controller.signal,cache:'no-store',credentials:'include'}).then(async response=>{const data=await response.json();if(!response.ok)throw Error(data.error||'趋势读取失败');if(!controller.signal.aborted)setDays(data.days);}).catch(cause=>{if(!controller.signal.aborted)setError(cause instanceof Error?cause.message:'趋势读取失败');});setSelected(to);return()=>controller.abort();},[from,to,tick]);
  useEffect(()=>{let active=true;setAds(null);if(days&&live)void buildAccountTrends(live.ads.records.map(row=>({adAccountRef:'ads',businessDate:row.date,spendUsd:row.amount,consultCount:null})),days.map(day=>day.date),['ads'],'spendCny').then(series=>{if(active)setAds(series[0]);});return()=>{active=false;};},[days,live,revision]);
  const series:TrendSeries={key:metric,label:labels[metric],points:(days||[]).map(day=>{
    const ad=ads?.points.find(point=>point.date===day.date);

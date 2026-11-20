@@ -50,15 +50,15 @@ import {
   type User
 } from "./api";
 
-if (import.meta.env.MODE === 'demo') void import('./demo/dashboard-phase1.css');
+void import('./demo/dashboard-phase1.css');
 const DemoOpsFeedback = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/OpsFeedback')) : null;
-const DemoOpsAnalysis = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/OpsAnalysis')) : null;
-const DemoEstimateBoard = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/BossEstimateBoard')) : null;
+const DemoOpsAnalysis = lazy(() => import('./demo/OpsAnalysis'));
+const DemoEstimateBoard = lazy(() => import('./demo/BossEstimateBoard'));
 const DemoCustomerReview = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/CustomerInvalidReview')) : null;
 const DemoCustomerFill = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/CustomerFillWorkspace')) : null;
 const DemoSupervisorPerformance = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/SupervisorPerformance')) : null;
 const DemoEditorFill = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/EditorHistoryWorkspace')) : null;
-const DemoEditorOverview = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/EditorOverview')) : null;
+const DemoEditorOverview = lazy(() => import('./demo/EditorOverview'));
 const DemoStaffAssessment = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/StaffAssessment')) : null;
 const DemoReportHistory = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/ReportHistory')) : null;
 const DemoRegisteredAccounts = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/RegisteredAccountsPage')) : null;
@@ -160,14 +160,14 @@ export function App() {
   if (entry && modules?.[entry] === false) return <section className="page"><div className="card"><h2>{fillEntries[entry].title}已停用</h2><p>请联系管理员重新启用，历史数据仍保留。</p><a className="btn secondary" href="/">返回首页</a></div></section>;
 
   const managementRole = ["boss", "admin", "cs_supervisor", "finance", "warehouse"].includes(user.role) || (import.meta.env.MODE === "demo" && user.role === "ops");
-  const demoBoss = import.meta.env.MODE === "demo" && user.role === "boss";
-  const linkedPages = demoBoss ? bossLinkedPages() : [];
+  const isBoss = user.role === "boss";
+  const linkedPages = isBoss ? bossLinkedPages() : [];
   const items = navItems(user.role).filter((item) => managementRole || !["fans", "orders", "ops", "editor"].includes(item.id) || modules?.[item.id] === true);
   const sidebarItems = user.role === "finance" ? (import.meta.env.MODE==='demo'?items.filter(item=>item.id!=='salaries'):items) : user.role === "cs_supervisor" ? items.filter((item) => !["summary", "orders", "reportHistory"].includes(item.id)) : items;
   const bottomItems = user.role === "cs_supervisor" && import.meta.env.MODE === "demo" ? sidebarItems : sidebarItems.slice(0, 5);
   const canChangePassword = !isServiceAccount(user.accountKind);
   const accountOnlyMobileNav = bottomItems.length >= sidebarItems.length;
-  const rootPage: Page = demoBoss ? "dashboard" : "home";
+  const rootPage: Page = isBoss ? "dashboard" : "home";
   const activePage = items.some((item) => item.id === page) || linkedPages.includes(page) ? page : rootPage;
   const navCurrent = linkedPages.includes(activePage) || (user.role === "cs_supervisor" && ["summary", "orders", "reportHistory"].includes(activePage)) ? rootPage : activePage;
   const bossBusiness=user.role==='boss'&&activePage==='orders';
@@ -210,7 +210,7 @@ export function App() {
   function goTo(next: Page, cash?: CashView) {
     setError("");
     setMobileNavOpen(false);
-    navigation.navigate({ page: next, ...(demoBoss && next === 'finance' && cash ? { cash } : {}) });
+    navigation.navigate({ page: next, ...(user?.role === 'boss' && next === 'finance' && cash ? { cash } : {}) });
   }
   const pageError = (id: Page) => (value: string) => setPageErrors(current => ({ ...current, [id]: value }));
   function pagePanel(id: Page, children: ReactNode) {
@@ -289,9 +289,9 @@ export function App() {
       {pagePanel("orders", DemoSupervisorPerformance && user.role === 'cs_supervisor' ? <Suspense fallback={<p role="status">正在读取本组业绩…</p>}><DemoSupervisorPerformance today={today} user={user} selectedId={navigation.views.orders?.orderId ?? ''} onSelectOrder={id => navigation.navigate({page:'orders',orderId:id})} /></Suspense> : user.role==='boss'?<><div hidden={!!navigation.views.orders?.orderId||!!navigation.views.orders?.orderList}><LiveBusinessOverview today={today} context={businessContext} onOpenBusiness={live=>navigation.navigate({page:'orders',live})} onOpenOrder={id=>navigation.navigate({page:'orders',live:businessContext,orderId:id})} onOpenOrders={()=>navigation.navigate({page:'orders',live:businessContext,orderList:true})}/></div>{(navigation.views.orders?.orderId||navigation.views.orders?.orderList)&&<OrderWorkspace today={today} user={user} selectedId={navigation.views.orders.orderId??''} onSelectOrder={id=>navigation.navigate({...navigation.views.orders!,orderId:id})}/>}</>:<OrderWorkspace today={today} user={user} selectedId={navigation.views.orders?.orderId ?? ""} onSelectOrder={id => navigation.navigate({ page: "orders", orderId: id })} />)}
       {user.role === "ops" && DemoOpsFeedback && pagePanel("opsFeedback", <Suspense fallback={<p role="status">Loading...</p>}><DemoOpsFeedback today={today}/></Suspense>)}
       {user.role === "ops" && pagePanel("opsAccounts", <OpsAdAccounts today={today} />)}
-      {pagePanel("ops", DemoOpsAnalysis&&user.role==='boss'?<Suspense fallback={<p role="status">正在读取投放分析…</p>}><DemoOpsAnalysis today={today} context={navigation.views.ops?.ops}/></Suspense>:<OpsPage today={today} onError={pageError("ops")} readOnly={user.role === "boss"} />)}
-      {pagePanel("editor", DemoEditorOverview && user.role==='boss'?<Suspense fallback={<p role="status">正在读取拍剪汇总…</p>}><DemoEditorOverview today={today}/></Suspense>:<EditorPage today={today} onError={pageError("editor")} readOnly={user.role === "boss"} />)}
-      {pagePanel("dashboard", DemoEstimateBoard ? <Suspense fallback={<p role="status">正在读取经营总览…</p>}><DemoEstimateBoard today={today} onError={pageError("dashboard")} onOpen={goTo} onDrill={route=>{setMobileNavOpen(false);setError("");navigation.navigate(route);}} /></Suspense> : <DashboardPage onError={pageError("dashboard")} />)}
+      {pagePanel("ops", user.role==='boss'?<Suspense fallback={<p role="status">正在读取投放分析…</p>}><DemoOpsAnalysis today={today} context={navigation.views.ops?.ops}/></Suspense>:<OpsPage today={today} onError={pageError("ops")} readOnly={false} />)}
+      {pagePanel("editor", user.role==='boss'?<Suspense fallback={<p role="status">正在读取拍剪汇总…</p>}><DemoEditorOverview today={today}/></Suspense>:<EditorPage today={today} onError={pageError("editor")} readOnly={false} />)}
+      {pagePanel("dashboard", <Suspense fallback={<p role="status">正在读取经营总览…</p>}><DemoEstimateBoard today={today} onError={pageError("dashboard")} onOpen={goTo} onDrill={route=>{setMobileNavOpen(false);setError("");navigation.navigate(route);}} /></Suspense>)}
       {pagePanel("modules", <><ModuleSettings onError={pageError("modules")} onChange={setModules} /><SystemSettings defaultDays={backfillDays} /></>)}
       {pagePanel("people", <PeoplePage today={today} currentUserId={user.id} onError={pageError("people")} />)}
       {pagePanel("csAccounts", DemoRegisteredAccounts ? <Suspense fallback={<p role="status">正在读取账号名册…</p>}><DemoRegisteredAccounts supervisor={user.role === "cs_supervisor"} /></Suspense> : <CsAccountsPage supervisor={user.role === "cs_supervisor"} />)}

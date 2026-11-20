@@ -27,7 +27,7 @@ describe("客服固定填报入口", () => {
   it("区分客服填报与管理汇总，防止把本机链接当成远程地址", () => {
     expect(navItems("cs").find((item) => item.id === "orders")?.label).toBe("订单填报");
     expect(navItems("boss").find((item) => item.id === "orders")?.label).toBe("直播间经营");
-    expect(navItems("boss").some((item) => item.id === "summary")).toBe(true);
+    expect(navItems("boss").some((item) => item.id === "dashboard")).toBe(true);
     expect(isLocalOnlyOrigin("http://127.0.0.1:13080")).toBe(true);
     expect(isLocalOnlyOrigin("https://internal.example.com")).toBe(false);
   });

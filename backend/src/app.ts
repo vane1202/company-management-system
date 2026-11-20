@@ -23,6 +23,7 @@ import { createEditorRouter, createOpsRouter } from "./routes/daily.js";
 import { createOrderRouter } from "./routes/orders.js";
 import { createSalaryRouter } from "./routes/salaries.js";
 import { createDashboardRouter } from "./routes/dashboard.js";
+import { createBossAnalyticsRouter } from "./routes/bossAnalytics.js";
 import { createNoteRouter } from "./routes/notes.js";
 import { requireAuth } from "./routes/auth.js";
 import { createModulesRouter } from "./routes/modules.js";
@@ -57,7 +58,7 @@ export function createApp(db: Pool, config: AppConfig) {
           "script-src": ["'self'"],
           "style-src": ["'self'", "'unsafe-inline'"],
           "img-src": ["'self'", "data:"],
-           "connect-src": ["'self'", ...config.appOrigins],
+           "connect-src": ["'self'", "https://api.exchangerate.dev", ...config.appOrigins],
            ...(config.cookieSecure ? {} : { "upgrade-insecure-requests": null })
         }
       }
@@ -144,6 +145,7 @@ export function createApp(db: Pool, config: AppConfig) {
   app.use("/api/ad-accounts", guardModuleWrites(db,"ops"), createAdAccountsRouter(db, config));
   app.use("/api/finance", createFinanceRouter(db, config));
   app.use("/api/salaries", createSalaryRouter(db));
+  app.use("/api/dashboard", createBossAnalyticsRouter(db, config));
   app.use("/api/dashboard", createDashboardRouter(db, config));
   app.use("/api/notes", createNoteRouter(db));
   app.use("/api/reviews", (_req, res) => res.status(410).json({ error: "审核流程已停用，填报数据直接进入统计" }));

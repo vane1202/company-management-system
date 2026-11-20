@@ -44,8 +44,8 @@ export function workspaceUrl(href: string, route: WorkspaceRoute, role: Role): s
   const url = new URL(href);
   const fill = route.page === "fans" || route.page === "orders" ? route.page : null;
   url.pathname = fill && canUseFillEntry(role, fill) ? fillEntries[fill].path : "/";
-  const demoBossRoot = import.meta.env.MODE === "demo" && role === "boss" && route.page === "dashboard";
-  if (route.page === "home" || demoBossRoot || fill && canUseFillEntry(role, fill)) url.searchParams.delete("page");
+  const bossRoot = role === "boss" && route.page === "dashboard";
+  if (route.page === "home" || bossRoot || fill && canUseFillEntry(role, fill)) url.searchParams.delete("page");
   else url.searchParams.set("page", route.page);
   if (route.page === "orders" && route.orderId) url.searchParams.set("order", route.orderId);
   else url.searchParams.delete("order");

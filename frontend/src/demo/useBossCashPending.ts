@@ -4,9 +4,10 @@ import {convertPendingCash,type CashAmounts} from './cashBoardData';
 import {useReferenceQuotes} from './useReferenceQuotes';
 
 export type CashOrderBalances = Pick<LiveRoomOperations, 'asOf' | 'orders'>;
+const cashBalancesApi = import.meta.env.MODE === 'demo' ? '/api/demo/cash-order-balances' : '/api/dashboard/cash-order-balances';
 
 export async function loadCashOrderBalances(date: string): Promise<CashOrderBalances> {
-  const response = await fetch('/api/demo/cash-order-balances?' + new URLSearchParams({asOf:date}));
+  const response = await fetch(cashBalancesApi + '?' + new URLSearchParams({asOf:date}), { credentials: 'include', cache: 'no-store' });
   if (!response.ok) throw new Error('订单余额暂不可用');
   return response.json();
 }

@@ -12,7 +12,7 @@ import { yuan } from "./dashboardDisplay";
 import type { CashView } from "./cashNavigation";
 
 const REFRESH_AFTER_SAVE_FAILED="已保存，但列表刷新失败，请点刷新";
-const DemoBossCashBoard=import.meta.env.MODE==='demo'?lazy(()=>import('./demo/BossCashBoard')):null;
+const DemoBossCashBoard=lazy(()=>import('./demo/BossCashBoard'));
 
 export function FinanceWorkspace({today,readOnly=false,cashView}:{today:string;readOnly?:boolean;cashView?:CashView}) {
   return readOnly&&DemoBossCashBoard?<Suspense fallback={<p role="status">正在读取收款与到账…</p>}><DemoBossCashBoard today={today} context={cashView} financialDetail={(query,range)=><FinanceLedgerWorkspace today={today} readOnly initialQuery={query} initialRange={range} initialPendingOnly={false}/>} /></Suspense>:<FinanceLedgerWorkspace today={today} readOnly={readOnly}/>;

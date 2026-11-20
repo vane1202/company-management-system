@@ -11,10 +11,12 @@ export const expenseLabels:Record<string,string>={rent:"房租",utilities:"水�
 const yuan=(v:string|null)=>v===null?"—":"¥"+Number(v).toLocaleString("zh-CN",{minimumFractionDigits:2,maximumFractionDigits:2});
 const share=(v:number|null)=>v===null?"—":v.toLocaleString("zh-CN",{maximumFractionDigits:2})+"%";
 
+const bossPriorityApi = import.meta.env.MODE === "demo" ? "/api/demo/boss-priority" : "/api/dashboard/boss-priority";
+
 export default function BossPriority({from,to,tick,onSalary,receipts}:{from:string;to:string;tick:number;onSalary?:()=>void;receipts?:ReactNode}){
  const [data,setData]=useState<Data|null>(null),[error,setError]=useState(""),[retry,setRetry]=useState(0);
  const [view,setView]=useState<"home"|"rooms"|"expenses">("home"),[roomId,setRoomId]=useState(""),[category,setCategory]=useState("");
- useEffect(()=>{const controller=new AbortController();setData(null);setError("");fetch('/api/demo/boss-priority?'+new URLSearchParams({from,to}),{signal:controller.signal,cache:'no-store'}).then(async r=>{const payload=await r.json();if(!r.ok||payload.version!=='boss-priority/v1')throw Error(payload.error||'首页数据读取失败');if(!controller.signal.aborted)setData(payload);}).catch(cause=>{if(!controller.signal.aborted)setError(cause instanceof Error?cause.message:'读取失败');});return()=>controller.abort();},[from,to,tick,retry]);
+ useEffect(()=>{const controller=new AbortController();setData(null);setError("");fetch(bossPriorityApi+'?'+new URLSearchParams({from,to}),{signal:controller.signal,cache:'no-store',credentials:'include'}).then(async r=>{const payload=await r.json();if(!r.ok||payload.version!=='boss-priority/v1')throw Error(payload.error||'首页数据读取失败');if(!controller.signal.aborted)setData(payload);}).catch(cause=>{if(!controller.signal.aborted)setError(cause instanceof Error?cause.message:'读取失败');});return()=>controller.abort();},[from,to,tick,retry]);
  const needsReview=data?.rooms.find(item=>item.status==='unassigned'&&item.count>0);
  const listedRooms=data?.rooms.filter(item=>item.status!=='unassigned')??[];
  const room=listedRooms.find(item=>item.id===roomId);
