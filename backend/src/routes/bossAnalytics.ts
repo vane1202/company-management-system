@@ -190,7 +190,16 @@ export function createBossAnalyticsRouter(db: Pool, config: AppConfig): Router {
              FROM orders o
              LEFT JOIN order_details d ON d.order_id = o.id
              LEFT JOIN users u ON u.id = o.user_id
-             LEFT JOIN teams t ON t.id = u.team_id
+             LEFT JOIN LATERAL (
+               SELECT m.team_id
+                 FROM team_memberships m
+                WHERE m.user_id = o.user_id
+                  AND m.start_date <= o.business_date
+                  AND (m.end_date IS NULL OR m.end_date >= o.business_date)
+                ORDER BY m.start_date DESC
+                LIMIT 1
+             ) mem ON TRUE
+             LEFT JOIN teams t ON t.id = mem.team_id
             WHERE o.business_date BETWEEN $1 AND $2`,
           [period.from, period.to]
         )
@@ -213,7 +222,7 @@ export function createBossAnalyticsRouter(db: Pool, config: AppConfig): Router {
                   f.comm_invalid
              FROM fan_reports f
              LEFT JOIN users u ON u.id = f.user_id
-             LEFT JOIN teams t ON t.id = u.team_id
+             LEFT JOIN teams t ON t.id = f.team_id
             WHERE f.business_date BETWEEN $1 AND $2`,
           [period.from, period.to]
         )
