@@ -24,7 +24,7 @@ describe("财务与订单界面口径",()=>{
   expect(itemPreview("200.00","finished","15.00")?.fee).toBe("0.00");
   expect(buyingFeeAfterPriceChange("finished","200.00",{feeCny:"15.00",manual:true})).toEqual({feeCny:"0.00",manual:false});
  });
- it("财务可核算工资，BOSS可只读查看结算与工资",()=>{expect(roleLabel.finance).toBe("财务");expect(navItems("finance").map(x=>x.id)).toEqual(["home","salaries"]);expect(bossLinkedPages().includes("finance")).toBe(true);expect(navItems("admin").some(x=>x.id==="finance")).toBe(false);expect(navItems("cs_supervisor").some(x=>x.id==="finance")).toBe(false);expect(canAccessDashboard("finance")).toBe(false);expect(canAccessSalaries("finance")).toBe(true);});
+ it("财务可核算工资，BOSS可只读查看结算与工资",()=>{expect(roleLabel.finance).toBe("财务");expect(navItems("finance").map(x=>x.id)).toEqual(["home","finance","financeOut","salaries"]);expect(bossLinkedPages().includes("finance")).toBe(true);expect(navItems("admin").some(x=>x.id==="finance")).toBe(false);expect(navItems("cs_supervisor").some(x=>x.id==="finance")).toBe(false);expect(canAccessDashboard("finance")).toBe(false);expect(canAccessSalaries("finance")).toBe(true);});
 });
 
 it("演示侧栏聚焦三个经营入口",()=>{expect(bossDemoNav().map(item=>item.label)).toEqual(["经营总览","直播间经营","拍剪数据"]);expect(bossDemoNav().some(item=>["home","finance","ops","salaries"].includes(item.id))).toBe(false);});

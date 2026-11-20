@@ -11,14 +11,14 @@ import {PeriodToolbar,type StandardPreset} from '../PeriodToolbar';
 import './finance-home.css';
 
 type Data={finance:FinanceData;payables:PayablesData;reimbursements:ReimbursementState;warehouse:{bills:{status:string}[]};topups:{id:string;paid_on:string;paid_cny:string;voided_at:string|null}[]};
-async function read<T,>(url:string):Promise<T>{const response=await fetch(url,{cache:'no-store'});const result=await response.json();if(!response.ok)throw Error(result.error||'读取财务数据失败');return result;}
+async function read<T,>(url:string):Promise<T>{const response=await fetch(url,{cache:'no-store',credentials:'include'});const result=await response.json();if(!response.ok)throw Error(result.error||'读取财务数据失败');return result;}
 const yuan=(amount:string)=>'¥'+Number(amount).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});
 export default function FinanceHome({today,onOpen,active:isActive=true}:{today:string;onOpen:(section:'finance'|'financeOut',task?:string)=>void;active?:boolean}){
   const [data,setData]=useState<Data|null>(null),[error,setError]=useState(''),[tick,setTick]=useState(0);
   const [preset,setPreset]=useState<StandardPreset>('day'),[custom,setCustom]=useState<{from:string;to:string}|null>(null);
   const range=custom??dashboardPresetRange(today,preset);
   const [detail,setDetail]=useState<'in'|'out'|null>(null),[selected,setSelected]=useState(''),[style,setStyle]=useChartStyle();
-  useEffect(()=>{if(!isActive)return;let active=true;setData(null);setError('');Promise.all([api.finance(),api.payables(),read<{state:ReimbursementState}>('/api/demo/reimbursements'),read<{state:Data['warehouse']}>('/api/demo/warehouse'),api.adAccounts()]).then(([finance,payables,reimbursements,warehouse,ads])=>{if(active)setData({finance,payables,reimbursements:reimbursements.state,warehouse:warehouse.state,topups:ads.topups});}).catch(cause=>{if(active)setError(toErrorMessage(cause));});return()=>{active=false;};},[tick,isActive]);
+  useEffect(()=>{if(!isActive)return;let active=true;setData(null);setError('');Promise.all([api.finance(),api.payables(),read<{state:ReimbursementState}>(import.meta.env.MODE==='demo'?'/api/demo/reimbursements':'/api/finance/reimbursements'),read<{state:Data['warehouse']}>(import.meta.env.MODE==='demo'?'/api/demo/warehouse':'/api/finance/warehouse'),api.adAccounts()]).then(([finance,payables,reimbursements,warehouse,ads])=>{if(active)setData({finance,payables,reimbursements:reimbursements.state,warehouse:warehouse.state,topups:ads.topups});}).catch(cause=>{if(active)setError(toErrorMessage(cause));});return()=>{active=false;};},[tick,isActive]);
   const rows=data?financeCashRows(data.finance,data.payables,data.reimbursements,data.topups):[];
   const periodRows=rows.filter(row=>row.date>=range.from&&row.date<=range.to);
   const receipts=data?.finance.payments.filter(item=>!item.voided_at&&item.payment_date>=range.from&&item.payment_date<=range.to);

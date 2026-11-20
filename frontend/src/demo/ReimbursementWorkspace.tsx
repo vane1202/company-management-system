@@ -1,5 +1,5 @@
 import {useEffect,useState} from 'react';
-import type {CompanyExpense} from '../api';
+import {requestInner, type CompanyExpense} from '../api';
 import {InfoTip} from '../InfoTip';
 import {toErrorMessage} from '../errors';
 import './warehouse-workspace.css';
@@ -11,7 +11,10 @@ type Data={state:{claims:Claim[];payments:Payment[]};categories:Record<string,st
 const cents=(value:string)=>{const [a,b='']=value.split('.');return BigInt(a)*100n+BigInt(b.padEnd(2,'0'));};
 const amount=(v:bigint)=>`${v/100n}.${String(v%100n).padStart(2,'0')}`;
 const yuan=(v:bigint)=>'¥'+Number(amount(v)).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});
-async function request(body?:object):Promise<Data>{const r=await fetch('/api/demo/reimbursements',body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{cache:'no-store'});const data=await r.json();if(!r.ok)throw Error(data.error||'报销数据读取失败');return data;}
+const reimbursementUrl = import.meta.env.MODE === 'demo' ? '/api/demo/reimbursements' : '/api/finance/reimbursements';
+async function request(body?:object):Promise<Data>{
+ if(import.meta.env.MODE!=='demo') return requestInner<Data>(reimbursementUrl, body?{method:'POST',body:JSON.stringify(body)}:{cache:'no-store'});
+ const r=await fetch(reimbursementUrl,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{cache:'no-store'});const data=await r.json();if(!r.ok)throw Error(data.error||'报销数据读取失败');return data;}
 
 export default function ReimbursementWorkspace({today,onBack}:{today:string;onBack?:()=>void}){
  const blank=()=>({claimant:'',department:'',category:'temporary',purpose:'',amount:'',expenseDate:today,claimDate:today,expenseId:'',receiptRef:'',note:'',requestKey:crypto.randomUUID()});

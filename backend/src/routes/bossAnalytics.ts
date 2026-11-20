@@ -230,7 +230,22 @@ export function createBossAnalyticsRouter(db: Pool, config: AppConfig): Router {
 
       await client.query("COMMIT");
 
-      const validOrders = orders.filter((row) => !row.cancelled && row.status !== "refunded");
+            const expenseRows = (
+        await client.query<{
+          id: string;
+          category: string;
+          date: string;
+          amount: string;
+          purpose: string;
+          operator: string;
+          proof: string;
+        }>(
+          "SELECT id::text AS id, category, business_date::text AS date, amount_cny::text AS amount, purpose, operator_name AS operator, proof FROM daily_operating_expenses WHERE voided_at IS NULL AND business_date BETWEEN $1 AND $2 ORDER BY business_date, created_at",
+          [period.from, period.to]
+        )
+      ).rows;
+
+const validOrders = orders.filter((row) => !row.cancelled && row.status !== "refunded");
       const statsOf = (rows: typeof validOrders) => {
         const liveCents = rows.reduce((sum, r) => sum + moneyToCents(r.booking_amount), 0n);
         const privateCents = 0n;
@@ -312,18 +327,20 @@ export function createBossAnalyticsRouter(db: Pool, config: AppConfig): Router {
         performance: statsOf(validOrders),
         days,
         rooms,
-        expenses: {
-          registered: null,
-          status: "incomplete",
-          categories: EXPENSE_CATEGORIES.map((c) => ({
-            key: c.key,
-            label: c.label,
-            amount: null,
-            count: 0,
-            status: c.key === "salary" ? "pending_payroll" : "unreported"
-          })),
-          records: []
-        },
+        expenses: (() => {
+          const recorded = expenseRows.reduce((sum, row) => sum + moneyToCents(row.amount), 0n);
+          return {
+            registered: expenseRows.length ? centsToMoney(recorded) : null,
+            status: "incomplete",
+            categories: EXPENSE_CATEGORIES.map((c) => {
+              if (c.key === "salary") return { key: c.key, label: c.label, amount: null, count: 0, status: "pending_payroll" };
+              const rows = expenseRows.filter((row) => row.category === c.key);
+              const amount = rows.reduce((sum, row) => sum + moneyToCents(row.amount), 0n);
+              return { key: c.key, label: c.label, amount: rows.length ? centsToMoney(amount) : null, count: rows.length, status: rows.length ? "recorded" : "unreported" };
+            }),
+            records: expenseRows
+          };
+        })(),
         definitions: {
           performance: "直播间料价＋代购费，加客服私推料价；未付款开单计入，跑单和退款源单排除，追加收费另列。",
           fans: "加粉及有效粉按业务日日报汇总；无效粉仅计主管已确认的客资，缺少复核明细显示待复核，不按零处理。",

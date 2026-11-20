@@ -43,7 +43,7 @@ function formatMoneyWithCurrency(amount: string, currency: string): string {
 }
 
 export function FinanceDesk({ today, onOpenSalary, section, active:isActive=true, onSubViewChange }: { today: string; onOpenSalary?: () => void; section?: 'finance'|'financeOut'; active?:boolean; onSubViewChange?: (sub: { label: string; onBack?: () => void } | null) => void }) {
-  const defaultWork: Work = demo && section ? (section === "finance" ? "receipts" : "warehouse") : "home";
+  const defaultWork: Work = section ? (section === "finance" ? "receipts" : "warehouse") : "home";
   const [work, setWork] = useState<Work>(defaultWork);
   const [draftOpen, setDraftOpen] = useState(false);
   const projectMenu = useRef<HTMLDetailsElement>(null);
@@ -54,7 +54,7 @@ export function FinanceDesk({ today, onOpenSalary, section, active:isActive=true
     const allowed=section==='finance'?['receipts','settlement','later','paidVerification']:['reimbursement','warehouse','material','other','commission','dailyExpenses','ads'];
     if (requested && allowed.includes(requested)) {
       setWork(requested as Work);
-    } else if (demo) {
+    } else if (section) {
       setWork(prev => allowed.includes(prev) ? prev : (section === 'finance' ? 'receipts' : 'warehouse'));
     } else {
       setWork('home');
@@ -67,14 +67,14 @@ export function FinanceDesk({ today, onOpenSalary, section, active:isActive=true
       onSubViewChange(null);
       return;
     }
-    onSubViewChange({ label: workLabels[work], onBack: demo && section ? undefined : () => setWork("home") });
+    onSubViewChange({ label: workLabels[work], onBack: section ? undefined : () => setWork("home") });
     return () => onSubViewChange(null);
   }, [isActive, work, onSubViewChange, section]);
-  const inlineBack = onSubViewChange || (demo && section) ? undefined : () => setWork("home");
+  const inlineBack = onSubViewChange || section ? undefined : () => setWork("home");
   const [payments, setPayments] = useState<FinancePayment[] | null>(null);
   const [error, setError] = useState("");
   const [refreshTick,setRefreshTick]=useState(0);
-  const badges=useFinanceBadges(demo&&isActive&&(section==="financeOut"||!section),today.slice(0,7),refreshTick);
+  const badges=useFinanceBadges(isActive&&(section==="financeOut"||!section),today.slice(0,7),refreshTick);
   useEffect(() => {
     let live = true;
     setPayments(null);setError("");
@@ -116,7 +116,7 @@ export function FinanceDesk({ today, onOpenSalary, section, active:isActive=true
   }
 
   const wrapWithTabs = (content: ReactNode) => {
-    if (!(demo && section)) return content;
+    if (!section) return content;
     return <div className="finance-tabbed-shell">
       <nav className="finance-section-tabs" role="tablist" aria-label={section === "finance" ? "收款与结算模块" : "付款与工资模块"}>
         {sectionTabs.map(tab => {
@@ -155,11 +155,11 @@ export function FinanceDesk({ today, onOpenSalary, section, active:isActive=true
       {content}
     </div>;
   };
-  if (demo && work === "reimbursement") return wrapWithTabs(<ReimbursementWorkspace today={today} onBack={inlineBack}/>);
+  if (work === "reimbursement") return wrapWithTabs(<ReimbursementWorkspace today={today} onBack={inlineBack}/>);
   if (work === "warehouse") return wrapWithTabs(<WarehouseWorkspace today={today} finance onBack={inlineBack}/>);
   if (work === "settlement") return wrapWithTabs(<FinanceLedgerWorkspace today={today} heading="第三方结算" hideCompanions onBack={inlineBack} />);
   if (work === "material") return wrapWithTabs(<WorkFrame title="料子货款结算" tip="此处查看料子供货成本与原付款台账；新结账单由库房提交，在「库房结账」中审核和登记付款。客户已付款不在这里抵扣。" onBack={inlineBack}><CompanyPayments today={today} readOnly={demo} categories={["goods", "sourcing"]} heading="翡翠料子货款" /></WorkFrame>);
-  if (demo && work === "ads") return wrapWithTabs(<WorkFrame title="广告充值" onBack={inlineBack}><AdAccountsWorkspace today={today} readOnly={false} /></WorkFrame>);
+  if (work === "ads") return wrapWithTabs(<WorkFrame title="广告充值" onBack={inlineBack}><AdAccountsWorkspace today={today} readOnly={false} /></WorkFrame>);
   if (work === "other") return wrapWithTabs(<WorkFrame title={demo?"加工与发货台账":"其他财务事项"} onBack={inlineBack}><CompanyPayments today={today} readOnly={demo} excludeCategories={["goods", "sourcing"]} heading="加工、证书、包装和运费" />{!demo&&<><PaidPerformance today={today} readOnly={false} /><AdAccountsWorkspace today={today} readOnly={false} /></>}</WorkFrame>);
   if (work === "receipts") return wrapWithTabs(<WorkFrame
     title={demo ? "订单收款" : "订单收款核对"}
@@ -181,9 +181,9 @@ export function FinanceDesk({ today, onOpenSalary, section, active:isActive=true
     <ReceiptLists error={error} groups={[{ title: "已登记的后续收款", rows: later }]} />
     {!demo && <ReceiptDraft today={today} mode="later" />}
   </WorkFrame>);
-  if (demo && work === "commission") return wrapWithTabs(<WorkFrame title="业绩提成" tip="按订单净利润核算，结果登记到月度工资单。" onBack={inlineBack}><CommissionPanel today={today} /></WorkFrame>);
-  if (demo && work === "paidVerification") return wrapWithTabs(<WorkFrame title="已付款业绩核定" onBack={inlineBack}><PaidPerformance today={today} readOnly={false} /></WorkFrame>);
-  if (demo && work === "dailyExpenses") return wrapWithTabs(<WorkFrame title="日常运营费用" tip="登记房租、水电、接待与其他日常开支，作为 BOSS 端运营成本数据来源。" onBack={inlineBack}><DailyOperatingExpenses today={today}/></WorkFrame>);
+  if (work === "commission") return wrapWithTabs(<WorkFrame title="业绩提成" tip="按订单净利润核算，结果登记到月度工资单。" onBack={inlineBack}><CommissionPanel today={today} /></WorkFrame>);
+  if (work === "paidVerification") return wrapWithTabs(<WorkFrame title="已付款业绩核定" onBack={inlineBack}><PaidPerformance today={today} readOnly={false} /></WorkFrame>);
+  if (work === "dailyExpenses") return wrapWithTabs(<WorkFrame title="日常运营费用" tip="登记房租、水电、接待与其他日常开支，作为 BOSS 端运营成本数据来源。" onBack={inlineBack}><DailyOperatingExpenses today={today}/></WorkFrame>);
   if(demo) return <FinanceWorkbenchHome today={today} payments={payments} error={error} onOpen={setWork} onSalary={()=>onOpenSalary?.()} badges={badges} onRetry={()=>setRefreshTick(t=>t+1)}/>;
   return <div className="role-home finance-desk"><header className="role-home-heading"><div><p className="eyebrow">录入与核对</p><h1>财务工作台</h1><p>先处理待登记的款项，再核对已经入账的记录。</p></div><button type="button" className="secondary overview-refresh" onClick={() => setRefreshTick(t => t + 1)}>刷新</button></header>
     {error && <div className="overview-error" role="alert"><p>{error}</p><button type="button" className="secondary" onClick={() => setRefreshTick(t => t + 1)}>重新读取</button></div>}

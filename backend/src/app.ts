@@ -24,6 +24,7 @@ import { createOrderRouter } from "./routes/orders.js";
 import { createSalaryRouter } from "./routes/salaries.js";
 import { createDashboardRouter } from "./routes/dashboard.js";
 import { createBossAnalyticsRouter } from "./routes/bossAnalytics.js";
+import { createOperatingFinanceRouter } from "./routes/operatingFinance.js";
 import { createNoteRouter } from "./routes/notes.js";
 import { requireAuth } from "./routes/auth.js";
 import { createModulesRouter } from "./routes/modules.js";
@@ -143,6 +144,7 @@ export function createApp(db: Pool, config: AppConfig) {
   app.use("/api/dashboard/live-business", createLiveBusinessRouter(db, config));
   app.use("/api/finance/payables", createSupplierPaymentsRouter(db, config));
   app.use("/api/ad-accounts", guardModuleWrites(db,"ops"), createAdAccountsRouter(db, config));
+  app.use("/api/finance", createOperatingFinanceRouter(db, config));
   app.use("/api/finance", createFinanceRouter(db, config));
   app.use("/api/salaries", createSalaryRouter(db));
   app.use("/api/dashboard", createBossAnalyticsRouter(db, config));

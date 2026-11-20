@@ -31,8 +31,12 @@ export function buildFinanceBadges(input: {
   };
 }
 
+const demoMode = import.meta.env.MODE === "demo";
+const warehouseUrl = demoMode ? "/api/demo/warehouse" : "/api/finance/warehouse";
+const reimbursementUrl = demoMode ? "/api/demo/reimbursements" : "/api/finance/reimbursements";
+const dailyUrl = demoMode ? "/api/demo/daily-expenses" : "/api/finance/daily-expenses";
 async function read<T>(url: string): Promise<T> {
-  const response = await fetch(url, { cache: "no-store" });
+  const response = await fetch(url, { cache: "no-store", credentials: "include" });
   if (!response.ok) throw new Error("读取失败");
   return response.json() as Promise<T>;
 }
@@ -43,9 +47,9 @@ export function useFinanceBadges(enabled: boolean, month: string, refreshKey: un
     if (!enabled) return;
     let live = true;
     Promise.all([
-      read<{ state: { bills: Bill[]; payments: Payment[] } }>("/api/demo/warehouse"),
-      read<{ state: { claims: Claim[]; payments: Payment[] } }>("/api/demo/reimbursements"),
-      read<{ records: DailyExpense[] }>("/api/demo/daily-expenses"),
+      read<{ state: { bills: Bill[]; payments: Payment[] } }>(warehouseUrl),
+      read<{ state: { claims: Claim[]; payments: Payment[] } }>(reimbursementUrl),
+      read<{ records: DailyExpense[] }>(dailyUrl),
     ]).then(([warehouse, reimbursements, daily]) => {
       if (live) setBadges(buildFinanceBadges({ bills: warehouse.state.bills, billPayments: warehouse.state.payments, claims: reimbursements.state.claims, claimPayments: reimbursements.state.payments, expenses: daily.records, month }));
     }).catch(() => { if (live) setBadges({}); });

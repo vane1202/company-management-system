@@ -159,11 +159,11 @@ export function App() {
   if (entry && !modules) return <div className="page"><p>正在确认填报入口…</p>{error && <p className="error">{error}</p>}<button type="button" onClick={() => api.modules().then((data) => { setModules(data.modules); setError(""); }).catch((err) => setError(toErrorMessage(err)))}>重新加载</button></div>;
   if (entry && modules?.[entry] === false) return <section className="page"><div className="card"><h2>{fillEntries[entry].title}已停用</h2><p>请联系管理员重新启用，历史数据仍保留。</p><a className="btn secondary" href="/">返回首页</a></div></section>;
 
-  const managementRole = ["boss", "admin", "cs_supervisor", "finance", "warehouse"].includes(user.role) || (import.meta.env.MODE === "demo" && user.role === "ops");
+  const managementRole = ["boss", "admin", "cs_supervisor", "finance", "warehouse", "ops"].includes(user.role);
   const isBoss = user.role === "boss";
   const linkedPages = isBoss ? bossLinkedPages() : [];
   const items = navItems(user.role).filter((item) => managementRole || !["fans", "orders", "ops", "editor"].includes(item.id) || modules?.[item.id] === true);
-  const sidebarItems = user.role === "finance" ? (import.meta.env.MODE==='demo'?items.filter(item=>item.id!=='salaries'):items) : user.role === "cs_supervisor" ? items.filter((item) => !["summary", "orders", "reportHistory"].includes(item.id)) : items;
+  const sidebarItems = user.role === "finance" ? items.filter(item=>item.id!=='salaries') : user.role === "cs_supervisor" ? items.filter((item) => !["summary", "orders", "reportHistory"].includes(item.id)) : items;
   const bottomItems = user.role === "cs_supervisor" && import.meta.env.MODE === "demo" ? sidebarItems : sidebarItems.slice(0, 5);
   const canChangePassword = !isServiceAccount(user.accountKind);
   const accountOnlyMobileNav = bottomItems.length >= sidebarItems.length;
@@ -181,7 +181,7 @@ export function App() {
     breadcrumbs.push({ label: homeLabel });
   } else {
     breadcrumbs.push({ label: homeLabel, onClick: goHome });
-    if (import.meta.env.MODE === "demo" && user.role === "finance" && activePage === "salaries") {
+    if (user.role === "finance" && activePage === "salaries") {
       breadcrumbs.push({ label: pageLabel(user.role, "financeOut"), onClick: () => goTo("financeOut") });
       breadcrumbs.push({ label: pageLabel(user.role, "salaries") });
     } else if (bossBusiness) {
@@ -295,7 +295,7 @@ export function App() {
       {pagePanel("modules", <><ModuleSettings onError={pageError("modules")} onChange={setModules} /><SystemSettings defaultDays={backfillDays} /></>)}
       {pagePanel("people", <PeoplePage today={today} currentUserId={user.id} onError={pageError("people")} />)}
       {pagePanel("csAccounts", DemoRegisteredAccounts ? <Suspense fallback={<p role="status">正在读取账号名册…</p>}><DemoRegisteredAccounts supervisor={user.role === "cs_supervisor"} /></Suspense> : <CsAccountsPage supervisor={user.role === "cs_supervisor"} />)}
-      {pagePanel("finance", import.meta.env.MODE==='demo'&&user.role==='finance'?<FinanceDesk today={today} section="finance" active={activePage==='finance'} onOpenSalary={()=>goTo('salaries')} onSubViewChange={handleFinanceSub}/>:<FinanceWorkspace today={today} readOnly cashView={navigation.views.finance?.cash} />)}
+      {pagePanel("finance", user.role==='finance'?<FinanceDesk today={today} section="finance" active={activePage==='finance'} onOpenSalary={()=>goTo('salaries')} onSubViewChange={handleFinanceSub}/>:<FinanceWorkspace today={today} readOnly cashView={navigation.views.finance?.cash} />)}
       {pagePanel("financeOut", <FinanceDesk today={today} section="financeOut" active={activePage==='financeOut'} onOpenSalary={()=>goTo('salaries')} onSubViewChange={handleFinanceSub}/>)}
       {pagePanel("salaries", <SalaryWorkspace today={today} readOnly={user.role !== "finance"} />)}
 
@@ -473,9 +473,9 @@ function Home({
   onNavigate: (page: Page) => void;
   onOpenBusiness:(view:LiveView)=>void;
 }) {
-  if (DemoOpsAnalysis && user.role === "ops") return <Suspense fallback={<p role="status">正在读取运营工作台…</p>}><DemoOpsAnalysis today={today} onOpenReports={()=>onNavigate("ops")} onOpenFeedback={account=>{try{sessionStorage.setItem("cms-demo-ops-feedback-context",account||"");}catch{}onNavigate("opsFeedback");}}/></Suspense>;
+  if (DemoOpsAnalysis && user.role === "ops") return <Suspense fallback={<p role="status">正在读取运营工作台…</p>}><DemoOpsAnalysis today={today} onOpenReports={()=>onNavigate("ops")} onOpenFeedback={import.meta.env.MODE==="demo"?(account)=>{try{sessionStorage.setItem("cms-demo-ops-feedback-context",account||"");}catch{}onNavigate("opsFeedback");}:undefined}/></Suspense>;
   if (user.role === "warehouse") return <WarehouseWorkspace today={today} userId={user.id}/>;
-  if (user.role === "finance") return import.meta.env.MODE==='demo'?<FinanceHome today={today} active={active} onOpen={(section,task)=>{if(task)sessionStorage.setItem('cms-demo-finance-task',task);onNavigate(section);}}/>:<FinanceDesk today={today} onOpenSalary={() => onNavigate("salaries")} />;
+  if (user.role === "finance") return <FinanceHome today={today} active={active} onOpen={(section,task)=>{if(task)sessionStorage.setItem('cms-demo-finance-task',task);onNavigate(section);}}/>;
   if (user.role === "boss") return <DashboardHome today={today} onNavigate={onNavigate} onOpenBusiness={onOpenBusiness} />;
   if (user.role === "admin") return import.meta.env.MODE === "demo" ? <AdminWorkbench onNavigate={onNavigate}/> : <AdminHome onNavigate={onNavigate} />;
   if (user.role === "cs_supervisor") return import.meta.env.MODE === "demo" ? <SupervisorWorkbench today={today} onNavigate={onNavigate}/> : <SupervisorHome today={today} onNavigate={onNavigate} />;
