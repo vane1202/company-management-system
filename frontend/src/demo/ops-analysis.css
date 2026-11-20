@@ -37,6 +37,34 @@
 
 .oa-heading-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.oa-heading-actions button{min-height:44px}@media(max-width:799px){.oa-heading:has(.oa-heading-actions){align-items:flex-start;flex-wrap:wrap}.oa-heading-actions{width:100%}.oa-heading-actions>button:first-child{flex:1}}
 
+@media (min-width: 800px) {
+  .oa-home .period-toolbar-filters {
+    flex-wrap: nowrap;
+  }
+
+  .oa-home .period-toolbar-filters select {
+    box-sizing: border-box;
+    height: 44px;
+    min-height: 44px;
+    min-width: 140px;
+    max-width: 100%;
+    padding: 0 32px 0 12px;
+    line-height: normal;
+  }
+
+  .oa-home .oa-kpis > article {
+    background: #eaf4ef;
+    border-color: #cadfd4;
+  }
+}
+
+@media (min-width: 800px) and (max-width: 1050px) {
+  .oa-home .period-toolbar-filters {
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+}
+
 @media (max-width: 799px) {
   .oa-home > .ops-identity { margin-bottom: 0; padding-block: 2px; }
   .oa-home .ops-identity .hint { display: none; }
