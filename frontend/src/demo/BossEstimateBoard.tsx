@@ -23,7 +23,7 @@ import type { WorkspaceRoute } from "../workspaceHistory";
 
 const filters = { room: "", host: "", persona: "", operator: "" };
 const presets = [["day", "今日"], ["week", "本周"], ["month", "本月"]] as const;
-const spendTip = "广告消耗按消耗日统计。美元金额按消耗日参考汇率折算为人民币，原美元金额保留。今日每小时检查最新行情（免费行情约延迟15分钟），历史日期使用当日参考汇率，跨日逐日折算后汇总。不代表实际扣款或结汇金额。";
+const spendTip = "广告消耗按消耗日统计。美元金额按消耗日参考汇率折算为人民币，原美元金额保留。";
 const presetKey = "cms-demo-boss-estimate-period";
 
 function InlinePaymentAmount({ value }: { value: string }) {
@@ -122,7 +122,6 @@ export default function BossEstimateBoard({ today, onError, onOpen, onDrill }: {
     return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", resume); gate.next(); };
   }, [preset,custom?.from,custom?.to]);
   const money = (value: string | null) => loading ? "…" : yuan(value);
-  const fxInfo = adFx?.quotes.map(q => `${q.date}：1 USD = ${Number(q.rate)} CNY；行情时间 ${new Date(q.updatedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })}（UTC+8）；${q.delayed ? "行情约延迟15分钟" : "当日参考汇率"}${q.sourceDate !== q.date ? `；沿用 ${q.sourceDate} 已发布汇率` : ""}${q.stale ? "；更新延迟，使用最近成功数据" : ""}`).join("。") ?? "";
 
   const pendingOrders = live?.operations?.orders.filter(order => order.status === "unpaid" || order.status === "partial").length ?? 0;
   const uncertainOrders = live?.operations?.orders.filter(order => order.status === "unknown").length ?? 0;
@@ -155,7 +154,7 @@ export default function BossEstimateBoard({ today, onError, onOpen, onDrill }: {
     }/>
     <div className="be-kpis">
       <article aria-label="广告消耗">
-        <header><h2>投流数据</h2><InfoTip scrollable label="广告消耗口径" text={`${spendTip}${fxInfo ? ` ${fxInfo}。` : ""}${adFx?.missingDates.length ? ` 缺少汇率：${adFx.missingDates.join("、")}。` : ""}${adFx?.incomplete ? " 消耗明细不完整，暂不折算。" : ""}`} /></header>
+        <header><h2>投流数据</h2><InfoTip scrollable label="广告消耗口径" text={spendTip} /></header>
         <button type="button" className="be-main-value" aria-label="查看广告消耗明细" disabled={loading || !view} onClick={() => drill("ads")}>{loading?'…':fxLoading?<span className="fx-pending">折算中…</span>:adFx?.cny!=null?`约 ${yuan(adFx.cny)}`:'待折算'}</button>
         <small>原币 {loading?'…':view?.adUsd??'—'} USD{adFx?.stale?' · 行情延迟':''}</small>
         {benchmark("ads")}
