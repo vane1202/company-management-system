@@ -23,7 +23,7 @@ import type { WorkspaceRoute } from "../workspaceHistory";
 
 const filters = { room: "", host: "", persona: "", operator: "" };
 const presets = [["day", "今日"], ["week", "本周"], ["month", "本月"]] as const;
-const spendTip = "售后费用是已登记的供货、加工、接待和发货等人民币支出，按发生日统计。广告消耗按消耗日汇率参考折算为人民币，原美元金额保留。今日每小时检查最新行情（免费行情约延迟15分钟），历史日期使用当日参考汇率，跨日逐日折算后汇总。不代表实际扣款或结汇金额。";
+const spendTip = "广告消耗按消耗日统计。美元金额按消耗日参考汇率折算为人民币，原美元金额保留。今日每小时检查最新行情（免费行情约延迟15分钟），历史日期使用当日参考汇率，跨日逐日折算后汇总。不代表实际扣款或结汇金额。";
 const presetKey = "cms-demo-boss-estimate-period";
 
 function InlinePaymentAmount({ value }: { value: string }) {
