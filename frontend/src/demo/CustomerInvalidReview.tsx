@@ -3,6 +3,7 @@ import { api } from "../api";
 import { InfoTip } from "../InfoTip";
 import { toErrorMessage } from "../errors";
 import { customerStatus, invalidReasons, useCustomerCrm, type CrmActor } from "./customerCrm";
+import { ProductionInvalidReview } from "./ProductionInvalidReview";
 import { loadServiceDirectory } from "./serviceDirectory";
 import "./customer-invalid-review.css";
 
@@ -12,7 +13,7 @@ const outcomes = { pending: "待复核", approved: "已确认无效", rejected: 
 const stamp = (value?: string) => value ? new Date(value).toLocaleString("zh-CN", { hour12: false, timeZone: "Asia/Shanghai" }) : "—";
 
 /** Project jade tokens and compact, actionable rows; instructions stay beside irreversible decisions. */
-export default function CustomerInvalidReview({ today }: { today: string }) {
+function DemoCustomerInvalidReview({ today }: { today: string }) {
   const { state, dispatch, error: storeError } = useCustomerCrm(today);
   const [tab, setTab] = useState<keyof typeof tabs>("pending");
   const [employee, setEmployee] = useState("");
@@ -82,4 +83,9 @@ export default function CustomerInvalidReview({ today }: { today: string }) {
       return <button type="button" className="cir-row" key={review.id} onClick={() => open(review.id)}><span className="cir-customer"><strong>{item.name}</strong><small>{item.employeeName} · {item.teamName}</small><small>{item.createdOn} 新增</small></span><span className="cir-reason"><span className={`cir-status ${review.status === "pending" ? "pending" : ""}`}>{invalidReasons[review.reason]}</span><small>{tab === "history" ? outcomes[review.status] : stamp(review.requestedAt)}</small></span><span className="cir-open">{tab === "pending" ? "去复核" : "查看详情"} ›</span></button>;
     }) : <section className="empty-state"><strong>{query || employee ? "没有匹配的客资" : tab === "pending" ? "本组暂无待复核申请" : tab === "approved" ? "无效客资池暂无客户" : "暂无退回或恢复记录"}</strong><p>{tab === "pending" ? "客服提交无效申请后，将出现在这里。" : "可调整筛选，或切换查看其他复核状态。"}</p></section>}</div>}
   </section>;
+}
+
+export default function CustomerInvalidReview({ today }: { today: string }) {
+  if (import.meta.env.MODE === "production") return <ProductionInvalidReview />;
+  return <DemoCustomerInvalidReview today={today} />;
 }

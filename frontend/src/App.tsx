@@ -17,7 +17,7 @@ import { detailLines } from "./dailyDetail";
 import { ModuleSettings } from "./ModuleSettings";
 import { SystemSettings } from "./SystemSettings";
 import { DashboardHome } from "./DashboardHome";
-import { AdminHome, SupervisorHome } from "./RoleHomes";
+import { AdminHome } from "./RoleHomes";
 import {AdminWorkbench,SupervisorWorkbench} from "./demo/RoleWorkbenches";
 import { DashboardIcon } from "./DashboardIcon";
 import { IdentityName, useIdentityPrivacy } from "./IdentityName";
@@ -54,13 +54,13 @@ void import('./demo/dashboard-phase1.css');
 const DemoOpsFeedback = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/OpsFeedback')) : null;
 const DemoOpsAnalysis = lazy(() => import('./demo/OpsAnalysis'));
 const DemoEstimateBoard = lazy(() => import('./demo/BossEstimateBoard'));
-const DemoCustomerReview = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/CustomerInvalidReview')) : null;
+const DemoCustomerReview = lazy(() => import('./demo/CustomerInvalidReview'));
 const DemoCustomerFill = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/CustomerFillWorkspace')) : null;
 const DemoSupervisorPerformance = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/SupervisorPerformance')) : null;
 const DemoEditorFill = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/EditorHistoryWorkspace')) : null;
 const DemoEditorOverview = lazy(() => import('./demo/EditorOverview'));
-const DemoStaffAssessment = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/StaffAssessment')) : null;
-const DemoReportHistory = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/ReportHistory')) : null;
+const DemoStaffAssessment = lazy(() => import('./demo/StaffAssessment'));
+const DemoReportHistory = lazy(() => import('./demo/ReportHistory'));
 const DemoRegisteredAccounts = import.meta.env.MODE === 'demo' ? lazy(() => import('./demo/RegisteredAccountsPage')) : null;
 
 export function App() {
@@ -283,9 +283,9 @@ export function App() {
       {pagePanel("home", <Home user={user} today={today} backfillDays={backfillDays} disclaimer={disclaimer} onNavigate={goTo} active={activePage==='home'} onOpenBusiness={live=>navigation.navigate({page:'orders',live})} />)}
       {pagePanel("fans", <FanForm today={today} onError={pageError("fans")} platform={user.servicePlatform}/>)}
       {pagePanel("summary", <FanSummaryPage today={today} onError={pageError("summary")} supervisor={user.role === "cs_supervisor"} onNavigate={goTo} />)}
-      {pagePanel("assessment", DemoStaffAssessment ? <Suspense fallback={<p role="status">正在读取客服考核…</p>}><DemoStaffAssessment today={today} scope={user.role === "cs_supervisor" ? "本组" : "全部"} /></Suspense> : <p className="notice">客服考核目前只在独立演示提供。</p>)}
-      {pagePanel("customerReview", DemoCustomerReview && user.role === "cs_supervisor" ? <Suspense fallback={<p role="status">正在打开无效客资复核…</p>}><DemoCustomerReview today={today} /></Suspense> : null)}
-      {pagePanel("reportHistory", DemoReportHistory && user.role === "cs_supervisor" ? <Suspense fallback={<p role="status">正在读取填报历史…</p>}><DemoReportHistory today={today} supervisor /></Suspense> : null)}
+      {pagePanel("assessment", <Suspense fallback={<p role="status">正在读取客服考核…</p>}><DemoStaffAssessment today={today} scope={user.role === "cs_supervisor" ? "本组" : "全部"} /></Suspense>)}
+      {pagePanel("customerReview", user.role === "cs_supervisor" ? <Suspense fallback={<p role="status">正在打开无效客资复核…</p>}><DemoCustomerReview today={today} /></Suspense> : null)}
+      {pagePanel("reportHistory", user.role === "cs_supervisor" ? <Suspense fallback={<p role="status">正在读取填报历史…</p>}><DemoReportHistory today={today} supervisor /></Suspense> : null)}
       {pagePanel("orders", DemoSupervisorPerformance && user.role === 'cs_supervisor' ? <Suspense fallback={<p role="status">正在读取本组业绩…</p>}><DemoSupervisorPerformance today={today} user={user} selectedId={navigation.views.orders?.orderId ?? ''} onSelectOrder={id => navigation.navigate({page:'orders',orderId:id})} /></Suspense> : user.role==='boss'?<><div hidden={!!navigation.views.orders?.orderId||!!navigation.views.orders?.orderList}><LiveBusinessOverview today={today} context={businessContext} onOpenBusiness={live=>navigation.navigate({page:'orders',live})} onOpenOrder={id=>navigation.navigate({page:'orders',live:businessContext,orderId:id})} onOpenOrders={()=>navigation.navigate({page:'orders',live:businessContext,orderList:true})}/></div>{(navigation.views.orders?.orderId||navigation.views.orders?.orderList)&&<OrderWorkspace today={today} user={user} selectedId={navigation.views.orders.orderId??''} onSelectOrder={id=>navigation.navigate({...navigation.views.orders!,orderId:id})}/>}</>:<OrderWorkspace today={today} user={user} selectedId={navigation.views.orders?.orderId ?? ""} onSelectOrder={id => navigation.navigate({ page: "orders", orderId: id })} />)}
       {user.role === "ops" && DemoOpsFeedback && pagePanel("opsFeedback", <Suspense fallback={<p role="status">Loading...</p>}><DemoOpsFeedback today={today}/></Suspense>)}
       {user.role === "ops" && pagePanel("opsAccounts", <OpsAdAccounts today={today} />)}
@@ -478,7 +478,7 @@ function Home({
   if (user.role === "finance") return <FinanceHome today={today} active={active} onOpen={(section,task)=>{if(task)sessionStorage.setItem('cms-demo-finance-task',task);onNavigate(section);}}/>;
   if (user.role === "boss") return <DashboardHome today={today} onNavigate={onNavigate} onOpenBusiness={onOpenBusiness} />;
   if (user.role === "admin") return import.meta.env.MODE === "demo" ? <AdminWorkbench onNavigate={onNavigate}/> : <AdminHome onNavigate={onNavigate} />;
-  if (user.role === "cs_supervisor") return import.meta.env.MODE === "demo" ? <SupervisorWorkbench today={today} onNavigate={onNavigate}/> : <SupervisorHome today={today} onNavigate={onNavigate} />;
+  if (user.role === "cs_supervisor") return <SupervisorWorkbench today={today} onNavigate={onNavigate}/>;
   return (
     <section className="card">
       <h2>今日 {today || "—"}</h2>

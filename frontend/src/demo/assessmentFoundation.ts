@@ -18,7 +18,7 @@ export type SourceAdSummary = { adAccountId: string; received: number; replied: 
 export function sourceAdLabel(id?: string): string { const value = (id || "").trim(); return value || "来源待补"; }
 export type AssessmentFoundation = {
   version: "assessment-foundation/v1";
-  demo: true;
+  demo: boolean;
   today: string;
   view: "directory" | "capture" | "review" | "invalid";
   employees?: EmployeeRecord[];

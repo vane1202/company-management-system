@@ -27,10 +27,11 @@ export default function ReportHistory({ today, accountId = "", kind = "fans", su
     if (!validRange) { setLoading(false); return () => controller.abort(); }
     setLoading(true);
     const query = new URLSearchParams({ kind: currentKind, accountId: currentAccount, ...range });
-    fetch("/api/demo/report-history?" + query, { signal: controller.signal, cache: "no-store" }).then(async (response) => {
+    const demoMode = import.meta.env.MODE === "demo";
+    fetch((demoMode ? "/api/demo/report-history?" : "/api/report-history?") + query, { signal: controller.signal, cache: "no-store", credentials: "include" }).then(async (response) => {
       const body = await response.json();
       if (!response.ok) throw Error(body.error || "历史记录暂不可用");
-      if (body.demo !== true || !Array.isArray(body.records)) throw Error("历史记录格式不匹配");
+      if ((demoMode ? body.demo !== true : typeof body.demo !== "boolean") || !Array.isArray(body.records)) throw Error("历史记录格式不匹配");
       if (!controller.signal.aborted) setData(body);
     }).catch((cause) => { if (!controller.signal.aborted) setError(toErrorMessage(cause)); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
@@ -41,7 +42,7 @@ export default function ReportHistory({ today, accountId = "", kind = "fans", su
   const lastPage = Math.max(0, Math.ceil(records.length / 10) - 1);
   const currentPage = Math.min(page, lastPage);
   return <section className="card report-history" aria-label="历史填报记录" aria-busy={loading}>
-    <header className="rh-heading"><div><h2>{supervisor ? "本组填报历史管理" : reportKinds[currentKind] + "历史"}</h2><span className="hint">{supervisor ? "本组可更正" : "所选接待账号 · 只读"} · {currentAccount.startsWith("registered-") ? "已登记账号" : "虚构业务示例"}</span></div><button type="button" className="secondary" disabled={loading} onClick={() => setTick((value) => value + 1)}>刷新</button></header>
+    <header className="rh-heading"><div><h2>{supervisor ? "本组填报历史管理" : reportKinds[currentKind] + "历史"}</h2><span className="hint">{import.meta.env.MODE === "demo" ? (supervisor ? "本组可更正" : "所选接待账号 · 只读") + " · " + (currentAccount.startsWith("registered-") ? "已登记账号" : "虚构业务示例") : (supervisor ? "正式记录 · 只读" : "所选接待账号 · 只读")}</span></div><button type="button" className="secondary" disabled={loading} onClick={() => setTick((value) => value + 1)}>刷新</button></header>
     {supervisor && <div className="rh-categories" role="group" aria-label="历史填报类别">{Object.entries(reportKinds).map(([key, label]) => <button type="button" key={key} aria-pressed={category === key} onClick={() => setCategory(key as ReportKind)}>{label}</button>)}</div>}
     <div className="rh-filters">
       {supervisor && <label>接待账号<select aria-label="历史接待账号" value={account} onChange={(event) => setAccount(event.target.value)}><option value="">本组全部</option>{data?.accounts.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>}
@@ -56,12 +57,12 @@ export default function ReportHistory({ today, accountId = "", kind = "fans", su
       <RecordIdentity record={selected} />
       <p className="notice">{selected.source}</p>
       <dl className="rh-fields">{selected.fields.map((field) => <div key={field.key}><dt>{field.label}</dt><dd>{field.value || "未记录"}</dd></div>)}</dl>
-      {canEdit ? <CorrectionForm key={selected.id + ":" + selected.version} record={selected} today={today} onPreview={(correction) => setChanges((current) => [...current, correction])} /> : <p className="notice">需要更正时，请联系本组客服主管。</p>}
+      {canEdit ? <CorrectionForm key={selected.id + ":" + selected.version} record={selected} today={today} onPreview={(correction) => setChanges((current) => [...current, correction])} /> : <p className="notice">{supervisor ? "正式记录只读。需要改数字时，请回到原来的加粉或开单页面。" : "需要更正时，请联系本组客服主管。"}</p>}
       {!!changes.filter((change) => change.record.id === selected.id).length && <details className="rh-audit"><summary>本次更正预览记录</summary>{changes.filter((change) => change.record.id === selected.id).map((change) => <article key={change.record.version}><h4>演示客服主管 · {new Date(change.at).toLocaleString("zh-CN")} · V{change.before.version} → V{change.record.version}</h4><p>更正原因：{change.reason}</p><ul>{change.record.fields.filter((field) => field.value !== change.before.fields.find((before) => before.key === field.key)?.value).map((field) => <li key={field.key}>{field.label}：{change.before.fields.find((before) => before.key === field.key)?.value || "空"} → {field.value || "空"}</li>)}</ul></article>)}<button type="button" className="secondary" onClick={() => setChanges((current) => current.filter((change) => change.record.id !== selected.id))}>还原这条预览</button></details>}
     </> : !error && validRange && <>
       <p className="hint">共 {records.length} 条 · 按业务日期排列</p>
       <div className="rh-list">{records.slice(currentPage * 10, (currentPage + 1) * 10).map((record) => <button type="button" className="rh-record secondary" key={record.id} onClick={() => setSelectedId(record.id)}><span><strong>{record.title}</strong><small>{record.businessDate} · {record.employeeName}{record.employeeCode ? " · " + record.employeeCode : ""}</small><small>{record.accountLabel}</small></span><span>{changes.some((change) => change.record.id === record.id) ? "更正预览" : "查看明细"} ›</span></button>)}</div>
-      {!records.length && <p className="notice">{currentAccount.startsWith("registered-") ? "此登记账号尚无已保存的填报记录。演示试填不会生成历史。" : "所选账号和日期范围暂无" + reportKinds[currentKind] + "历史。可调整日期或账号；未填报不记为0。"}</p>}
+      {!records.length && <p className="notice">{import.meta.env.MODE === "demo" && currentAccount.startsWith("registered-") ? "此登记账号尚无已保存的填报记录。演示试填不会生成历史。" : "所选账号和日期范围暂无" + reportKinds[currentKind] + "历史。可调整日期或账号；未填报不记为0。"}</p>}
       {lastPage > 0 && <div className="actions"><button type="button" className="secondary" disabled={!currentPage} onClick={() => setPage(currentPage - 1)}>上一页</button><span>{currentPage + 1} / {lastPage + 1}</span><button type="button" className="secondary" disabled={currentPage === lastPage} onClick={() => setPage(currentPage + 1)}>下一页</button></div>}
     </>}
   </section>;

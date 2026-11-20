@@ -2,7 +2,7 @@ export const reportKinds = { fans: "每日加粉", orders: "开单记录", "afte
 export type ReportKind = keyof typeof reportKinds;
 export type HistoryField = { key: string; label: string; value: string; type: "text" | "count" | "money" | "date"; editable: boolean };
 export type HistoryRecord = { id: string; kind: ReportKind; accountId: string; accountLabel: string; teamName: string; businessDate: string; employeeName: string; employeeCode: string; title: string; source: string; version: number; fields: HistoryField[] };
-export type HistoryData = { records: HistoryRecord[]; accounts: { id: string; label: string; teamName: string }[]; canPreviewCorrections: boolean; demo: true };
+export type HistoryData = { records: HistoryRecord[]; accounts: { id: string; label: string; teamName: string }[]; canPreviewCorrections: boolean; demo: boolean };
 export type Correction = { record: HistoryRecord; before: HistoryRecord; reason: string; at: string };
 
 export function previewCorrection(record: HistoryRecord, values: Record<string, string>, reason: string, expectedVersion: number, role: string, today: string): { record: HistoryRecord } | { error: string } {

@@ -64,20 +64,22 @@ export function SupervisorWorkbench({ today, onNavigate }: { today: string; onNa
   const noScope = teams?.length === 0;
   const added = teams?.reduce((sum, team) => sum + team.totalAdded, 0);
   const missing = teams?.reduce((sum, team) => sum + team.missingCount, 0);
-  const opening = foundation ? openingSnapshot(foundation.leads ?? [], foundation.employees ?? [], period, supervisorTeamIds) : null;
+  const teamIds = import.meta.env.MODE === "demo" ? supervisorTeamIds : [...new Set((foundation?.employees ?? []).map((employee) => employee.teamId))];
+  const opening = foundation ? openingSnapshot(foundation.leads ?? [], foundation.employees ?? [], period, teamIds) : null;
   const stats = sources && accounts ? aggregate(sources, { from: period.from, to: period.to, operator: "", account: "", persona: "", room: "" }, accounts) : null;
-  const customers: DeskCustomer[] = crm.state.customers.filter((customer) => supervisorTeamIds.includes(customer.teamId)).map((customer) => ({
+  const customers: DeskCustomer[] = crm.state.customers.filter((customer) => teamIds.includes(customer.teamId)).map((customer) => ({
     id: customer.id, name: customer.name, employeeId: customer.employeeId, employeeName: customer.employeeName, spendTier: customer.spendTier,
     status: customerStatus(crm.state, customer), pending: crm.state.reviews.some((review) => review.customerId === customer.id && review.status === "pending"),
     sample: customer.sample, createdOn: customer.createdOn, need: customer.need
   }));
-  const holders = (accounts ?? []).filter((account) => account.isActive && account.teamId && supervisorTeamIds.includes(account.teamId) && account.holderName?.trim()).map((account) => ({ id: account.registeredHolderId || account.holderName!.trim(), name: account.holderName!.trim() }));
+  const holders = (accounts ?? []).filter((account) => account.isActive && account.teamId && teamIds.includes(account.teamId) && account.holderName?.trim()).map((account) => ({ id: account.registeredHolderId || account.holderName!.trim(), name: account.holderName!.trim() }));
   const desk = customerDesk(customers, holders);
   const person = desk.people.find((item) => item.id === personId);
   const personCustomers = customers.filter((customer) => customer.employeeId === personId && customer.status !== "invalid");
   function openCustomers(id = "") { setPersonId(id); setView("customers"); window.scrollTo({ top: 0, behavior: "instant" }); }
   return <div className="role-desk supervisor-desk" aria-busy={loading}>
     <header className="desk-heading"><div><p className="eyebrow">翠管家 · 岗位工作台</p><h1>{view === "home" ? "客服主管工作台" : person ? person.name + "的客资" : "本组客资情况"}</h1>{view === "customers" && <span className="desk-caption">当前仍在客服名下的客户，不按今日清零</span>}</div>{view !== "home" && <div className="supervisor-heading-actions"><button type="button" className="secondary" onClick={() => person ? setPersonId("") : setView("home")}>{person ? "← 返回客资" : "← 返回工作台"}</button><button type="button" className="secondary" disabled={loading} onClick={() => setTick((value) => value + 1)}>刷新</button></div>}</header>
+    {view === "home" && import.meta.env.MODE === "demo" && <p className="supervisor-demo-note">演示数据 · 非真实业绩<InfoTip label="演示与客资归属说明" text="报粉、业绩和客资中的演练数字不代表真实业绩。客资跟登记时的客服，人调走后旧客资不自动改归属。" /></p>}
     {view === "home" && <PeriodToolbar
       today={today}
       preset={preset}
@@ -103,7 +105,6 @@ export function SupervisorWorkbench({ today, onNavigate }: { today: string; onNa
         <div className="supervisor-people">{desk.people.map((item) => <button type="button" key={item.id} onClick={() => openCustomers(item.id)}><span><strong>{item.name}</strong><small>在跟 {item.following} · 已成交 {item.dealt} · A/B/C {item.tiers.A}/{item.tiers.B}/{item.tiers.C}</small></span><b>{item.pending ? item.pending + " 待复核" : "查看"}</b></button>)}</div>
       </>}
     </section> : <>
-      <p className="supervisor-demo-note">演示数据 · 非真实业绩<InfoTip label="演示与客资归属说明" text="报粉、业绩和客资中的演练数字不代表真实业绩。客资跟登记时的客服，人调走后旧客资不自动改归属。" /></p>
       <div className="supervisor-boards">
         <section className="supervisor-board" aria-label="本组加粉情况">
           <header><button type="button" className="supervisor-card-link" onClick={() => onNavigate("summary")}><h2>本组加粉情况</h2><span aria-hidden="true">›</span></button><InfoTip label="加粉统计口径" text="开口转化率＝已明确需求 ÷ 正常沟通，按今日客户明细和客服本人统计。" /></header>

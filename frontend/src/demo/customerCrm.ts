@@ -338,6 +338,7 @@ export function normalizeAdAccountId(value: string): string {
 }
 
 function readable(today: string): CrmState {
+  if (import.meta.env.MODE === "production") return { customers: [], orders: [], reviews: [] };
   try {
     const raw = sessionStorage.getItem(storageKey);
     if (!raw) return createSeed(today);

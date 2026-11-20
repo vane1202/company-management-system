@@ -38,6 +38,7 @@ import { createSupplierPaymentsRouter } from "./routes/supplierPayments.js";
 import { createFinanceRouter } from "./routes/finance.js";
 import { createLiveBusinessRouter } from "./routes/liveBusiness.js";
 import { createWarehouseRouter } from "./routes/warehouse.js";
+import { createPeopleWorkbenchRouter } from "./routes/peopleWorkbench.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PgSession = connectPgSimple(session);
@@ -151,6 +152,7 @@ export function createApp(db: Pool, config: AppConfig) {
   app.use("/api/dashboard", createDashboardRouter(db, config));
   app.use("/api/notes", createNoteRouter(db));
   app.use("/api/reviews", (_req, res) => res.status(410).json({ error: "审核流程已停用，填报数据直接进入统计" }));
+  app.use("/api", createPeopleWorkbenchRouter(db, config));
 
   app.use("/api", (_req, res) => {
     res.status(404).json({ error: "接口不存在" });
