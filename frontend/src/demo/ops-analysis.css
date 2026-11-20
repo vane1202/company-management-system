@@ -52,10 +52,23 @@
     line-height: normal;
   }
 
-  .oa-home .oa-kpis > article {
-    background: #eaf4ef;
-    border-color: #cadfd4;
-  }
+}
+
+.oa-home .oa-kpis > article {
+  background: #eaf4ef;
+  border-color: #cadfd4;
+}
+
+.oa-home .oa-usd-unit {
+  font-size: 12px;
+  letter-spacing: 0;
+  font-weight: 550;
+}
+
+.oa-home .oa-amount-pair small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 @media (min-width: 800px) and (max-width: 1050px) {

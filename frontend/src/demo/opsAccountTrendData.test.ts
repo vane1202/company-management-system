@@ -6,6 +6,14 @@ const row = (account: string, date: string, spend: string | null, count: number 
 const rows = [row("a", dates[0], "10.00", 2), row("a", dates[0], "20.00", 4), row("b", dates[0], "5.00", 1), row("a", dates[2], "0.00", 0)];
 const quote = async (date: string, currency: FxCurrency) => ({ date, currency, rate: "7.000000", sourceDate: date, updatedAt: date + "T04:00:00Z", checkedAt: 0, source: "test", delayed: false, stale: false });
 describe("多账号走势", () => {
+  it("美元走势在汇率缺失时仍可用，人民币只作为参考", async () => {
+    const [spend] = await buildAccountTrends(rows, dates, ["a"], "spendUsd", async () => null);
+    expect(spend.points.map(p => p.value)).toEqual(["30.00", null, "0.00"]);
+    expect(spend.points[0].native).toBe("");
+    const [cost] = await buildAccountTrends(rows, dates, ["a"], "consultationCostUsd", quote);
+    expect(cost.points[0]).toMatchObject({ value: "5.00", native: "约 ¥35.00", estimated: false });
+    expect(cost.points[2].value).toBeNull();
+  });
   it("按账号聚合多个人设，逐日统一换算，缺报断点与明确零区分", async () => {
     const lookup = vi.fn(quote);
     const result = await buildAccountTrends(rows, dates, ["a", "b"], "spendCny", lookup);
