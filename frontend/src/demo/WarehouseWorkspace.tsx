@@ -45,7 +45,21 @@ export default function WarehouseWorkspace({today,finance=false,onBack,userId}:{
   {error&&<p className="error" role="alert">{error}</p>}{message&&<p className="ok" role="status">{message}</p>}
   {!data?(error?<div className="overview-error" role="alert"><p>台账加载失败，请重试。</p><button type="button" className="secondary" disabled={busy} onClick={()=>void refresh()}>重新读取</button></div>:<p role="status">正在读取结账台账…</p>):<>
   <div className="wh-kpis"><article><span>待审核</span><b>{data.state.bills.filter(b=>b.status==='submitted').length} 单</b></article><article><span>已审核待付</span><b>{yuan(m(approved.reduce((n,b)=>n+remaining(b),0n)))}</b></article><article><span>实际已付</span><b>{yuan(m(data.state.payments.reduce((n,p)=>n+c(p.amount),0n)))}</b></article></div>
-  {!finance&&<nav className="wh-entry" aria-label="库房结账入口">{[['goods','原石出库结账'],['sourcing','售后接待结账'],['other','其他对外结账']].map(([key,label])=><button key={key} type="button" className="secondary" onClick={()=>start(key)}>{label}<span>＋</span></button>)}</nav>}
+  {!finance && <section aria-labelledby="warehouse-new-bill">
+    <h2 className="wh-entry-heading" id="warehouse-new-bill">新建结账</h2>
+    <div className="wh-entry">
+      {[
+        ['goods', '原石出库结账'],
+        ['sourcing', '售后接待结账'],
+        ['other', '其他对外结账']
+      ].map(([key, label]) => (
+        <button key={key} type="button" className="wh-entry-action" onClick={() => start(key)}>
+          <span className="wh-entry-icon" aria-hidden="true">+</span>
+          {label}
+        </button>
+      ))}
+    </div>
+  </section>}
   {view==='create'&&!finance?<section className="card"><header className="commerce-line"><h2>{revision?'修改退回账单':'登记待结账单'}</h2><button type="button" className="text-action" onClick={()=>setView('ledger')}>返回台账</button></header><form className="warehouse-form" onSubmit={async e=>{e.preventDefault();if(await act({action:revision?'resubmit':'create',...(revision?{id:revision.id,version:revision.version}:{}),...form},'结账单已提交，等待财务审核')){setRevision(null);setForm(blank());setView('ledger');}}}>
    <div className="wh-fields"><label>关联订单<select required disabled={!!revision} aria-label="库房关联订单" value={form.orderId} onChange={e=>setForm({...form,orderId:e.target.value,expenseId:'',afterSaleChargeId:'',label:'',counterparty:'',amount:'',materialRef:''})}><option value="">选择订单／客户</option>{data.orders.filter(o=>o.canCreate!==false||o.id===form.orderId).map(o=><option key={o.id} value={o.id}>{o.orderRef} · {o.customerLabel}</option>)}</select></label><label>结账类别<select aria-label="库房结账类别" value={form.category} onChange={e=>setForm({...form,category:e.target.value,expenseId:'',amount:''})}>{Object.entries(data.kinds).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
    {order&&<p className="wh-order-context">{roomLabel(order.liveRoomCode)} · 主播 {order.hostName||'—'} · 客服 {order.operatorName||'待补'} · 人设 {order.personaName||'待补'} · 客户 {order.customerLabel}（{order.customerCode||'ID待补'}）</p>}
