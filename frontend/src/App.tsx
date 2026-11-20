@@ -2,6 +2,7 @@ import WarehouseWorkspace from "./demo/WarehouseWorkspace";
 import FinanceHome from "./demo/FinanceHome";
 import { isServiceAccount } from './serviceAccounts';
 import { AdAccountsWorkspace } from "./AdAccountsWorkspace";
+import { OpsAdAccounts } from "./OpsAdAccounts";
 import { SalaryWorkspace } from "./SalaryWorkspace";
 import { WorkspaceBackbar, useWorkspaceNavigation } from "./WorkspaceNavigation";
 import {LiveBusinessOverview} from './LiveBusinessOverview';
@@ -287,6 +288,7 @@ export function App() {
       {pagePanel("reportHistory", DemoReportHistory && user.role === "cs_supervisor" ? <Suspense fallback={<p role="status">正在读取填报历史…</p>}><DemoReportHistory today={today} supervisor /></Suspense> : null)}
       {pagePanel("orders", DemoSupervisorPerformance && user.role === 'cs_supervisor' ? <Suspense fallback={<p role="status">正在读取本组业绩…</p>}><DemoSupervisorPerformance today={today} user={user} selectedId={navigation.views.orders?.orderId ?? ''} onSelectOrder={id => navigation.navigate({page:'orders',orderId:id})} /></Suspense> : user.role==='boss'?<><div hidden={!!navigation.views.orders?.orderId||!!navigation.views.orders?.orderList}><LiveBusinessOverview today={today} context={businessContext} onOpenBusiness={live=>navigation.navigate({page:'orders',live})} onOpenOrder={id=>navigation.navigate({page:'orders',live:businessContext,orderId:id})} onOpenOrders={()=>navigation.navigate({page:'orders',live:businessContext,orderList:true})}/></div>{(navigation.views.orders?.orderId||navigation.views.orders?.orderList)&&<OrderWorkspace today={today} user={user} selectedId={navigation.views.orders.orderId??''} onSelectOrder={id=>navigation.navigate({...navigation.views.orders!,orderId:id})}/>}</>:<OrderWorkspace today={today} user={user} selectedId={navigation.views.orders?.orderId ?? ""} onSelectOrder={id => navigation.navigate({ page: "orders", orderId: id })} />)}
       {user.role === "ops" && DemoOpsFeedback && pagePanel("opsFeedback", <Suspense fallback={<p role="status">Loading...</p>}><DemoOpsFeedback today={today}/></Suspense>)}
+      {user.role === "ops" && pagePanel("opsAccounts", <OpsAdAccounts today={today} />)}
       {pagePanel("ops", DemoOpsAnalysis&&user.role==='boss'?<Suspense fallback={<p role="status">正在读取投放分析…</p>}><DemoOpsAnalysis today={today} context={navigation.views.ops?.ops}/></Suspense>:<OpsPage today={today} onError={pageError("ops")} readOnly={user.role === "boss"} />)}
       {pagePanel("editor", DemoEditorOverview && user.role==='boss'?<Suspense fallback={<p role="status">正在读取拍剪汇总…</p>}><DemoEditorOverview today={today}/></Suspense>:<EditorPage today={today} onError={pageError("editor")} readOnly={user.role === "boss"} />)}
       {pagePanel("dashboard", DemoEstimateBoard ? <Suspense fallback={<p role="status">正在读取经营总览…</p>}><DemoEstimateBoard today={today} onError={pageError("dashboard")} onOpen={goTo} onDrill={route=>{setMobileNavOpen(false);setError("");navigation.navigate(route);}} /></Suspense> : <DashboardPage onError={pageError("dashboard")} />)}

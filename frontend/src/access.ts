@@ -8,6 +8,7 @@ export type Page =
   | "summary"
   | "orders"
   | "opsFeedback"
+  | "opsAccounts"
   | "ops"
   | "editor"
   | "dashboard"
@@ -48,7 +49,12 @@ export function navItems(role: Role): { id: Page; label: string }[] {
   if (role === "cs_supervisor") { const items: { id: Page; label: string }[] = [{ id: "home", label: "工作台首页" }, { id: "summary", label: "本组加粉" }, { id: "orders", label: "本组业绩" }]; if (import.meta.env.MODE === "demo") items.push({ id: "assessment", label: "客服考核" }, { id: "customerReview", label: "无效客资复核" }); items.push({ id: "csAccounts", label: "客服账号管理" }); if (import.meta.env.MODE === "demo") items.push({ id: "reportHistory", label: "填报历史管理" }); return items; }
   const items: { id: Page; label: string }[] = [{ id: "home", label: "首页" }];
   if (role === "cs") items.push({ id: "fans", label: "加粉填报" }, { id: "orders", label: "订单填报" });
-  if (role === "ops") return import.meta.env.MODE === "demo" ? [{id:"home",label:"运营工作台"},{id:"ops",label:"投放填报"},{id:"opsFeedback",label:"反馈与建议"}] : [...items, { id: "ops", label: "推广" }];
+  if (role === "ops") return [
+    { id: "home", label: "运营工作台" },
+    { id: "ops", label: "投放填报" },
+    { id: "opsAccounts", label: "广告户管理" },
+    ...(import.meta.env.MODE === "demo" ? [{ id: "opsFeedback", label: "反馈与建议" } as const] : [])
+  ];
   if (role === "editor") items.push({ id: "editor", label: "拍剪" });
   return items;
 }

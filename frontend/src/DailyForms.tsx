@@ -53,10 +53,14 @@ export function DailyForm({ kind, today, onError, readOnly = false,servicePlatfo
   }, [kind]);
   useEffect(() => {
     let active = true;
-    if (kind === 'ops_report') {
+    const loadAccounts = () => {
       api.adAccounts().then(d => { if (active) setAdAccounts(d.accounts); }).catch(err => { if (active) onError(toErrorMessage(err)); });
+    };
+    if (kind === 'ops_report') {
+      loadAccounts();
+      window.addEventListener("cms:ad-accounts-updated", loadAccounts);
     }
-    return () => { active = false; };
+    return () => { active = false; window.removeEventListener("cms:ad-accounts-updated", loadAccounts); };
   }, [kind]);
   const visibleRows=rows.filter(r=>(kind!=='editor_report'||(!filters.editor||(filters.editor==='legacy'?!r.editorName:r.editorName===filters.editor))&&(!filters.persona||r.personaName===filters.persona))&&(!filters.from||r.businessDate>=filters.from)&&(!filters.to||r.businessDate<=filters.to));
   const groups=kind==='editor_report'?productionGroups(visibleRows,filters.group):[];

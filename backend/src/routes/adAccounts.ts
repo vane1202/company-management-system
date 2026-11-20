@@ -28,6 +28,18 @@ export function createAdAccountsRouter(db:Pool,config:AppConfig) {
     await c.query('INSERT INTO ad_accounts(code,name,opened_on,opening_usd,created_by) VALUES($1,$2,$3,$4,$5)',[body.code,body.name,body.openedOn,body.openingUsd,req.actor!.id]);
     await writeAudit(c,{actorId:req.actor!.id,action:'ad_account_create',entityType:'ad_account',entityId:body.code,after:body,ip:req.ip});return{code:body.code};
   }));
+  router.post('/rename',mutate(async(c,req)=>{
+    if(req.actor!.role!=='ops')throw new HttpError(403,'仅运营可修改广告户名称');
+    const code=textField(req.body?.code,'广告账户编号',64);
+    const name=textField(req.body?.name,'广告账户名称',128);
+    const prior=(await c.query<{name:string}>('SELECT name FROM ad_accounts WHERE code=$1 FOR UPDATE',[code])).rows[0];
+    if(!prior)throw new HttpError(404,'广告账户不存在');
+    if(prior.name!==name){
+      await c.query('UPDATE ad_accounts SET name=$2 WHERE code=$1',[code,name]);
+      await writeAudit(c,{actorId:req.actor!.id,action:'ad_account_rename',entityType:'ad_account',entityId:code,before:{name:prior.name},after:{name},ip:req.ip});
+    }
+    return {code};
+  }));
   router.post('/topups',mutate(async(c,req)=>{
     const b=req.body??{},body={accountRef:textField(b.accountRef,'广告账户编号',64),paidOn:dateField(b.paidOn,config.businessTimezone),creditedUsd:amount(b.creditedUsd,'广告户实增美元',true),paidCny:amount(b.paidCny,'实际人民币支付',true),paymentAccount:textField(b.paymentAccount,'付款账户'),reference:textField(b.reference,'付款流水号'),note:textField(b.note??'','备注',500,false)};
     const a=(await c.query('SELECT * FROM ad_accounts WHERE code=$1 FOR UPDATE',[body.accountRef])).rows[0];if(!a)throw new HttpError(404,'广告账户不存在');if(body.paidOn<String(a.opened_on))throw new HttpError(400,'充值早于账户期初日期');

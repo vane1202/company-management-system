@@ -551,6 +551,29 @@ test('运营演示入口读取本人投放和广告台账，拒绝其他业务�
  assert.equal(e.network(),0);
 });
 
+test('运营演示支持会话内新增和修改广告户名称，且非运营角色被拒绝',async()=>{
+ const e=environment('ops');
+ const before=await e.json('/api/ad-accounts');
+ assert.equal(before.status,200);
+ const first=before.body.accounts[0];
+ const created=await e.json('/api/demo/ops-ad-accounts','POST',{action:'create',code:'DEMO-ADS-NEW',name:'新投放测试户',openedOn:first.opened_on,openingUsd:'50.00'});
+ assert.equal(created.status,200);
+ assert.equal(created.body.code,'DEMO-ADS-NEW');
+ assert.equal((await e.json('/api/demo/ops-ad-accounts','POST',{action:'create',code:'DEMO-ADS-NEW',name:'重复编号',openedOn:first.opened_on,openingUsd:'0.00'})).status,409);
+ const renamed=await e.json('/api/demo/ops-ad-accounts','POST',{action:'rename',code:first.code,name:'改名后主广告户'});
+ assert.equal(renamed.status,200);
+ assert.equal((await e.json('/api/demo/ops-ad-accounts','POST',{action:'rename',code:'NOT-EXIST',name:'不存在'})).status,404);
+ const after=await e.json('/api/ad-accounts');
+ assert.equal(after.status,200);
+ assert.equal(after.body.accounts.find(a=>a.code===first.code).name,'改名后主广告户');
+ assert.equal(after.body.accounts.find(a=>a.code==='DEMO-ADS-NEW').balance_usd,'50.00');
+ assert.equal(after.body.summary.balanceUsd,'170.80');
+ for(const role of ['boss','finance','admin','cs','cs_supervisor','editor','warehouse']){
+  assert.equal((await environment(role).json('/api/demo/ops-ad-accounts','POST',{action:'create',code:'X-1',name:'越权'})).status,403);
+ }
+ assert.equal(e.network(),0);
+});
+
 test('演示发布页在桌面按钮与手机菜单均提供运营入口',()=>{
  const pack=fs.readFileSync(require('node:path').join(__dirname,'../scripts/package-role-demo.cjs'),'utf8');
  assert.match(pack,/<button type="button" data-demo-role="ops">运营端<\/button>/);

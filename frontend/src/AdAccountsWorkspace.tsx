@@ -9,7 +9,7 @@ export function AdAccountsWorkspace({today,readOnly=false}:{today:string;readOnl
  const [topup,setTopup]=useState({accountRef:'',paidOn:today,creditedUsd:'',paidCny:'',paymentAccount:'',reference:'',note:''});
  const [filter,setFilter]=useState(''),[voidId,setVoidId]=useState(''),[reason,setReason]=useState('');const key=useRef(submissionKey());
  async function load(){setData(await api.adAccounts());}
- useEffect(()=>{let live=true;api.adAccounts().then(d=>{if(live)setData(d);}).catch(e=>{if(live)setError(toErrorMessage(e));});return()=>{live=false;};},[]);
+ useEffect(()=>{let live=true;const sync=()=>api.adAccounts().then(d=>{if(live)setData(d);}).catch(e=>{if(live)setError(toErrorMessage(e));});void sync();window.addEventListener("cms:ad-accounts-updated",sync);return()=>{live=false;window.removeEventListener("cms:ad-accounts-updated",sync);};},[]);
  async function action(fn:()=>Promise<unknown>){if(busy)return;setBusy(true);setError('');setMessage('');try{await fn();await load();setMessage('广告台账已更新');}catch(e){setError(toErrorMessage(e));}finally{setBusy(false);}}
  return <section className="card ad-accounts"><header className="commerce-line"><h2>广告预存与消耗</h2><button className="secondary" disabled={busy} onClick={()=>void action(load)}>刷新广告台账</button></header>
  {error&&<p className="error" role="alert">{error}</p>}{message&&<p className="ok" role="status">{message}</p>}

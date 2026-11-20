@@ -76,7 +76,7 @@ export default function OpsAnalysis({today,onOpenReports,onOpenFeedback,context}
   const displayed=(value:string|null|undefined)=>loading?<Skeleton width="3em" height=".8em"/>:amount(value);
   const rateText=pricing?.quotes.map(r=>`${r.date}：1 USD = ${Number(r.rate)} CNY；行情时间 ${clockTime(r.updatedAt)}${r.sourceDate!==r.date?`；沿用 ${r.sourceDate} 已发布汇率`:''}`).join('；')||'参考汇率待补';
   function showRecords(key:string|null){setDetailKey(key);setDetailsOpen(true);setExpanded([]);requestAnimationFrame(()=>detailsRef.current?.scrollIntoView({behavior:'smooth',block:'start'}));}
-  const tip=(key:string,label:string)=> <InfoTip scrollable={key === 'cost'} label={`${label}口径`} text={key==='spend'?'以日报美元消耗为准，人民币按发生日参考汇率折算。':key==='cost'?`综合咨询成本＝同币种消耗总额÷总咨询量；零咨询或字段不全不计算。 ${rateText}`:data?.definitions[key]??'来源：运营投放日报'}/>;
+  const tip=(key:string,label:string)=> <InfoTip label={`${label}口径`} text={key==='spend'?'以日报美元消耗为准，人民币按发生日参考汇率折算。':key==='cost'?'综合咨询成本＝同币种消耗总额÷总咨询量；零咨询或字段不全不计算。':data?.definitions[key]??'来源：运营投放日报'}/>;
   const cny=(value:string|null|undefined)=>loading?'…':pricingPending?<span className="fx-pending">折算中…</span>:data?.summary.recordCount===0?'—':value==null?'待核对':<><span className="oa-approx">约</span><span>¥{amount(value)}</span></>;
   function baselineWord(label?:string){const text=label||'上期';if(text.includes('昨日'))return '昨日';if(text.includes('上周'))return '上周';if(text.includes('上月'))return '上月';return '上期';}
   function benchmark(value:string|number|null|undefined,isMoney:boolean,emptyLabel='未报'){const shown=value==null?emptyLabel:isMoney?(usdFirst?usd(String(value)):`¥${amount(String(value))}`):count(Number(value));return <span className="oa-benchmark"><span>{baselineWord(data?.comparison.label)}</span><b>{shown}</b></span>;}

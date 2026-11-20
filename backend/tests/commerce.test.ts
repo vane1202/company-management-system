@@ -260,6 +260,18 @@ describe("成交、客户付款与财务结算隔离",()=>{
   await post('finance',`/api/ad-accounts/topups/${t.body.id}/void`,{reason:'充值登记错误'}).expect(200);a=(await get('boss','/api/ad-accounts')).body.accounts.find((x:any)=>x.code===code);expect(a.balance_usd).toBe('30.00');
   await get('admin','/api/ad-accounts').expect(403);await get('cashier','/api/ad-accounts').expect(403);await post('boss','/api/ad-accounts/topups',topup).expect(403);
  });
+ it("仅运营可修改广告户名称并记录审计",async()=>{
+  const code='AD-RENAME-'+randomUUID();
+  await post('operations','/api/ad-accounts',{code,name:'原广告户名称',openedOn:today,openingUsd:'0.00'}).expect(200);
+  await post('operations','/api/ad-accounts/rename',{code,name:'新广告户名称'}).expect(200);
+  const account=(await get('operations','/api/ad-accounts')).body.accounts.find((x:any)=>x.code===code);
+  expect(account?.name).toBe('新广告户名称');
+  const audit=(await db.query("SELECT action, before_json, after_json FROM audit_logs WHERE entity_type='ad_account' AND entity_id=$1 AND action='ad_account_rename'",[code])).rows[0];
+  expect(audit?.action).toBe('ad_account_rename');
+  await post('operations','/api/ad-accounts/rename',{code:'AD-MISSING-'+randomUUID(),name:'不存在'}).expect(404);
+  await post('finance','/api/ad-accounts/rename',{code,name:'财务越权'}).expect(403);
+  await post('boss','/api/ad-accounts/rename',{code,name:'BOSS越权'}).expect(403);
+ });
  it("三位拍剪老师可各自负责多个人设，同人设库存逐师取末次",async()=>{
   const baselineInventory=(await get('boss','/api/editor-reports/summary')).body.endingInventory;
   const put=async(editorName:string,personaName:string,inventorySnapshot:number)=>clients.production.agent.put('/api/editor-reports').set('Origin',origin).set('X-CSRF-Token',clients.production.token).send({businessDate:today,editorName,personaName,inventorySnapshot,shootCount:1,editCount:1,sentToOpsCount:1}).expect(200);

@@ -94,6 +94,35 @@
   const ownAdAccounts = () => window.CmsOpsWorkspace ? window.CmsOpsWorkspace.accountsOf(ownOps()) : [];
   const feedbackKey = "cms-demo-ops-feedback-v1";
   function allFeedback() { try { const data=JSON.parse(window.sessionStorage.getItem(feedbackKey)||"[]");return Array.isArray(data)?data:[]; } catch { return []; } }
+  const opsAdAccountKey = "cms-demo-ops-ad-accounts-v1";
+  function allOpsAdAccountState() {
+    try {
+      const data = JSON.parse(window.sessionStorage.getItem(opsAdAccountKey) || "{}");
+      return data && typeof data === "object" && !Array.isArray(data) ? data : {};
+    } catch { return {}; }
+  }
+  function opsAdLedger() {
+    const base = opsPersonId === "demo-ops" ? adLedger : {
+      ...adLedger,
+      accounts: adLedger.accounts.map(row => ({ ...row, code: row.code.replace("DEMO-ADS", "DEMO-" + opsPerson().code + "-ADS") })),
+      topups: adLedger.topups.map(row => ({ ...row, account_ref: row.account_ref.replace("DEMO-ADS", "DEMO-" + opsPerson().code + "-ADS") }))
+    };
+    const entry = allOpsAdAccountState()[opsPersonId] || {};
+    const created = Array.isArray(entry.created) ? entry.created : [];
+    const renamed = entry.renamed && typeof entry.renamed === "object" ? entry.renamed : {};
+    const accounts = [...base.accounts, ...created].map(row => (
+      typeof renamed[row.code] === "string" && renamed[row.code].trim() ? { ...row, name: renamed[row.code].trim() } : { ...row }
+    ));
+    return {
+      ...base,
+      accounts,
+      summary: {
+        ...base.summary,
+        spentUsd: sumMoney(accounts, "spent_usd"),
+        balanceUsd: sumMoney(accounts, "balance_usd")
+      }
+    };
+  }
   const salaryStaff=[{id:"demo-ops",displayName:"演示运营",username:"demo_ops",role:"ops"},{id:"demo-editor",displayName:"演示拍剪",username:"demo_editor",role:"editor"},{id:"demo-cs_supervisor",displayName:"演示客服主管",username:"demo_supervisor",role:"cs_supervisor"}];
   const salaryStandards=[{id:"demo-salary-1",userId:"demo-ops",monthlyAmount:"6000.00",effectiveFrom:"2026-01-01",effectiveTo:null},{id:"demo-salary-2",userId:"demo-editor",monthlyAmount:"5200.00",effectiveFrom:"2026-01-01",effectiveTo:null},{id:"demo-salary-3",userId:"demo-cs_supervisor",monthlyAmount:"4800.00",effectiveFrom:"2026-01-01",effectiveTo:null}];
   const thisMonth=today.slice(0,7);
@@ -599,6 +628,39 @@
         return json({records:records.filter(row=>row.authorId===opsPersonId),message:'反馈已保存到本次浏览器演练，未写入服务器'});
       }catch(error){return json({error:error.message||'反馈保存失败'},400);}
     }
+    if(path==='/api/demo/ops-ad-accounts'){
+      if(role!=='ops')return json({error:'仅运营可管理广告户'},403);
+      if(method!=='POST')return json({error:'不支持的广告户操作'},405);
+      try{
+        const input=JSON.parse(options.body||'{}');
+        const action=input.action;
+        if(action!=='create'&&action!=='rename')return json({error:'不支持的广告户操作'},400);
+        const code=typeof input.code==='string'?input.code.trim():'';
+        const name=typeof input.name==='string'?input.name.trim():'';
+        if(!code||code.length>64)return json({error:'广告账户编号不能为空且不超过64字'},400);
+        if(!name||name.length>128)return json({error:'广告账户名称不能为空且不超过128字'},400);
+        const ledger=opsAdLedger();
+        const state=allOpsAdAccountState();
+        const bucket=state[opsPersonId]&&typeof state[opsPersonId]==='object'?state[opsPersonId]:{};
+        const created=Array.isArray(bucket.created)?[...bucket.created]:[];
+        const renamed=bucket.renamed&&typeof bucket.renamed==='object'?{...bucket.renamed}:{};
+        if(action==='create'){
+          if(ledger.accounts.some(row=>row.code===code))return json({error:'广告账户编号已存在'},409);
+          const openedOn=typeof input.openedOn==='string'&&input.openedOn.trim()?input.openedOn.trim():today;
+          if(!/^\d{4}-\d{2}-\d{2}$/.test(openedOn)||openedOn>today)return json({error:'期初日期无效或晚于今日'},400);
+          const rawOpening=input.openingUsd===undefined||input.openingUsd===null||String(input.openingUsd).trim()===''?'0.00':String(input.openingUsd).trim();
+          if(!/^\d+(\.\d{1,2})?$/.test(rawOpening))return json({error:'期初余额必须为非负数字（最多两位小数）'},400);
+          const openingUsd=Number(rawOpening).toFixed(2);
+          created.push({code,name,opened_on:openedOn,opening_usd:openingUsd,topped_usd:'0.00',spent_usd:'0.00',balance_usd:openingUsd});
+        }else{
+          if(!ledger.accounts.some(row=>row.code===code))return json({error:'广告账户不存在'},404);
+          renamed[code]=name;
+        }
+        state[opsPersonId]={created,renamed};
+        window.sessionStorage.setItem(opsAdAccountKey,JSON.stringify(state));
+        return json({code});
+      }catch(error){return json({error:error.message||'广告户保存失败'},400);}
+    }
     if(!["GET","HEAD"].includes(method))return json({error:"这是公开只读演示，不保存任何修改。请在正式后台操作。"},403);
     if(path==='/api/demo/service-directory')return ['cs','cs_supervisor'].includes(role)?json(currentDirectory()||{enabled:false}):json({error:'当前身份不能查看接待账号名册'},403);
     if(path==='/api/demo/report-history')return reportHistory(q);
@@ -619,7 +681,7 @@
     }
     if(role==='ops'){
       if(path==='/api/ops-reports')return json({reports:ownOps()});
-      if(path==='/api/ad-accounts')return json(opsPersonId==='demo-ops'?adLedger:{...adLedger,accounts:adLedger.accounts.map(row=>({...row,code:row.code.replace('DEMO-ADS','DEMO-'+opsPerson().code+'-ADS')})),topups:adLedger.topups.map(row=>({...row,account_ref:row.account_ref.replace('DEMO-ADS','DEMO-'+opsPerson().code+'-ADS')}))});
+      if(path==='/api/ad-accounts')return json(opsAdLedger());
       return json({error:'运营演示仅开放本人投放日报、投放分析和广告台账'},403);
     }
     if(role==="admin"&&!/^\/api\/admin(\/|$)/.test(path))return json({error:"演示管理员仅管理系统；接待账号由本组客服主管管理"},403);
@@ -667,7 +729,7 @@
       const url=URL.createObjectURL(await response.blob()),download=document.createElement("a");download.href=url;download.download="fictional-demo-fans.csv";download.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
     });
     const disableWrites=()=>{
-      document.querySelectorAll("form").forEach((form)=>{if(form.querySelector("#password")||form.matches(".account-editor form,.ops-feedback-form,.editor-daily-form,.daily-operating-form,.so-note-form,.warehouse-form,.reimbursement-form"))return;form.querySelectorAll('button[type="submit"],button:not([type])').forEach((button)=>{if(!button.textContent.includes("查询")){button.disabled=true;button.title="公开只读演示，不保存修改";}});});
+      document.querySelectorAll("form").forEach((form)=>{if(form.querySelector("#password")||form.matches(".account-editor form,.ops-feedback-form,.ops-ad-account-form,.editor-daily-form,.daily-operating-form,.so-note-form,.warehouse-form,.reimbursement-form"))return;form.querySelectorAll('button[type="submit"],button:not([type])').forEach((button)=>{if(!button.textContent.includes("查询")){button.disabled=true;button.title="公开只读演示，不保存修改";}});});
       document.querySelectorAll('#root select[aria-label$="角色"]').forEach((select)=>{select.disabled=true;});
       document.querySelectorAll("button").forEach((button)=>{if(/^(确认重新发码|停用|启用|停用账号|启用账号)$/.test(button.textContent.trim())){button.disabled=true;button.title="公开只读演示，不保存修改";}});
     };

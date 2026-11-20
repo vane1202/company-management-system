@@ -8,6 +8,7 @@ const paths: Record<Page | "refresh" | "arrow", string> = {
   summary: "M3 20h18 M6 16v-5 M12 16V4 M18 16V8",
   orders: "M6 3h12v18l-3-2-3 2-3-2-3 2z M9 8h6 M9 12h6",
   opsFeedback: "M4 4h16v12H9l-5 4z M8 8h8 M8 12h5",
+  opsAccounts: "M4 5h16v14H4z M4 9h16 M8 14h3 M15 14h1",
   ops: "M3 9v6h4l11 5V4L7 9z M7 15l2 6 M21 9v6",
   editor: "M3 5h18v14H3z M3 9h18 M7 5l3 4 M14 5l3 4 M10 12l5 2-5 2z",
   dashboard: "M3 19l6-6 4 3 8-12 M15 4h6v6",
