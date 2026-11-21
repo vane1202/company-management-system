@@ -297,7 +297,7 @@ export function createEditorRouter(db: Pool, config: AppConfig): Router {
       const personaName = String(req.body?.personaName ?? "").trim();
       if (personaName.length > 128) throw new HttpError(400, "人设名称过长");
       const editorName=req.body?.editorName ? String(req.body.editorName).trim() : null;
-      if(editorName&&!["魏磊","尚杰","十七"].includes(editorName))throw new HttpError(400,"拍剪师无效");
+      if(editorName&&!["魏磊","尚杰","十七"].includes(editorName)&&editorName!==actor.displayName)throw new HttpError(400,"拍剪师无效");
       const note = req.body?.note ? String(req.body.note).slice(0, 500) : null;
       const previous = await queryOne<{ inventory_snapshot: number }>(
         db,

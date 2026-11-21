@@ -46,7 +46,7 @@ export function navItems(role: Role): { id: Page; label: string }[] {
     { id: "opsAccounts", label: "广告户管理" },
     ...(import.meta.env.MODE === "demo" ? [{ id: "opsFeedback", label: "反馈与建议" } as const] : [])
   ];
-  if (role === "editor") items.push({ id: "editor", label: "拍剪" });
+  if (role === "editor") return [{ id: "editor", label: "拍剪" }];
   return items;
 }
 

@@ -160,6 +160,7 @@ export function App() {
   if (entry && modules?.[entry] === false) return <section className="page"><div className="card"><h2>{fillEntries[entry].title}已停用</h2><p>请联系管理员重新启用，历史数据仍保留。</p><a className="btn secondary" href="/">返回首页</a></div></section>;
 
   const managementRole = ["boss", "admin", "cs_supervisor", "finance", "warehouse", "ops"].includes(user.role);
+  const compactMobileShell = managementRole || user.role === "editor";
   const isBoss = user.role === "boss";
   const linkedPages = isBoss ? bossLinkedPages() : [];
   const items = navItems(user.role).filter((item) => managementRole || !["fans", "orders", "ops", "editor"].includes(item.id) || modules?.[item.id] === true);
@@ -167,7 +168,7 @@ export function App() {
   const bottomItems = user.role === "cs_supervisor" && import.meta.env.MODE === "demo" ? sidebarItems : sidebarItems.slice(0, 5);
   const canChangePassword = !isServiceAccount(user.accountKind);
   const accountOnlyMobileNav = bottomItems.length >= sidebarItems.length;
-  const rootPage: Page = isBoss ? "dashboard" : "home";
+  const rootPage: Page = isBoss ? "dashboard" : user.role === "editor" ? "editor" : "home";
   const activePage = items.some((item) => item.id === page) || linkedPages.includes(page) ? page : rootPage;
   const navCurrent = linkedPages.includes(activePage) || (user.role === "cs_supervisor" && ["summary", "orders", "reportHistory"].includes(activePage)) ? rootPage : activePage;
   const bossBusiness=user.role==='boss'&&activePage==='orders';
@@ -238,15 +239,15 @@ export function App() {
     }
   }
   return (
-    <div className={`page app-shell ${managementRole ? "management-shell" : ""} ${user.role === "boss" ? "boss-shell" : ""} ${sidebarItems.length > 1 ? "has-bottom-nav" : "no-bottom-nav"}`}>
+    <div className={`page app-shell ${compactMobileShell ? "management-shell" : ""} ${user.role === "boss" ? "boss-shell" : ""} ${sidebarItems.length > 1 ? "has-bottom-nav" : "no-bottom-nav"}`}>
       <a className="skip-link" href="#main-content">跳到主要内容</a>
       <aside className={`app-sidebar ${mobileNavOpen ? "mobile-nav-open" : ""} ${accountOnlyMobileNav ? "mobile-nav-account-only" : ""}`}>
-        <div className="sidebar-brand-row"><button type="button" onClick={() => navigation.up({ page: rootPage })} className="sidebar-brand" aria-label="返回工作台首页"><span className="sidebar-brand-mark"><DashboardIcon name="home" /></span><span><b>翠管家</b><small>公司日常工作台</small></span></button>{managementRole && <div className="mobile-identity"><IdentityName name={user.displayName} hidden={identityPrivacy.hidden} onToggle={identityPrivacy.toggle} /></div>}{managementRole && (!canChangePassword ? <button type="button" className="mobile-menu-toggle secondary" onClick={logout}>{user.role === "cs_supervisor" ? "退出登录" : "退出"}</button> : <button type="button" className="mobile-menu-toggle secondary" aria-expanded={mobileNavOpen} aria-controls="workspace-navigation" onClick={() => setMobileNavOpen(open => !open)}>{mobileNavOpen ? (accountOnlyMobileNav ? "收起" : "收起菜单") : (accountOnlyMobileNav ? "账号" : "全部菜单")}</button>)}</div>
+        <div className="sidebar-brand-row"><button type="button" onClick={() => navigation.up({ page: rootPage })} className="sidebar-brand" aria-label="返回工作台首页"><span className="sidebar-brand-mark"><DashboardIcon name="home" /></span><span><b>翠管家</b><small>公司日常工作台</small></span></button>{compactMobileShell && <div className="mobile-identity"><IdentityName name={user.displayName} hidden={identityPrivacy.hidden} onToggle={identityPrivacy.toggle} /></div>}{compactMobileShell && (!canChangePassword ? <button type="button" className="mobile-menu-toggle secondary" onClick={logout}>{user.role === "cs_supervisor" ? "退出登录" : "退出"}</button> : <button type="button" className="mobile-menu-toggle secondary" aria-expanded={mobileNavOpen} aria-controls="workspace-navigation" onClick={() => setMobileNavOpen(open => !open)}>{mobileNavOpen ? (accountOnlyMobileNav ? "收起" : "收起菜单") : (accountOnlyMobileNav ? "账号" : "全部菜单")}</button>)}</div>
         {sidebarItems.length > 0 && <span className="nav-section-label">工作空间</span>}
-        {(sidebarItems.length > 0 || (managementRole && canChangePassword)) && <nav id="workspace-navigation" className="nav" aria-label="主要导航">
+        {(sidebarItems.length > 0 || (compactMobileShell && canChangePassword)) && <nav id="workspace-navigation" className="nav" aria-label="主要导航">
           {sidebarItems.map((item) => <button key={item.id} aria-current={navCurrent === item.id ? "page" : undefined} className={navCurrent === item.id ? "active" : ""} onClick={() => goTo(item.id)}><DashboardIcon name={item.id} /><span>{item.label}</span></button>)}
-          {managementRole && canChangePassword && <button type="button" className="mobile-menu-logout" onClick={() => { setMobileNavOpen(false); setPasswordOpen(true); window.scrollTo?.({ top: 0, behavior: "smooth" }); }}>修改密码</button>}
-          {managementRole && <button type="button" className="mobile-menu-logout" onClick={logout}>退出登录</button>}
+          {compactMobileShell && canChangePassword && <button type="button" className="mobile-menu-logout" onClick={() => { setMobileNavOpen(false); setPasswordOpen(true); window.scrollTo?.({ top: 0, behavior: "smooth" }); }}>修改密码</button>}
+          {compactMobileShell && <button type="button" className="mobile-menu-logout" onClick={logout}>退出登录</button>}
         </nav>}
       </aside>
       <div className="app-main">
@@ -290,7 +291,7 @@ export function App() {
       {user.role === "ops" && DemoOpsFeedback && pagePanel("opsFeedback", <Suspense fallback={<p role="status">Loading...</p>}><DemoOpsFeedback today={today}/></Suspense>)}
       {user.role === "ops" && pagePanel("opsAccounts", <OpsAdAccounts today={today} />)}
       {pagePanel("ops", user.role==='boss'?<Suspense fallback={<p role="status">正在读取投放分析…</p>}><DemoOpsAnalysis today={today} context={navigation.views.ops?.ops}/></Suspense>:<OpsPage today={today} onError={pageError("ops")} readOnly={false} />)}
-      {pagePanel("editor", user.role==='boss'?<Suspense fallback={<p role="status">正在读取拍剪汇总…</p>}><DemoEditorOverview today={today}/></Suspense>:<EditorPage today={today} onError={pageError("editor")} readOnly={false} />)}
+      {pagePanel("editor", user.role==='boss'?<Suspense fallback={<p role="status">正在读取拍剪汇总…</p>}><DemoEditorOverview today={today}/></Suspense>:modules?.editor===false?<section className="card"><h2>拍剪模块已停用</h2><p>请联系管理员重新启用，历史数据仍保留。</p></section>:<EditorPage today={today} onError={pageError("editor")} readOnly={false} editorName={user.displayName} />)}
       {pagePanel("dashboard", <Suspense fallback={<p role="status">正在读取经营总览…</p>}><DemoEstimateBoard today={today} onError={pageError("dashboard")} onOpen={goTo} onDrill={route=>{setMobileNavOpen(false);setError("");navigation.navigate(route);}} /></Suspense>)}
       {pagePanel("modules", <><ModuleSettings onError={pageError("modules")} onChange={setModules} /><SystemSettings defaultDays={backfillDays} /></>)}
       {pagePanel("people", <PeoplePage today={today} currentUserId={user.id} onError={pageError("people")} />)}
@@ -592,8 +593,8 @@ function OpsPage({ today, onError, readOnly }: { today: string; onError: (value:
   return <><DailyForm kind="ops_report" today={today} onError={onError} readOnly={readOnly} /><AdAccountsWorkspace today={today} readOnly={readOnly} /></>;
 }
 
-function EditorPage({ today, onError, readOnly }: { today: string; onError: (value: string) => void; readOnly?: boolean }) {
-  return <DailyForm kind="editor_report" today={today} onError={onError} readOnly={readOnly} />;
+function EditorPage({ today, onError, readOnly, editorName }: { today: string; onError: (value: string) => void; readOnly?: boolean; editorName?: string }) {
+  return <DailyForm kind="editor_report" today={today} onError={onError} readOnly={readOnly} editorName={editorName} />;
 }
 
 function DashboardPage({ onError }: { onError: (value: string) => void }) {

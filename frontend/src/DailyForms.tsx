@@ -11,7 +11,7 @@ import {leadApi} from './leadApi';
 type Kind = "fan_report" | "ops_report" | "editor_report";
 type Row = { id: string; businessDate: string } & Record<string, unknown>;
 const REFRESH_AFTER_SAVE_FAILED = "已保存，但列表刷新失败，请点刷新";
-export function DailyForm({ kind, today, onError, readOnly = false,servicePlatform }: { kind: Kind; today: string; onError: (value: string) => void; readOnly?: boolean;servicePlatform?:string|null }) {
+export function DailyForm({ kind, today, onError, readOnly = false, servicePlatform, editorName }: { kind: Kind; today: string; onError: (value: string) => void; readOnly?: boolean; servicePlatform?: string | null; editorName?: string }) {
 
   const fields = kind === "fan_report" ? fanFields : kind === "ops_report" ? opsFields : editorFields;
   const nameKey = kind === "fan_report" ? "pageName" : "personaName";
@@ -27,7 +27,7 @@ export function DailyForm({ kind, today, onError, readOnly = false,servicePlatfo
   const [legacyId, setLegacyId] = useState("");
   const [targetUserId, setTargetUserId] = useState("");
   const [reportId,setReportId]=useState('');
-  const [filters,setFilters]=useState({editor:'',persona:'',from:'',to:'',group:'editor' as 'editor'|'persona'});
+  const [filters,setFilters]=useState({editor:'',persona:'',from:'',to:'',group:'persona' as 'editor'|'persona'});
   const [adAccounts,setAdAccounts]=useState<{code:string;name:string}[]>([]);
   const [refreshingAccounts, setRefreshingAccounts] = useState(false);
   const gate = useRef(createRequestGate());
@@ -63,7 +63,7 @@ export function DailyForm({ kind, today, onError, readOnly = false,servicePlatfo
     return () => { active = false; window.removeEventListener("cms:ad-accounts-updated", loadAccounts); };
   }, [kind]);
   const visibleRows=rows.filter(r=>(kind!=='editor_report'||(!filters.editor||(filters.editor==='legacy'?!r.editorName:r.editorName===filters.editor))&&(!filters.persona||r.personaName===filters.persona))&&(!filters.from||r.businessDate>=filters.from)&&(!filters.to||r.businessDate<=filters.to));
-  const groups=kind==='editor_report'?productionGroups(visibleRows,filters.group):[];
+  const groups=kind==='editor_report'?productionGroups(visibleRows,editorName?'persona':filters.group):[];
   function edit(row: Row) {
     const next: Record<string, string> = { businessDate: row.businessDate, [nameKey]: String(row[nameKey] ?? ""), note: String(row.note ?? "") };
     for (const key of Object.keys(fields)) next[key] = row[key] == null ? "" : String(row[key]);
@@ -91,7 +91,7 @@ export function DailyForm({ kind, today, onError, readOnly = false,servicePlatfo
       try {
         const payload: Record<string, unknown> = { businessDate: form.businessDate, [nameKey]: form[nameKey].trim(), note: form.note };
         if (targetUserId) payload.userId = targetUserId;
-        if(kind==='editor_report'){payload.editorName=form.editorName;if(reportId)payload.reportId=reportId;}
+        if(kind==='editor_report'){payload.editorName=editorName||form.editorName;if(reportId)payload.reportId=reportId;}
         if(kind==='ops_report'){payload.adAccountRef=form.adAccountRef||null;if(reportId)payload.reportId=reportId;}
         if (legacyId) {
           delete payload.pageName; delete payload.note;
@@ -120,7 +120,7 @@ export function DailyForm({ kind, today, onError, readOnly = false,servicePlatfo
       <fieldset disabled={pending}>
         <div className="grid two">
           <label className="row">业务日<input required type="date" max={today} value={form.businessDate} onChange={(e) => setForm({ ...form, businessDate: e.target.value })} /></label>
-          {kind==='editor_report'&&<label className="row">拍剪师<select required value={form.editorName??''} onChange={e=>setForm({...form,editorName:e.target.value})}><option value="">选择拍剪师</option>{editorNames.map(name=><option key={name}>{name}</option>)}</select></label>}
+          {kind==='editor_report'&&!editorName&&<label className="row">拍剪师<select required value={form.editorName??''} onChange={e=>setForm({...form,editorName:e.target.value})}><option value="">选择拍剪师</option>{editorNames.map(name=><option key={name}>{name}</option>)}</select></label>}
           {kind==='ops_report'&&<label className="row">广告账户<select required={adAccounts.length>0} value={form.adAccountRef??''} onChange={e=>setForm({...form,adAccountRef:e.target.value})}><option value="">{adAccounts.length?'选择广告账户':'尚无账户（历史未关联）'}</option>{adAccounts.map(a=><option key={a.code} value={a.code}>{a.code} · {a.name}</option>)}</select></label>}
           {!legacyId && <label className="row">{kind === "fan_report" ? "主页全名" : "人设/主页名称"}<input required maxLength={128} value={form[nameKey]} onChange={(e) => setForm({ ...form, [nameKey]: e.target.value })} /></label>}
           {legacyId ? <label className="row">未分类旧加粉<input required type="number" min="0" max="1000000" step="1" value={form.addedCount} onChange={(e) => setForm({ ...form, addedCount: e.target.value })} /></label> : Object.entries(fields).filter(([key])=>kind!=='fan_report'||!(servicePlatform==='whatsapp'&&key.startsWith('ms')||servicePlatform==='messenger'&&key.startsWith('ws'))).map(([key, label]) => {
@@ -139,7 +139,7 @@ export function DailyForm({ kind, today, onError, readOnly = false,servicePlatfo
     {message && <p className="ok" role="status">{message}</p>}
     <div className="commerce-line"><h3>已填记录</h3><button type="button" className="secondary" disabled={rowsLoading} onClick={()=>refresh().catch(err=>setRowsError(toErrorMessage(err)))}>{rowsLoading?'读取中…':'刷新'}</button></div>
     {rowsError&&<p className="error" role="alert">{rowsError}</p>}{rowsLoading&&!rowsLoaded&&<p role="status">正在读取已填记录…</p>}
-    {kind==='editor_report'&&<><div className="production-filter-grid"><label className="row">拍剪师筛选<select value={filters.editor} onChange={e=>setFilters({...filters,editor:e.target.value})}><option value="">全部拍剪师</option>{editorNames.map(name=><option key={name}>{name}</option>)}<option value="legacy">历史未归类</option></select></label><label className="row">人设筛选<select value={filters.persona} onChange={e=>setFilters({...filters,persona:e.target.value})}><option value="">全部人设</option>{[...new Set(rows.map(r=>String(r.personaName??'')))].filter(Boolean).sort().map(name=><option key={name}>{name}</option>)}</select></label><label className="row">分类方式<select value={filters.group} onChange={e=>setFilters({...filters,group:e.target.value as 'editor'|'persona'})}><option value="editor">按拍剪师</option><option value="persona">按人设</option></select></label><details className="production-date-filter"><summary>日期筛选{filters.from||filters.to?" · 已设置":""}</summary><div className="grid two">{(['from','to'] as const).map((k,i)=><label className="row" key={k}>{['开始','结束'][i]}日期<input type="date" max={today} value={filters[k]} onChange={e=>setFilters({...filters,[k]:e.target.value})}/></label>)}</div></details></div><p className="notice">当前范围 {visibleRows.length} 条日报</p><div className="production-groups">{groups.map(g=><article className="production-group" key={g.name}><h3>{g.name}</h3><div className="stat-grid">{[['拍摄',g.shoot],['剪辑',g.edit],['发给运营',g.sent],['末次库存',g.inventory]].map(([label,value])=><div key={String(label)}><strong>{value??'—'}</strong><small>{label}</small></div>)}</div><small>{g.records.length} 条日报</small></article>)}</div></>}
+    {kind==='editor_report'&&<><div className="production-filter-grid">{!editorName&&<label className="row">拍剪师筛选<select value={filters.editor} onChange={e=>setFilters({...filters,editor:e.target.value})}><option value="">全部拍剪师</option>{editorNames.map(name=><option key={name}>{name}</option>)}<option value="legacy">历史未归类</option></select></label>}<label className="row">人设筛选<select value={filters.persona} onChange={e=>setFilters({...filters,persona:e.target.value})}><option value="">全部人设</option>{[...new Set(rows.map(r=>String(r.personaName??'')))].filter(Boolean).sort().map(name=><option key={name}>{name}</option>)}</select></label>{!editorName&&<label className="row">分类方式<select value={filters.group} onChange={e=>setFilters({...filters,group:e.target.value as 'editor'|'persona'})}><option value="editor">按拍剪师</option><option value="persona">按人设</option></select></label>}<details className="production-date-filter"><summary>日期筛选{filters.from||filters.to?" · 已设置":""}</summary><div className="grid two">{(['from','to'] as const).map((k,i)=><label className="row" key={k}>{['开始','结束'][i]}日期<input type="date" max={today} value={filters[k]} onChange={e=>setFilters({...filters,[k]:e.target.value})}/></label>)}</div></details></div><p className="notice">当前范围 {visibleRows.length} 条日报</p><div className="production-groups">{groups.map(g=><article className="production-group" key={g.name}><h3>{g.name}</h3><div className="stat-grid">{[['拍摄',g.shoot],['剪辑',g.edit],['发给运营',g.sent],['末次库存',g.inventory]].map(([label,value])=><div key={String(label)}><strong>{value??'—'}</strong><small>{label}</small></div>)}</div><small>{g.records.length} 条日报</small></article>)}</div></>}
     {rowsLoaded&&!visibleRows.length&&<div className="empty-state"><strong>当前范围暂无记录</strong><p>{readOnly?'对应岗位保存日报后会显示在这里。':'填写上方表单并保存即可。'}</p></div>}
     {visibleRows.map((row) => <article className="review-card" key={row.id}>
       <div className="review-card-head"><strong>{row.businessDate}</strong></div>
