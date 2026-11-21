@@ -7,8 +7,8 @@ export type CashAmounts=Record<Currency,string|null>;
 export type HeldPayment=FinancePayment&{pendingAsOf:string|null;heldDays:number};
 export type AgencyGroup={key:string;channel:string;currency:Currency;pending:string|null;count:number;oldestDate:string;heldDays:number;lastTransferDate:string|null;payments:HeldPayment[]};
 export type CashArrival={id:string;date:string;channel:string;kind:'direct'|'agency';amountCny:string|null;reference:string;payments:FinancePayment[];settlement?:SettlementRecord};
-const currencies:Currency[]=['CNY','TWD','USD'];
-const initial=():CashAmounts=>({CNY:'0.00',TWD:'0.00',USD:'0.00'});
+const currencies:Currency[]=['CNY','TWD','USD','SGD','HKD'];
+const initial=():CashAmounts=>({CNY:'0.00',TWD:'0.00',USD:'0.00',SGD:'0.00',HKD:'0.00'});
 // Aggregate totals may exceed the per-entry 12-digit input limit.
 function aggregateCents(v:string|null):bigint|null{
   if(v===null||!/^\d+(?:\.\d{1,2})?$/.test(v))return null;
@@ -21,7 +21,7 @@ export function formatCashValue(v:string){
 }
 
 export function buildOutstandingPayments(date: string, orders: readonly Pick<LiveOperationOrder, 'currency' | 'balance'>[]) {
-  const balances: Record<Currency, bigint> = { CNY: 0n, TWD: 0n, USD: 0n };
+  const balances: Record<Currency, bigint> = { CNY: 0n, TWD: 0n, USD: 0n, SGD: 0n, HKD: 0n };
   let incomplete = false;
   for (const order of orders) {
     const balance = aggregateCents(order.balance);
@@ -31,7 +31,7 @@ export function buildOutstandingPayments(date: string, orders: readonly Pick<Liv
     }
     balances[order.currency] += balance;
   }
-  const totals = { CNY: money(balances.CNY), TWD: money(balances.TWD), USD: money(balances.USD) };
+  const totals: CashAmounts = { CNY: money(balances.CNY), TWD: money(balances.TWD), USD: money(balances.USD), SGD: money(balances.SGD), HKD: money(balances.HKD) };
   return { totals, records: balanceRows(date, totals), incomplete };
 }
 

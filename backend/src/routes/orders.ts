@@ -33,7 +33,7 @@ export function createOrderRouter(db: Pool, config: AppConfig): Router {
       const filters = readFilters(req.query);
       const rows = await query(
         db,
-        `SELECT o.*,EXISTS(SELECT 1 FROM order_cancellations x WHERE x.order_id=o.id AND x.voided_at IS NULL) AS cancelled,(CASE WHEN d.order_id IS NULL THEN o.amount ELSE COALESCE((SELECT sum(i.price_cny+i.buying_fee_cny) FROM order_items i WHERE i.order_id=o.id),o.amount) END)::numeric(14,2)::text AS booking_amount,d.persona_code,d.persona_name,d.live_room_code,d.host_name,d.customer_code,d.operator_name,u.display_name,u.service_account_label AS wechat_id,u.account_kind,EXISTS(SELECT 1 FROM order_details d WHERE d.order_id=o.id) AS workflow_enabled FROM orders o JOIN users u ON u.id=o.user_id LEFT JOIN order_details d ON d.order_id=o.id
+        `SELECT o.*,EXISTS(SELECT 1 FROM order_cancellations x WHERE x.order_id=o.id AND x.voided_at IS NULL) AS cancelled,EXISTS(SELECT 1 FROM order_items i WHERE i.order_id=o.id AND i.sourcing_no_settle) AS has_sourcing_no_settle,(CASE WHEN d.order_id IS NULL THEN o.amount ELSE COALESCE((SELECT sum(i.price_cny+i.buying_fee_cny) FROM order_items i WHERE i.order_id=o.id),o.amount) END)::numeric(14,2)::text AS booking_amount,d.persona_code,d.persona_name,d.live_room_code,d.host_name,d.customer_code,d.operator_name,d.deal_channel,d.project_line,u.display_name,u.service_account_label AS wechat_id,u.account_kind,EXISTS(SELECT 1 FROM order_details d WHERE d.order_id=o.id) AS workflow_enabled FROM orders o JOIN users u ON u.id=o.user_id LEFT JOIN order_details d ON d.order_id=o.id
           WHERE ($1 = '' OR o.user_id::text = $1)
             AND ($2::date IS NULL OR o.business_date >= $2)
             AND ($3::date IS NULL OR o.business_date <= $3)
@@ -309,7 +309,7 @@ function serializeOrder(row: Record<string, unknown> | undefined) {
     id: row.id,
     workflowEnabled: Boolean(row.workflow_enabled),
     userId: row.user_id,
-    personaCode:row.persona_code,personaName:row.persona_name,liveRoomCode:row.live_room_code,hostName:row.host_name,customerCode:row.customer_code,operatorName:row.operator_name,
+    personaCode:row.persona_code,personaName:row.persona_name,liveRoomCode:row.live_room_code,hostName:row.host_name,customerCode:row.customer_code,operatorName:row.operator_name,dealChannel:row.deal_channel,projectLine:row.project_line,materialCostCny:row.material_cost_cny==null?null:money(row.material_cost_cny),materialLotNo:row.material_lot_no??"",hasSourcingNoSettle:Boolean(row.has_sourcing_no_settle),
     displayName: row.display_name,
     wechatId: row.wechat_id,
     accountKind: row.account_kind,

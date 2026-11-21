@@ -39,7 +39,7 @@ describe("BOSS 经营估算展示", () => {
   });
 
   it("外币收款为零时不编造折算，广告消耗在直播数据缺失时沿用原值", () => {
-    expect(receiptLines({ CNY: "0.00", TWD: "0.00", USD: "0.00" })).toEqual([["CNY", "0.00"]]);
+    expect(receiptLines({ CNY: "0.00", TWD: "0.00", USD: "0.00", SGD: "0.00", HKD: "0.00" })).toEqual([["CNY", "0.00"]]);
     const view = buildEstimateView(null, legacy);
     expect(view?.turnover).toBeNull();
     expect(view?.adUsd).toBe("1.00");

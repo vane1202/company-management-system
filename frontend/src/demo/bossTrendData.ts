@@ -7,7 +7,7 @@ export type TrendPoint = {date:string; value:string|null; reason:string; count:n
 export type TrendSeries = {key:string;label:string;points:TrendPoint[]};
 export type TrendData = {days:string[]; series:Record<TrendKey,TrendSeries>;rooms:TrendSeries[];rows:LiveBusinessEvent[];ads:LiveBusinessData['ads']['records'];previous:Record<TrendKey,string|null>;totals:Record<TrendKey,string|null>;stale:boolean;missingRates:boolean};
 type Quote = (date:string,currency:FxCurrency)=>Promise<FxQuote|null>;
-const units:Currency[]=["CNY","TWD","USD"];
+const units:Currency[]=["CNY","TWD","USD","SGD","HKD"];
 export function cents(v:string) {if(!/^\d+(?:\.\d{1,2})?$/.test(v))throw Error("金额待核对");const [a,b=""]=v.split('.');return BigInt(a)*100n+BigInt(b.padEnd(2,'0'));}
 export const money=(n:bigint)=>`${n/100n}.${String(n%100n).padStart(2,'0')}`;
 export function shift(date:string,n:number){const d=new Date(`${date}T00:00:00Z`);d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10);}
@@ -40,7 +40,7 @@ export async function buildTrend(data:LiveBusinessData,range:{from:string;to:str
     const items=rows.filter(e=>e.kind==="receipt"&&e.date===date);
     if(!items.length)return {date,value:null,reason:"无记录",count:0,native:"",estimated:false};
     try {
-      const totals={CNY:0n,TWD:0n,USD:0n};for(const e of items){if(!units.includes(e.currency))throw Error("币种待核对");totals[e.currency]+=cents(e.amount);}
+      const totals:Record<Currency,bigint>={CNY:0n,TWD:0n,USD:0n,SGD:0n,HKD:0n};for(const e of items){if(!units.includes(e.currency))throw Error("币种待核对");totals[e.currency]+=cents(e.amount);}
       const fx=await convertCustomerPayments(items,{CNY:money(totals.CNY),TWD:money(totals.TWD),USD:money(totals.USD)},quote);
       stale ||= fx.stale;missingRates ||= fx.missingDates.length>0;
       return {date,value:fx.cny,reason:fx.cny===null?(fx.incomplete?"明细待补齐":"缺参考汇率"):"",count:items.length,native:units.filter(c=>totals[c]>0n).map(c=>`${money(totals[c])} ${c}`).join(" · "),estimated:fx.hasForeign};

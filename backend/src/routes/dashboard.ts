@@ -88,7 +88,7 @@ export function createDashboardRouter(db: Pool, config: AppConfig): Router {
         [period.from, period.to]
       );
 
-      const receiptRows = await query<{ currency: "CNY" | "TWD" | "USD"; total: string }>(
+      const receiptRows = await query<{ currency: "CNY" | "TWD" | "USD" | "SGD" | "HKD"; total: string }>(
         db,
         `SELECT currency, COALESCE(SUM(amount), 0)::text AS total
            FROM customer_payments
@@ -97,7 +97,7 @@ export function createDashboardRouter(db: Pool, config: AppConfig): Router {
           GROUP BY currency`,
         [period.from, period.to]
       );
-      const customerReceipts = { CNY: "0.00", TWD: "0.00", USD: "0.00" };
+      const customerReceipts = { CNY: "0.00", TWD: "0.00", USD: "0.00", SGD: "0.00", HKD: "0.00" };
       for (const row of receiptRows) {
         if (row.currency in customerReceipts) {
           customerReceipts[row.currency] = formatMoney(row.total);

@@ -65,7 +65,7 @@ export function paymentRows(sources: Source[], from: string, to: string, kind?: 
     .map(p => ({date:p.payment_date, amount:p.amount, currency:p.currency})));
 }
 export async function convert(rows: CustomerPaymentRow[], quote?: Parameters<typeof convertCustomerPayments>[2]) {
-  const totals = {CNY:0n, TWD:0n, USD:0n};
+  const totals: Record<Currency, bigint> = {CNY:0n, TWD:0n, USD:0n, SGD:0n, HKD:0n};
   for (const row of rows) {
     if (!(row.currency in totals)) throw Error("不支持的币种，金额待核对");
     totals[row.currency as Currency] += amount(row.amount);

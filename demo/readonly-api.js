@@ -765,7 +765,7 @@
     if(path==='/api/ad-accounts')return ['boss','finance'].includes(role)?json(adLedger):json({error:'无广告账户权限'},403);
     if(path==="/api/finance/live-performance")return ['boss','finance'].includes(role)?json({records:paidPerformanceRecords}):json({error:'无财务核定权限'},403);
     if(role==='finance'&&path!=='/api/finance'&&path!=='/api/orders'&&!path.startsWith('/api/order-records/'))return json({error:"演示财务仅可查看收款、结算与工资"},403);
-    if(path==="/api/finance"&&["finance","boss"].includes(role))return json({payments,settlements,summary:{pending:{CNY:"0.00",TWD:"1200.00",USD:"90.00"},directCny:"1290.50",settledCny:"323.40",totalCny:"1613.90"}});
+    if(path==="/api/finance"&&["finance","boss"].includes(role))return json({payments,settlements,summary:{pending:{CNY:"0.00",TWD:"1200.00",USD:"90.00",SGD:"0.00",HKD:"0.00"},directCny:"1290.50",settledCny:"323.40",totalCny:"1613.90"}});
     if(path.startsWith("/api/order-records/")&&["boss","cs_supervisor","finance"].includes(role)){const id=path.slice("/api/order-records/".length);const order=visibleOrders().find(o=>o.id===id);return order?json(orderRecord(order)):json({error:"订单不存在或不在演示可见范围"},404);}
     if(path==="/api/admin/users"&&role==="admin")return json({users:staff});
     if(path==="/api/admin/teams"&&role==="admin")return json({teams});

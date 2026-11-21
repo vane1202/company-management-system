@@ -6,6 +6,8 @@ import { isIsoDate, businessToday } from "./dates.js";
 import { parseMoney, centsToMoney, moneyToCents } from "./money.js";
 
 export type DB = Pool | PoolClient;
+export type CurrencyCode = "CNY" | "TWD" | "USD" | "SGD" | "HKD";
+export const CURRENCIES: readonly CurrencyCode[] = ["CNY", "TWD", "USD", "SGD", "HKD"];
 export function textField(input: unknown, name: string, max = 128, required = true) {
   if (typeof input !== "string" || input.trim().length > max || (required && !input.trim())) throw new HttpError(400, `${name}无效`);
   return input.trim();
@@ -15,9 +17,9 @@ export function uuid(input: unknown) {
   if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) throw new HttpError(400,"记录标识无效");
   return value;
 }
-export function currency(input: unknown): "CNY" | "TWD" | "USD" {
-  if(input!=="CNY"&&input!=="TWD"&&input!=="USD")throw new HttpError(400,"币种无效");
-  return input;
+export function currency(input: unknown): CurrencyCode {
+  if(typeof input !== "string" || !(CURRENCIES as readonly string[]).includes(input))throw new HttpError(400,"币种无效");
+  return input as CurrencyCode;
 }
 export function amount(input: unknown, name="金额", positive=false) {
   const value=centsToMoney(moneyToCents(parseMoney(input,name)));

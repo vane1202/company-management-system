@@ -1,5 +1,5 @@
 import {useEffect,useMemo,useRef,useState,type ReactNode} from 'react';
-import {api,type FinanceData} from '../api';
+import {api,type Currency,type FinanceData} from '../api';
 import {InfoTip} from '../InfoTip';
 import {dashboardPresetRange} from '../dates';
 import {toErrorMessage} from '../errors';
@@ -11,7 +11,7 @@ import type {CashView} from '../cashNavigation';
 import './boss-cash-board.css';
 
 const amount=(v:string|null|undefined)=>v==null?'待核对':`¥${formatCashValue(v)}`;
-const currencyNames={CNY:'人民币',TWD:'台币',USD:'美元'};
+const currencyNames:Record<Currency,string>={CNY:'人民币',TWD:'台币',USD:'美元',SGD:'新币',HKD:'港币'};
 
 function CashCard({title,tip,value,rows,caption,onOpen}:{title:string;tip:string;value:string;rows:[string,string][];caption:string;onOpen:()=>void}){
   return <article>

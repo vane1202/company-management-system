@@ -1,4 +1,5 @@
-export const currencies = {CNY:"人民币",TWD:"台币",USD:"美元"};
+export const currencies = {CNY:"人民币",TWD:"台币",USD:"美元",SGD:"新币",HKD:"港币"};
+export const itemKindLabels:Record<string,string>={material:"翡翠原石",finished:"翡翠成品",service:"工费 / 镶嵌 / 服务"};
 export const expenseLabels:Record<string,string>={goods:"原石 / 商品供货款",design:"设计雕刻费",labor:"其他加工工费",sourcing:"市场配货采购款",accessory:"配件费",certificate:"证书费",box:"包装费",shipping:"运费",other:"其他支出"};
 export const purposeLabels:Record<string,string>={deposit:"定金",balance:"尾款",full:"全款"};
 export function cents(value:string):bigint|null {
@@ -7,25 +8,25 @@ export function cents(value:string):bigint|null {
 }
 export function money(value:bigint){return `${value/100n}.${String(value%100n).padStart(2,"0")}`;}
 /** 原石服务费（即 10% 代购费）按谈成价四舍五入到分；成品为 0。无效价格返回 null。 */
-export function defaultBuyingFee(price:string,kind:string){
+export function defaultBuyingFee(price:string,kind:string,dealChannel:"live"|"private"="live"){
   const n=cents(price);if(n===null)return null;
-  return money(kind==="material"?(n+5n)/10n:0n);
+  return money(kind==="material"&&dealChannel==="live"?(n+5n)/10n:0n);
 }
-export function itemPreview(price:string,kind:string,feeCny?:string){
+export function itemPreview(price:string,kind:string,feeCny?:string,dealChannel:"live"|"private"="live"){
   const n=cents(price);if(n===null)return null;
-  const auto=kind==="material"?(n+5n)/10n:0n;
+  const auto=kind==="material"&&dealChannel==="live"?(n+5n)/10n:0n;
   const fee=kind!=="material"?0n:feeCny==null?auto:cents(feeCny);
   if(fee===null)return null;
   return {fee:money(fee),total:n+fee,autoFee:money(auto)};
 }
 /** 手动改过的服务费在改谈成价时保留；未改过则按 10% 重算。成品固定为 0。 */
-export function buyingFeeAfterPriceChange(kind:string,price:string,current:{feeCny:string;manual:boolean}){
-  if(kind!=="material")return {feeCny:"0.00",manual:false};
+export function buyingFeeAfterPriceChange(kind:string,price:string,current:{feeCny:string;manual:boolean},dealChannel:"live"|"private"="live"){
+  if(kind!=="material"||dealChannel==="private")return {feeCny:"0.00",manual:false};
   if(current.manual)return {feeCny:current.feeCny,manual:true};
-  return {feeCny:defaultBuyingFee(price,kind)??current.feeCny,manual:false};
+  return {feeCny:defaultBuyingFee(price,kind,dealChannel)??current.feeCny,manual:false};
 }
-export function buyingFeeRestored(price:string,kind:string){
-  return {feeCny:defaultBuyingFee(price,kind)??"0.00",manual:false};
+export function buyingFeeRestored(price:string,kind:string,dealChannel:"live"|"private"="live"){
+  return {feeCny:defaultBuyingFee(price,kind,dealChannel)??"0.00",manual:false};
 }
 // The retained key makes transport retries safe; editing the payload starts a new submission.
 export function newRequestKey(){

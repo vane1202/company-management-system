@@ -383,7 +383,7 @@ const validOrders = orders.filter((row) => !row.cancelled && row.status !== "ref
           host_name: string;
           persona_name: string;
           business_date: string;
-          currency: "CNY" | "TWD" | "USD";
+          currency: "CNY" | "TWD" | "USD" | "SGD" | "HKD";
           due_amount: string;
           paid_amount: string;
         }>(

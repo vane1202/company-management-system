@@ -40,7 +40,7 @@ export type CrmOrder = {
   materialCents: number;
   feeCents: number;
   cancelled: boolean;
-  customerCurrency?: 'CNY'|'TWD'|'USD';
+  customerCurrency?: 'CNY'|'TWD'|'USD'|'SGD'|'HKD';
   customerDueMinor?: number;
   materialRef?: string;
   items?: {kind:string; materialRef:string; priceCny:string; buyingFeeCny:string}[];
@@ -53,7 +53,7 @@ export type CrmOrder = {
   transferredBy?: string;
 };
 export type CrmReceipt = { id:string; date:string; amountMinor:number; purpose:'deposit'|'balance'; channel:string; reference:string; reportedBy:string };
-export type CrmOrderDraft = { businessDate:string; channel:'live'|'private'; materialCny:string; feeCny:string; customerCurrency?:'CNY'|'TWD'|'USD'; customerDue?:string; materialRef?:string; items?:CrmOrder['items'] };
+export type CrmOrderDraft = { businessDate:string; channel:'live'|'private'; materialCny:string; feeCny:string; customerCurrency?:'CNY'|'TWD'|'USD'|'SGD'|'HKD'; customerDue?:string; materialRef?:string; items?:CrmOrder['items'] };
 
 export function orderFunds(order: CrmOrder) {
   const due = order.customerDueMinor ?? order.materialCents + (order.channel==='private'?0:order.feeCents);
@@ -280,7 +280,7 @@ function addOrder(state: CrmState, action: Extract<CrmAction, { type: "addOrder"
   if (action.channel === "private" && action.feeCny.trim() && yuanToCents(action.feeCny) !== 0) throw Error("私推不收代购费");
   if (action.channel !== "live" && action.channel !== "private") throw Error("成交渠道无效");
   const currency=action.customerCurrency??'CNY';
-  if(!['CNY','TWD','USD'].includes(currency))throw Error('付款币种无效');
+  if(!['CNY','TWD','USD','SGD','HKD'].includes(currency))throw Error('付款币种无效');
   const due=currency==='CNY'?material+fee:yuanToCents(action.customerDue??'');
   if(due===null||due<=0)throw Error('请填写与客户约定的外币总应收');
   const order: CrmOrder = { id: nextId(state, "order-"), customerId: customer.id, employeeId: customer.employeeId, employeeName: customer.employeeName, businessDate: action.businessDate, channel: action.channel, materialCents: material, feeCents: action.channel === "private" ? 0 : fee, cancelled: false,customerCurrency:currency,customerDueMinor:due,materialRef:action.materialRef?.trim().slice(0,128),items:action.items,receipts:[] };

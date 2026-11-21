@@ -26,17 +26,24 @@ export function createOrderRecordsRouter(db: Pool, config: AppConfig) {
   router.post("/",mutate(async(c,req)=>{
     if(req.actor!.role!=="cs")throw new HttpError(403,"仅客服可填报订单");
     const b=req.body ?? {}, key=uuid(b.requestKey);
-    const items=readItems(b.items);
+    const dealChannel=readDealChannel(b.dealChannel);
+    const items=readItems(b.items,dealChannel);
     const total=addMoney(items.flatMap(i=>[i.priceCny,i.buyingFeeCny]));
     amount(total,"成交合计",true);
     const cur=currency(b.customerCurrency);
-    const body={owner:req.actor!.id,businessDate:dateField(b.businessDate,config.businessTimezone),orderRef:textField(b.orderRef,"订单号",64),customerLabel:textField(b.customerLabel,"客户称呼",64),personaName:textField(b.personaName,"人设"),...orderIdentity(b),operatorName:textField(b.operatorName,"经办客服"),source:textField(b.source??"","来源",128,false),note:textField(b.note??"","备注",500,false),customerCurrency:cur,customerDue:cur==="CNY"?total:amount(b.customerDue,"客户约定总应收",true),items};
+    const businessDate=dateField(b.businessDate,config.businessTimezone);
+    const rawRef=typeof b.orderRef==="string"?b.orderRef.trim():"";
+    const orderRef=rawRef?textField(rawRef,"订单号",64):`ORD-${businessDate.replace(/-/g,"")}-${key.slice(0,6).toUpperCase()}`;
+    const materialCostCny=optionalAmount(b.materialCostCny,"本价（白条价）");
+    const materialLotNo=textField(b.materialLotNo??"","料号",64,false);
+    const projectLine=textField(b.projectLine??"","项目线",64,false);
+    const body={owner:req.actor!.id,businessDate,orderRef,customerLabel:textField(b.customerLabel,"客户称呼",64),personaName:textField(b.personaName,"人设"),...orderIdentity(b),operatorName:textField(b.operatorName,"经办客服"),dealChannel,projectLine,materialCostCny,materialLotNo,source:textField(b.source??"","来源",128,false),note:textField(b.note??"","备注",500,false),customerCurrency:cur,customerDue:cur==="CNY"?total:amount(b.customerDue,"客户约定总应收",true),items};
     const hash=hashPayload(body), old=await replay(c,"order_details",key,hash);
     if(old)return {id:old.order_id,replayed:true};
-    const o=(await c.query(`INSERT INTO orders(user_id,business_date,order_ref,customer_label,amount,status,is_custom,note,last_submitted_by) VALUES($1,$2,$3,$4,$5,'placed',FALSE,$6,$1) RETURNING id`,[body.owner,body.businessDate,body.orderRef,body.customerLabel,total,body.note])).rows[0];
-    await c.query(`INSERT INTO order_details(order_id,persona_name,operator_name,source,customer_currency,customer_due,request_key,payload_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,[o.id,body.personaName,body.operatorName,body.source,cur,body.customerDue,key,hash]);
+    const o=(await c.query(`INSERT INTO orders(user_id,business_date,order_ref,customer_label,amount,status,is_custom,note,last_submitted_by,material_cost_cny,material_lot_no) VALUES($1,$2,$3,$4,$5,'placed',FALSE,$6,$1,$7,$8) RETURNING id`,[body.owner,body.businessDate,body.orderRef,body.customerLabel,total,body.note,body.materialCostCny,body.materialLotNo])).rows[0];
+    await c.query(`INSERT INTO order_details(order_id,persona_name,operator_name,source,customer_currency,customer_due,request_key,payload_hash,deal_channel,project_line) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,[o.id,body.personaName,body.operatorName,body.source,cur,body.customerDue,key,hash,body.dealChannel,body.projectLine]);
     await c.query("UPDATE order_details SET persona_code=$2,live_room_code=$3,host_name=$4,customer_code=$5 WHERE order_id=$1",[o.id,body.personaCode,body.liveRoomCode,body.hostName,body.customerCode]);
-    for(const i of items)await c.query("INSERT INTO order_items(order_id,label,material_ref,kind,price_cny,buying_fee_cny) VALUES($1,$2,$3,$4,$5,$6)",[o.id,i.label,i.materialRef,i.kind,i.priceCny,i.buyingFeeCny]);
+    for(const i of items)await c.query("INSERT INTO order_items(order_id,label,material_ref,kind,price_cny,buying_fee_cny,sourcing_no_settle) VALUES($1,$2,$3,$4,$5,$6,$7)",[o.id,i.label,i.materialRef,i.kind,i.priceCny,i.buyingFeeCny,i.sourcingNoSettle]);
     await audit(c,req,"order_record_create",o.id,body);
     return {id:o.id};
   }));
@@ -48,14 +55,14 @@ export function createOrderRecordsRouter(db: Pool, config: AppConfig) {
       const details=(await c.query("SELECT * FROM order_details WHERE order_id=$1",[order.id])).rows[0];
       if (!details) return {order, legacy:true};
       const items=(await c.query("SELECT * FROM order_items WHERE order_id=$1 ORDER BY id",[order.id])).rows;
-      const payments=(await c.query(`SELECT p.id,p.payment_date,p.amount,p.currency,p.credit_amount,p.purpose,p.channel,p.third_party,p.reference,p.note,p.created_at,p.voided_at,p.void_reason,p.after_sale_charge_id,COALESCE((SELECT sum(a.foreign_amount) FROM settlement_allocations a JOIN finance_settlements s ON s.id=a.settlement_id WHERE a.payment_id=p.id AND s.voided_at IS NULL),0)::numeric(14,2) AS settled_amount FROM customer_payments p WHERE p.order_id=$1 ORDER BY p.created_at,p.id`,[order.id])).rows;
+      const payments=(await c.query(`SELECT p.id,p.payment_date,p.amount,p.currency,p.credit_amount,p.received_cny,p.purpose,p.channel,p.third_party,p.reference,p.note,p.created_at,p.voided_at,p.void_reason,p.after_sale_charge_id,COALESCE((SELECT sum(a.foreign_amount) FROM settlement_allocations a JOIN finance_settlements s ON s.id=a.settlement_id WHERE a.payment_id=p.id AND s.voided_at IS NULL),0)::numeric(14,2) AS settled_amount FROM customer_payments p WHERE p.order_id=$1 ORDER BY p.created_at,p.id`,[order.id])).rows;
       const expenses=(await c.query("SELECT id,business_date,category,label,amount_cny,counterparty,item_id,note,created_at,voided_at,void_reason,after_sale_charge_id FROM order_expenses WHERE order_id=$1 ORDER BY created_at,id",[order.id])).rows;
       const attachments=(await c.query("SELECT id,item_id,filename,mime_type,created_at FROM order_attachments WHERE order_id=$1 ORDER BY created_at,id",[order.id])).rows;
       const charges=(await c.query("SELECT a.*,COALESCE((SELECT sum(e.amount_cny) FROM order_expenses e WHERE e.after_sale_charge_id=a.id AND e.voided_at IS NULL),0)::numeric(14,2)::text AS cost_cny FROM order_charges a WHERE a.order_id=$1 ORDER BY a.created_at,a.id",[order.id])).rows.map(a=>({...a,margin_cny:a.costs_completed_at?centsToMoney(moneyToCents(a.amount_cny)-moneyToCents(a.cost_cny)):null}));
       const totalDue=await effectiveDue(c,String(order.id),String(details.customer_due));
       const paid=addMoney(payments.filter(p=>!p.voided_at).map(p=>p.credit_amount));
       const balance=centsToMoney(moneyToCents(totalDue)-moneyToCents(paid));
-      return {order,cancellations,details:{personaName:details.persona_name,operatorName:details.operator_name,source:details.source,customerCurrency:details.customer_currency,customerDue:totalDue,baseCustomerDue:details.customer_due,personaCode:details.persona_code,liveRoomCode:details.live_room_code,hostName:details.host_name,customerCode:details.customer_code,shippedOn:details.shipped_on,version:details.version},items,charges,payments,expenses,attachments,paid,balance,expenseTotal:addMoney(expenses.filter(e=>!e.voided_at).map(e=>e.amount_cny)),legacy:false};
+      return {order,cancellations,details:{dealChannel:details.deal_channel??"live",projectLine:details.project_line??"",personaName:details.persona_name,operatorName:details.operator_name,source:details.source,customerCurrency:details.customer_currency,customerDue:totalDue,baseCustomerDue:details.customer_due,personaCode:details.persona_code,liveRoomCode:details.live_room_code,hostName:details.host_name,customerCode:details.customer_code,shippedOn:details.shipped_on,version:details.version},items,charges,payments,expenses,attachments,paid,balance,expenseTotal:addMoney(expenses.filter(e=>!e.voided_at).map(e=>e.amount_cny)),legacy:false};
     }, true).then((result) => res.json(result)).catch(next);
   });
   router.post('/:id/cancellations',mutate(async(c,req)=>{
@@ -88,15 +95,19 @@ export function createOrderRecordsRouter(db: Pool, config: AppConfig) {
     if(Number(b.version)!==details.version)throw new HttpError(409,"订单已变更，请刷新后再编辑");
     if(order.status==="shipped"||order.status==="refunded"||(await c.query("SELECT 1 FROM customer_payments WHERE order_id=$1 AND voided_at IS NULL",[id])).rowCount)throw new HttpError(409,"已有有效收款或已发货，不能直接修改成交；登记错误须先核对并纠正关联记录");
     if((await c.query("SELECT 1 FROM order_charges WHERE order_id=$1",[id])).rowCount)throw new HttpError(409,"已有追加收费记录，请保留原成交，通过追加收费纠错处理");
-    const items=readItems(b.items),total=addMoney(items.flatMap(i=>[i.priceCny,i.buyingFeeCny]));amount(total,"成交合计",true);
-    const cur=currency(b.customerCurrency),body={reason:textField(b.reason,"修改原因",500),businessDate:dateField(b.businessDate,config.businessTimezone),orderRef:textField(b.orderRef,"订单号",64),customerLabel:textField(b.customerLabel,"客户称呼",64),personaName:textField(b.personaName,"人设"),...orderIdentity(b),operatorName:textField(b.operatorName,"经办客服"),source:textField(b.source??"","来源",128,false),note:textField(b.note??"","备注",500,false),customerCurrency:cur,customerDue:cur==="CNY"?total:amount(b.customerDue,"客户约定总应收",true),items};
+    const dealChannel=readDealChannel(b.dealChannel??details.deal_channel);
+    const items=readItems(b.items,dealChannel),total=addMoney(items.flatMap(i=>[i.priceCny,i.buyingFeeCny]));amount(total,"成交合计",true);
+    const materialCostCny=optionalAmount(b.materialCostCny,"本价（白条价）");
+    const materialLotNo=textField(b.materialLotNo??"","料号",64,false);
+    const projectLine=textField(b.projectLine??"","项目线",64,false);
+    const cur=currency(b.customerCurrency),body={reason:textField(b.reason,"修改原因",500),businessDate:dateField(b.businessDate,config.businessTimezone),orderRef:textField(b.orderRef,"订单号",64),customerLabel:textField(b.customerLabel,"客户称呼",64),personaName:textField(b.personaName,"人设"),...orderIdentity(b),operatorName:textField(b.operatorName,"经办客服"),dealChannel,projectLine,materialCostCny,materialLotNo,source:textField(b.source??"","来源",128,false),note:textField(b.note??"","备注",500,false),customerCurrency:cur,customerDue:cur==="CNY"?total:amount(b.customerDue,"客户约定总应收",true),items};
     if(cur!==details.customer_currency&&(await c.query("SELECT 1 FROM customer_payments WHERE order_id=$1",[id])).rowCount)throw new HttpError(409,"已有付款记录（包括作废记录），不能变更约定币种，请保留原币种核对更正");
-    const beforeItems=(await c.query("SELECT id,label,material_ref,kind,price_cny,buying_fee_cny FROM order_items WHERE order_id=$1 ORDER BY id",[id])).rows;
+    const beforeItems=(await c.query("SELECT id,label,material_ref,kind,price_cny,buying_fee_cny,sourcing_no_settle FROM order_items WHERE order_id=$1 ORDER BY id",[id])).rows;
     // Removed item links retain the original order-level photo; never delete originals.
     await c.query("UPDATE order_attachments SET item_id=NULL WHERE order_id=$1",[id]);await c.query("DELETE FROM order_items WHERE order_id=$1",[id]);
-    for(const i of items)await c.query("INSERT INTO order_items(order_id,label,material_ref,kind,price_cny,buying_fee_cny) VALUES($1,$2,$3,$4,$5,$6)",[id,i.label,i.materialRef,i.kind,i.priceCny,i.buyingFeeCny]);
-    await c.query("UPDATE orders SET business_date=$2,order_ref=$3,customer_label=$4,amount=$5,note=$6 WHERE id=$1",[id,body.businessDate,body.orderRef,body.customerLabel,total,body.note]);
-    await c.query("UPDATE order_details SET persona_name=$2,operator_name=$3,source=$4,customer_currency=$5,customer_due=$6 WHERE order_id=$1",[id,body.personaName,body.operatorName,body.source,cur,body.customerDue]);await touch(c,id);
+    for(const i of items)await c.query("INSERT INTO order_items(order_id,label,material_ref,kind,price_cny,buying_fee_cny,sourcing_no_settle) VALUES($1,$2,$3,$4,$5,$6,$7)",[id,i.label,i.materialRef,i.kind,i.priceCny,i.buyingFeeCny,i.sourcingNoSettle]);
+    await c.query("UPDATE orders SET business_date=$2,order_ref=$3,customer_label=$4,amount=$5,note=$6,material_cost_cny=$7,material_lot_no=$8 WHERE id=$1",[id,body.businessDate,body.orderRef,body.customerLabel,total,body.note,body.materialCostCny,body.materialLotNo]);
+    await c.query("UPDATE order_details SET persona_name=$2,operator_name=$3,source=$4,customer_currency=$5,customer_due=$6,deal_channel=$7,project_line=$8 WHERE order_id=$1",[id,body.personaName,body.operatorName,body.source,cur,body.customerDue,body.dealChannel,body.projectLine]);await touch(c,id);
     await c.query("UPDATE order_details SET persona_code=$2,live_room_code=$3,host_name=$4,customer_code=$5 WHERE order_id=$1",[id,body.personaCode,body.liveRoomCode,body.hostName,body.customerCode]);
     await writeAudit(c,{actorId:req.actor!.id,action:"order_record_correct",entityType:"order",entityId:id,before:{order,details,items:beforeItems},after:body,ip:req.ip});return {id};
   }));
@@ -106,15 +117,17 @@ export function createOrderRecordsRouter(db: Pool, config: AppConfig) {
     if(order.status==="refunded")throw new HttpError(409,"退款标记订单暂不接受新收款，请先核对退款记录");
     const cur=currency(b.currency),val=amount(b.amount,"原币收款",true);
     const charge=await afterSaleCharge(c,id,b.afterSaleChargeId);
-    const body={orderId:id,paymentDate:dateField(b.paymentDate,config.businessTimezone),amount:val,currency:cur,creditAmount:cur===details.customer_currency?val:amount(b.creditAmount,"本次抵扣应收",true),purpose:textField(b.purpose,"款项类型"),channel:textField(b.channel,"收款账户"),thirdParty:b.thirdParty===true,reference:textField(b.reference??"","收款流水号",128,false),note:textField(b.note??"","备注",500,false),afterSaleChargeId:charge?.id??null};
+    const allowOverpay=b.allowOverpay===true;
+    const receivedCny=optionalAmount(b.receivedCny,"折合实收人民币")??(cur==="CNY"?val:null);
+    const body={orderId:id,paymentDate:dateField(b.paymentDate,config.businessTimezone),amount:val,currency:cur,creditAmount:cur===details.customer_currency?val:amount(b.creditAmount,"本次抵扣应收",true),receivedCny,allowOverpay,purpose:textField(b.purpose,"款项类型"),channel:textField(b.channel,"收款账户"),thirdParty:b.thirdParty===true,reference:textField(b.reference??"","收款流水号",128,false),note:textField(b.note??"","备注",500,false),afterSaleChargeId:charge?.id??null};
     if(!["deposit","balance","full"].includes(body.purpose))throw new HttpError(400,"款项类型无效");
     if(cur!=="CNY"&&!body.thirdParty)throw new HttpError(400,"外币收款须登记第三方账户");
     if(body.paymentDate<String(order.business_date))throw new HttpError(400,"收款日期不能早于订单日期");
     const hash=hashPayload(body),old=await replay(c,"customer_payments",uuid(b.requestKey),hash,id);if(old)return {id:old.id,replayed:true};
     if(charge){const linked=(await c.query('SELECT COALESCE(sum(credit_amount),0)::text AS paid FROM customer_payments WHERE after_sale_charge_id=$1 AND voided_at IS NULL',[charge.id])).rows[0].paid;if(moneyToCents(linked)+moneyToCents(body.creditAmount)>moneyToCents(charge.customer_amount))throw new HttpError(409,'本笔售后收款超过该售后业务剩余应收');}
     const paid=(await c.query("SELECT COALESCE(sum(credit_amount),0)::text AS paid FROM customer_payments WHERE order_id=$1 AND voided_at IS NULL",[id])).rows[0].paid;
-    if(moneyToCents(paid)+moneyToCents(body.creditAmount)>moneyToCents(await effectiveDue(c,id,details.customer_due)))throw new HttpError(409,"本次抵扣金额超过客户剩余应收");
-    const row=(await c.query(`INSERT INTO customer_payments(order_id,payment_date,amount,currency,credit_amount,purpose,channel,third_party,reference,note,created_by,request_key,payload_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,[id,body.paymentDate,val,cur,body.creditAmount,body.purpose,body.channel,body.thirdParty,body.reference,body.note,req.actor!.id,b.requestKey,hash])).rows[0];
+    if(!allowOverpay&&moneyToCents(paid)+moneyToCents(body.creditAmount)>moneyToCents(await effectiveDue(c,id,details.customer_due)))throw new HttpError(409,"本次抵扣金额超过客户剩余应收");
+    const row=(await c.query(`INSERT INTO customer_payments(order_id,payment_date,amount,currency,credit_amount,received_cny,purpose,channel,third_party,reference,note,created_by,request_key,payload_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,[id,body.paymentDate,val,cur,body.creditAmount,body.receivedCny,body.purpose,body.channel,body.thirdParty,body.reference,body.note,req.actor!.id,b.requestKey,hash])).rows[0];
     if(charge)await c.query('UPDATE customer_payments SET after_sale_charge_id=$2 WHERE id=$1',[row.id,charge.id]);
     await touch(c,id);await audit(c,req,"customer_payment_create",id,{id:row.id,...body});return {id:row.id};
   }));
@@ -128,12 +141,29 @@ export function createOrderRecordsRouter(db: Pool, config: AppConfig) {
     await c.query("UPDATE customer_payments SET voided_at=now(),void_reason=$2 WHERE id=$1",[p.id,reason]);await touch(c,id);await audit(c,req,"customer_payment_void",id,{paymentId:p.id,reason});return {id:p.id};
   }));
   const syncCosts=async(c:PoolClient,id:string)=>{await c.query(`UPDATE orders SET custom_product_cost=(SELECT COALESCE(sum(amount_cny) FILTER(WHERE category IN ('goods','sourcing','accessory','certificate','box','other')),0) FROM order_expenses WHERE order_id=$1 AND voided_at IS NULL),labor_cost=(SELECT COALESCE(sum(amount_cny) FILTER(WHERE category IN ('labor','design')),0) FROM order_expenses WHERE order_id=$1 AND voided_at IS NULL),shipping_cost=(SELECT COALESCE(sum(amount_cny) FILTER(WHERE category='shipping'),0) FROM order_expenses WHERE order_id=$1 AND voided_at IS NULL) WHERE id=$1`,[id]);await touch(c,id);};
+  router.post("/:id/items/:itemId/sourcing-status",mutate(async(c,req)=>{
+    const id=uuid(req.params.id),itemId=uuid(req.params.itemId),{order}=await writeOrder(c,req.actor!,id);
+    if(order.cancelled)throw new HttpError(409,"已登记跑单，不能修改配货不结款标记");
+    const item=(await c.query("SELECT id,label,material_ref,kind,sourcing_no_settle FROM order_items WHERE id=$1 AND order_id=$2 FOR UPDATE",[itemId,id])).rows[0];
+    if(!item)throw new HttpError(404,"商品明细不存在");
+    if(item.kind==="service")throw new HttpError(400,"纯工费/服务项无需设置原石不结款标记");
+    const nextStatus=Boolean(req.body?.sourcingNoSettle);
+    const reason=textField(req.body?.reason??"","说明",500,false);
+    await c.query("UPDATE order_items SET sourcing_no_settle=$2 WHERE id=$1",[item.id,nextStatus]);
+    await touch(c,id);
+    await audit(c,req,"order_item_sourcing_status",id,{itemId:item.id,label:item.label,materialRef:item.material_ref,before:item.sourcing_no_settle,after:nextStatus,reason});
+    return {id:item.id,sourcingNoSettle:nextStatus};
+  }));
   router.post("/:id/expenses",mutate(async(c,req)=>{
     const id=uuid(req.params.id);await writeOrder(c,req.actor!,id);const b=req.body??{};
     const charge=await afterSaleCharge(c,id,b.afterSaleChargeId);
     const body={orderId:id,businessDate:dateField(b.businessDate,config.businessTimezone),category:textField(b.category,"费用类别"),label:textField(b.label,"费用说明"),amountCny:amount(b.amountCny,"费用金额",true),counterparty:textField(b.counterparty??"","供应/服务方",128,false),itemId:b.itemId?uuid(b.itemId):null,note:textField(b.note??"","费用备注",500,false),afterSaleChargeId:charge?.id??null};
     if(!["goods","labor","certificate","box","shipping","other","sourcing","accessory","design"].includes(body.category))throw new HttpError(400,"费用类别无效");
-    if(body.itemId&&!(await c.query("SELECT 1 FROM order_items WHERE id=$1 AND order_id=$2",[body.itemId,id])).rowCount)throw new HttpError(400,"费用对应商品不属于此单");
+    if(body.itemId){
+      const linkedItem=(await c.query("SELECT id,sourcing_no_settle FROM order_items WHERE id=$1 AND order_id=$2",[body.itemId,id])).rows[0];
+      if(!linkedItem)throw new HttpError(400,"费用对应商品不属于此单");
+      if(linkedItem.sourcing_no_settle&&body.category==="goods")throw new HttpError(409,"该件料子已标记为配货（接待费）未售出，不用跟供应商结料款；请按「市场配货采购款」登记接待/配货费用，或先恢复正常结款状态");
+    }
     const hash=hashPayload(body),old=await replay(c,"order_expenses",uuid(b.requestKey),hash,id);if(old)return {id:old.id,replayed:true};
     const row=(await c.query("INSERT INTO order_expenses(order_id,business_date,category,label,amount_cny,created_by,request_key,payload_hash,counterparty,item_id,note,payment_tracking_started) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,TRUE) RETURNING id",[id,body.businessDate,body.category,body.label,body.amountCny,req.actor!.id,b.requestKey,hash,body.counterparty,body.itemId,body.note])).rows[0];
     if(charge){await c.query('UPDATE order_expenses SET after_sale_charge_id=$2 WHERE id=$1',[row.id,charge.id]);await c.query('UPDATE order_charges SET costs_completed_at=NULL WHERE id=$1',[charge.id]);}
@@ -177,12 +207,26 @@ export function createOrderRecordsRouter(db: Pool, config: AppConfig) {
   return router;
 }
 
-function readItems(input:unknown) {
+function readDealChannel(input:unknown):"live"|"private" {
+  if(input===undefined||input===null||input==="")return "live";
+  if(input==="live"||input==="private")return input;
+  throw new HttpError(400,"销售方式无效");
+}
+function optionalAmount(input:unknown,name:string):string|null {
+  if(input===undefined||input===null||String(input).trim()==="")return null;
+  return amount(input,name,false);
+}
+function readItems(input:unknown,dealChannel:"live"|"private"="live") {
   if(!Array.isArray(input)||!input.length||input.length>50)throw new HttpError(400,"每单需1至50条商品明细");
   return input.map(i=>{
     if(!i||typeof i!=="object")throw new HttpError(400,"商品明细无效");
     const kind=textField(i.kind,"商品类别"),priceCny=amount(i.priceCny,"谈成价格",true);
-    if(!["material","finished"].includes(kind))throw new HttpError(400,"商品类别无效");
-    return {kind,label:textField(i.label,"商品名称"),materialRef:textField(i.materialRef??"","料子编号",128,false),priceCny,buyingFeeCny:buyingFee(priceCny,kind)};
+    if(!["material","finished","service"].includes(kind))throw new HttpError(400,"商品类别无效");
+    const rawFee=(i as Record<string,unknown>).buyingFeeCny;
+    const buyingFeeCny=rawFee!==undefined&&rawFee!==null&&String(rawFee).trim()!==""
+      ? amount(rawFee,"代购费",false)
+      : (dealChannel==="private"||kind!=="material" ? "0.00" : buyingFee(priceCny,kind));
+    const sourcingNoSettle=kind!=="service"&&Boolean((i as Record<string,unknown>).sourcingNoSettle);
+    return {kind,label:textField(i.label,"商品名称"),materialRef:textField(i.materialRef??"","料子编号",128,false),priceCny,buyingFeeCny,sourcingNoSettle};
   });
 }
