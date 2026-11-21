@@ -131,12 +131,12 @@ export function DailyForm({ kind, today, onError, readOnly = false, servicePlatf
       catch { setRowsError(REFRESH_AFTER_SAVE_FAILED); toast.error(REFRESH_AFTER_SAVE_FAILED); }
     }}>
       <fieldset disabled={pending}>
-        <div className="grid two">
-          <label className="row">业务日<input required type="date" max={today} value={form.businessDate} onChange={(e) => setForm({ ...form, businessDate: e.target.value })} /></label>
-          {kind==='editor_report'&&!editorName&&<label className="row">拍剪师<select required value={form.editorName??''} onChange={e=>setForm({...form,editorName:e.target.value})}><option value="">选择拍剪师</option>{editorNames.map(name=><option key={name}>{name}</option>)}</select></label>}
+        <div className={kind === "editor_report" ? "grid two editor-report-grid" : "grid two"}>
+          <label className="row editor-full-row">业务日<input required type="date" max={today} value={form.businessDate} onChange={(e) => setForm({ ...form, businessDate: e.target.value })} /></label>
+          {kind==='editor_report'&&!editorName&&<label className="row editor-full-row">拍剪师<select required value={form.editorName??''} onChange={e=>setForm({...form,editorName:e.target.value})}><option value="">选择拍剪师</option>{editorNames.map(name=><option key={name}>{name}</option>)}</select></label>}
           {kind==='ops_report'&&<label className="row">广告账户<select required={adAccounts.length>0} value={form.adAccountRef??''} onChange={e=>setForm({...form,adAccountRef:e.target.value})}><option value="">{adAccounts.length?'选择广告账户':'尚无账户（历史未关联）'}</option>{adAccounts.map(a=><option key={a.code} value={a.code}>{a.code} · {a.name}</option>)}</select></label>}
           {!legacyId && (kind === "editor_report" && personaOptions.length > 0 ? (
-            <label className="row">
+            <label className="row editor-full-row">
               人设/主页名称
               <select
                 required={!customPersona}
@@ -167,7 +167,7 @@ export function DailyForm({ kind, today, onError, readOnly = false, servicePlatf
               )}
             </label>
           ) : (
-            <label className="row">{kind === "fan_report" ? "主页全名" : "人设/主页名称"}<input required maxLength={128} placeholder={kind === "editor_report" ? "输入新人设/主页名称，保存后自动加入待选" : undefined} value={form[nameKey]} onChange={(e) => setForm({ ...form, [nameKey]: e.target.value })} /></label>
+            <label className="row editor-full-row">{kind === "fan_report" ? "主页全名" : "人设/主页名称"}<input required maxLength={128} placeholder={kind === "editor_report" ? "输入新人设/主页名称，保存后自动加入待选" : undefined} value={form[nameKey]} onChange={(e) => setForm({ ...form, [nameKey]: e.target.value })} /></label>
           ))}
           {legacyId ? <label className="row">未分类旧加粉<input required type="number" min="0" max="1000000" step="1" value={form.addedCount} onChange={(e) => setForm({ ...form, addedCount: e.target.value })} /></label> : Object.entries(fields).filter(([key])=>kind!=='fan_report'||!(servicePlatform==='whatsapp'&&key.startsWith('ms')||servicePlatform==='messenger'&&key.startsWith('ws'))).map(([key, label]) => {
             const decimal = key.endsWith("Usd") || key === "ctrPercent";

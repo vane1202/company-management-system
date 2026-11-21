@@ -128,6 +128,11 @@ a { color: var(--jade); }
 }
 .grid { display: grid; gap: 14px; }
 .grid.two { grid-template-columns: 1fr; }
+@media (max-width: 799px) {
+  .grid.two.editor-report-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 12px; }
+  .grid.two.editor-report-grid > .row { min-width: 0; }
+  .grid.two.editor-report-grid > .editor-full-row { grid-column: 1 / -1; }
+}
 @media (min-width: 800px) {
   .grid.two { grid-template-columns: 1fr 1fr; }
   .page { padding-bottom: 40px; }
