@@ -16,7 +16,9 @@ import type { AppConfig } from "../config.js";
 export function createCsAccountsRouter(db: Pool, config: AppConfig): Router {
   const router = Router();
   router.use((req, _res, next) => {
-    if (!req.actor || !["boss", "cs_supervisor"].includes(req.actor.role)) return next(new HttpError(403, "接待账号由本组客服主管管理"));
+    if (!req.actor) return next(new HttpError(401, "请先登录"));
+    if (req.method === "GET" && req.path === "/" && req.actor.role === "cs") return next();
+    if (!["boss", "cs_supervisor"].includes(req.actor.role)) return next(new HttpError(403, "接待账号由本组客服主管管理"));
     next();
   });
   router.get("/teams", async (req, res, next) => {
@@ -30,7 +32,13 @@ export function createCsAccountsRouter(db: Pool, config: AppConfig): Router {
       const actor = req.actor!;
       const date = String(req.query.date ?? businessToday(new Date(), config.businessTimezone));
       if (!isIsoDate(date)) throw new HttpError(400, "业务日无效");
-      const scopes = isBossOrAdmin(actor) ? null : await managedTeamIds(db, actor);
+      let scopes: string[] | null = null;
+      if (actor.role === "cs") {
+        const membership = await membershipOnDate(db, actor.id, date);
+        scopes = membership ? [membership.team_id] : [];
+      } else if (!isBossOrAdmin(actor)) {
+        scopes = await managedTeamIds(db, actor);
+      }
       const rows = await query(db, `SELECT u.id, u.wechat_id,u.service_platform,u.service_account_label, u.phone_label, u.holder_name, u.is_active, u.created_at,
         m.team_id, t.name AS team_name FROM users u
         LEFT JOIN LATERAL (SELECT team_id FROM team_memberships WHERE user_id=u.id AND start_date <= $1::date AND (end_date IS NULL OR end_date >= $1::date) ORDER BY start_date DESC LIMIT 1) m ON TRUE

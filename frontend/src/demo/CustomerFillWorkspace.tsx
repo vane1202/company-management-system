@@ -38,7 +38,6 @@ export default function CustomerFillWorkspace({ today }: { today: string }) {
   const [personId, setPersonId] = useState("");
   const [accountId, setAccountId] = useState("");
   const [identityExpanded, setIdentityExpanded] = useState(true);
-  const [pendingPerson, setPendingPerson] = useState<string | null>(null);
   const [customerId, setCustomerId] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -47,8 +46,10 @@ export default function CustomerFillWorkspace({ today }: { today: string }) {
     let live = true;
     void Promise.all([api.csAccounts(), loadServiceDirectory()]).then(([data, directory]) => {
       if (!live) return;
-      const rows = (directory.enabled ? directory.accounts : data.accounts).filter(item => item.isActive);
+      const rows: FillAccount[] = (directory.enabled ? directory.accounts : data.accounts).filter(item => item.isActive);
       setAccounts(rows);
+      const firstPerson = rows[0] ? (rows[0].registeredHolderId || rows[0].holderName || rows[0].id) : "";
+      setPersonId(current => current || firstPerson);
       setError("");
     }).catch(cause => { if (live) setError(toErrorMessage(cause)); }).finally(() => { if (live) setLoading(false); });
     const onPop = () => { setPage(pathPage()); setCustomerId(""); };
@@ -71,24 +72,18 @@ export default function CustomerFillWorkspace({ today }: { today: string }) {
     setPage(next); setCustomerId("");
     window.scrollTo({ top: 0, behavior: "instant" });
   }
-  function choosePerson(next: string) {
-    if (next === personId) return;
-    if (personId) { setPendingPerson(next); return; }
-    setPersonId(next); setAccountId(""); setCustomerId("");
-  }
   return <main className="customer-fill role-desk">
     <header className="desk-heading"><div><p className="eyebrow">日常填报</p><h1>{customer ? customer.name : titles[page]}</h1></div>{page !== "home" && <button type="button" className="secondary" onClick={() => customer ? setCustomerId("") : navigate("home")}>{customer ? "返回客资库" : "返回工作台"}</button>}</header>
     <section className="card fill-account" aria-label="填报身份">
       {selected && !identityExpanded ? <div className="fill-identity-summary"><div><span className="fill-avatar" aria-hidden="true">{(selectedPerson?.name || "客").slice(0, 1)}</span><span className="fill-identity-text"><strong>{selectedPerson?.name}</strong><span>{selected.platform === "whatsapp" ? "WhatsApp" : selected.platform === "messenger" ? "Messenger" : "接待账号"} · 尾号{(selected.accountIdentifier || selected.wechatId).slice(-4)}</span></span></div><button type="button" className="secondary" aria-expanded={false} onClick={() => setIdentityExpanded(true)}>更换</button></div> : <div id="fill-identity-fields" className="fill-identity-fields">
+      {selectedPerson && <div className="fill-identity-summary"><div><span className="fill-avatar" aria-hidden="true">{(selectedPerson.name || "客").slice(0, 1)}</span><span className="fill-identity-text"><strong>{selectedPerson.name}</strong><span>当前登录客服 · 演示模式</span></span></div></div>}
       <div className="fill-identity-selectors">
-        <Field label="客服"><select aria-label="选择客服" value={personId} disabled={loading} onChange={event => choosePerson(event.target.value)}><option value="">{loading ? "正在读取客服…" : "请选择客服"}</option>{people.map(person => <option key={person.id} value={person.id}>{person.name}</option>)}</select></Field>
-        <Field label="接待账号"><select aria-label="选择接待账号" value={accountId} disabled={!personId} onChange={event => { setAccountId(event.target.value); setCustomerId(""); if (event.target.value) setIdentityExpanded(false); }}><option value="">{personId ? "请选择 WhatsApp 或 Messenger" : "先选择客服"}</option>{personAccounts.map(account => <option key={account.id} value={account.id}>{account.wechatId}</option>)}</select></Field>
+        <Field label="接待账号"><select aria-label="选择接待账号" value={accountId} disabled={loading || !personId} onChange={event => { setAccountId(event.target.value); setCustomerId(""); if (event.target.value) setIdentityExpanded(false); }}><option value="">{loading ? "正在读取接待账号…" : "请选择 WhatsApp 或 Messenger"}</option>{personAccounts.map(account => <option key={account.id} value={account.id}>{account.wechatId}</option>)}</select></Field>
       </div>
       {selected && <div className="fill-identity-context"><span>{selected.teamName || "未分组"} · {selectedPerson?.name}</span><button type="button" className="text-action" onClick={() => setIdentityExpanded(false)}>收起</button></div>}
       <details className="fill-login-help"><summary>登录说明</summary><p className="hint">个人登录将在服务器部署后启用，首次登录须改密。演示阶段按所选客服区分数据。</p></details></div>}
       {error && <p className="error" role="alert">{error}</p>}
       {notice && <p className="notice" role="status">{notice}</p>}
-      {pendingPerson !== null && <div role="alert"><p>更换客服会离开当前客户。确认更换吗？</p><div className="actions"><button type="button" onClick={() => { setPersonId(pendingPerson); setPendingPerson(null); setAccountId(""); setCustomerId(""); }}>确认更换</button><button type="button" className="secondary" onClick={() => setPendingPerson(null)}>保留当前客服</button></div></div>}
     </section>
     {page === "home" && <nav className="fill-home-modules" aria-label="客服业务入口">{modules.map(item => <button key={item.id} type="button" className="fill-module-card" onClick={() => navigate(item.id)}><span className="fill-module-icon" aria-hidden="true"><DashboardIcon name={item.icon} /></span><span className="fill-module-copy"><strong>{item.title}</strong><small>{item.detail}</small></span><span className="fill-module-arrow" aria-hidden="true">›</span></button>)}</nav>}
     {page === "retired" && <section className="card"><h2>入场登记已暂停</h2><p>直播间后台目前不能准确取得观看客户。开单率先不展示，开口转化率仍按正常沟通人数计算。</p></section>}

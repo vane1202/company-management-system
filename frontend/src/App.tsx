@@ -8,6 +8,7 @@ import { WorkspaceBackbar, useWorkspaceNavigation } from "./WorkspaceNavigation"
 import {LiveBusinessOverview} from './LiveBusinessOverview';
 import {defaultLiveView,liveViewLabel,type LiveView} from './liveBusinessNavigation';
 import { OrderWorkspace } from "./OrderWorkspace";
+import { CsWorkbench } from "./CsWorkbench";
 import { FinanceDesk } from "./FinanceDesk";
 import { FinanceWorkspace } from "./FinanceWorkspace";
 import { DailyForm } from "./DailyForms";
@@ -148,6 +149,19 @@ export function App() {
   }
 
   if (DemoCustomerFill && user.role === "cs") return <Suspense fallback={<p role="status">正在打开客服填报…</p>}><DemoCustomerFill today={today} /></Suspense>;
+  if (user.role === "cs") {
+    const canChangeCsPassword = !isServiceAccount(user.accountKind);
+    return (
+      <CsWorkbench
+        today={today}
+        user={user}
+        canChangePassword={canChangeCsPassword}
+        onOpenPassword={() => setPasswordOpen(true)}
+        onLogout={logout}
+        passwordCard={passwordOpen && canChangeCsPassword ? <SelfChangePasswordCard user={user} onClose={() => setPasswordOpen(false)} /> : null}
+      />
+    );
+  }
   if (DemoEditorFill && user.role === "editor") return <Suspense fallback={<p role="status">正在打开拍剪填报…</p>}><DemoEditorFill today={today} /></Suspense>;
   if (entry && !canUseFillEntry(user.role, entry)) {
     return <section className="page"><div className="card"><h2>{fillEntries[entry].title}</h2>
