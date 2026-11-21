@@ -46,7 +46,7 @@ BEGIN
   FOR r IN
     SELECT conname FROM pg_constraint
     WHERE conrelid = 'customer_payments'::regclass AND contype = 'c'
-      AND pg_get_constraintdef(oid) LIKE '%currency IN%'
+      AND (pg_get_constraintdef(oid) LIKE '%currency%' OR conname = 'customer_payments_currency_check')
   LOOP
     EXECUTE format('ALTER TABLE customer_payments DROP CONSTRAINT %I', r.conname);
   END LOOP;
@@ -58,7 +58,7 @@ BEGIN
   FOR r IN
     SELECT conname FROM pg_constraint
     WHERE conrelid = 'finance_settlements'::regclass AND contype = 'c'
-      AND (pg_get_constraintdef(oid) LIKE '%currency IN%' OR pg_get_constraintdef(oid) LIKE '%fee_currency IN%')
+      AND (pg_get_constraintdef(oid) LIKE '%currency%' OR conname IN ('finance_settlements_currency_check', 'finance_settlements_fee_currency_check'))
   LOOP
     EXECUTE format('ALTER TABLE finance_settlements DROP CONSTRAINT %I', r.conname);
   END LOOP;
