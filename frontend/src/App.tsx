@@ -622,6 +622,11 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
   const [teamName, setTeamName] = useState("");
   const [teamPending, setTeamPending] = useState(false);
   const [teamError, setTeamError] = useState("");
+  const [editingTeamId, setEditingTeamId] = useState("");
+  const [editingTeamName, setEditingTeamName] = useState("");
+  const [teamBusyId, setTeamBusyId] = useState("");
+  const [teamRowError, setTeamRowError] = useState("");
+  const [teamMessageId, setTeamMessageId] = useState("");
   const [userPending, setUserPending] = useState(false);
   const [userError, setUserError] = useState("");
   const [scopeUser, setScopeUser] = useState<AdminUser | null>(null);
@@ -716,7 +721,7 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
     <section className="grid two admin-people">
       <div className="card">
         <div className="commerce-line"><h2>小组</h2><button type="button" className="secondary" onClick={() => refresh().then(() => onError("")).catch((err) => onError(toErrorMessage(err)))}>刷新</button></div>
-        <form
+        <form className="admin-team-form"
           onSubmit={async (event) => {
             event.preventDefault();
             if (teamPending) return;
@@ -740,8 +745,64 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
           {teamError && <p className="action-error" role="alert">{teamError}</p>}
         </form>
         {loaded && !teams.length && <div className="empty-state"><strong>还没有小组</strong><p>先新增一个小组，再开通主管和登记微信。</p></div>}
-        <ul>
-          {teams.map((team) => <li key={team.id}>{team.name}</li>)}
+        <p className="notice">已有员工或业务记录的小组可以改名，不能删除。</p>
+        <ul className="admin-team-list">
+          {teams.map((team) => {
+            const editing = editingTeamId === team.id;
+            const busy = teamBusyId === team.id;
+            return (
+              <li className="admin-team-row" key={team.id}>
+                {editing ? (
+                  <form className="admin-team-edit" onSubmit={async (event) => {
+                    event.preventDefault();
+                    if (teamBusyId) return;
+                    const name = editingTeamName.trim();
+                    if (!name) { setTeamMessageId(team.id); setTeamRowError("请填写小组名称"); return; }
+                    if (name === team.name) { setEditingTeamId(""); setTeamRowError(""); setTeamMessageId(""); return; }
+                    setTeamBusyId(team.id); setTeamRowError(""); setTeamMessageId("");
+                    try {
+                      await api.updateTeam(team.id, { name });
+                      toast.success("已把小组改名为「" + name + "」");
+                      setEditingTeamId("");
+                      await refreshAfterSave();
+                    } catch (err) {
+                      setTeamMessageId(team.id); fail("修改小组失败", err, setTeamRowError);
+                    } finally {
+                      setTeamBusyId("");
+                    }
+                  }}>
+                    <input aria-label={"修改" + team.name} maxLength={64} value={editingTeamName} onChange={(event) => setEditingTeamName(event.target.value)} />
+                    <div className="admin-team-actions">
+                      <button type="submit" disabled={busy}>{busy ? "保存中…" : "保存"}</button>
+                      <button type="button" className="secondary" disabled={!!teamBusyId} onClick={() => { setEditingTeamId(""); setTeamRowError(""); setTeamMessageId(""); }}>取消</button>
+                    </div>
+                  </form>
+                ) : (
+                  <>
+                    <strong>{team.name}</strong>
+                    <div className="admin-team-actions">
+                      <button type="button" className="secondary" disabled={!!teamBusyId} onClick={() => { setEditingTeamId(team.id); setEditingTeamName(team.name); setTeamRowError(""); setTeamMessageId(""); }}>修改</button>
+                      <button type="button" className="danger" disabled={!!teamBusyId} onClick={async () => {
+                        if (teamBusyId) return;
+                        if (!window.confirm("确定删除小组「" + team.name + "」？删除后不能恢复。")) return;
+                        setTeamBusyId(team.id); setTeamRowError(""); setTeamMessageId("");
+                        try {
+                          await api.deleteTeam(team.id);
+                          toast.success("已删除小组「" + team.name + "」");
+                          await refreshAfterSave();
+                        } catch (err) {
+                          setTeamMessageId(team.id); fail("删除小组失败", err, setTeamRowError);
+                        } finally {
+                          setTeamBusyId("");
+                        }
+                      }}>{busy ? "处理中…" : "删除"}</button>
+                    </div>
+                  </>
+                )}
+                {teamMessageId === team.id && teamRowError ? <p className="action-error" role="alert">{teamRowError}</p> : null}
+              </li>
+            );
+          })}
         </ul>
       </div>
       <div className="card">

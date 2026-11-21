@@ -34,11 +34,25 @@
     return base;
   }
   const teams = [{ id: "demo-team-a", name: "演示一组" }, { id: "demo-team-b", name: "演示二组" }];
+  let savedAdminTeams = null;
+  try { savedAdminTeams = JSON.parse(window.sessionStorage.getItem("cms-demo-admin-teams") || "null"); } catch { savedAdminTeams = null; }
+  if (Array.isArray(savedAdminTeams)) {
+    for (const row of savedAdminTeams) {
+      const found = teams.find((team) => team.id === row?.id);
+      if (found && row?.name) found.name = String(row.name).slice(0, 64);
+    }
+  }
   // 第 3 个虚构微信归演示一组、今日未报，用于展示“今日未报”提示；无订单、无加粉记录。
   const accounts = [...teams, teams[0]].map((team, i) => ({ id: "demo-wechat-" + (i + 1), wechatId: "Demo_WeChat_0" + (i + 1), phoneLabel: "演示客服手机 0" + (i + 1), isActive: true, teamId: team.id, teamName: team.name, createdAt: today + "T01:00:00Z" }));
   accounts.forEach((a,i)=>{a.platform=i===1?'whatsapp':'messenger';a.accountIdentifier=i===1?'+999000000002':'demo.messenger.0'+(i+1);a.wechatId=(a.platform==='whatsapp'?'WhatsApp':'Messenger')+' · '+a.accountIdentifier;a.holderName=['演示客服甲','演示客服乙','演示客服丙'][i]||'演示客服';});
   const staff = [...roles.filter(r=>r!=="cs"&&r!=="editor").map((r) => ({ id: "demo-" + r, username: usernames[r], displayName: names[r], role: r, isActive: true, accountKind: "employee", managedTeamIds: r === "cs_supervisor" ? [teams[0].id] : [], currentTeam: null })), ...["editor", "assistant"].map((r) => ({ id: "demo-" + r, username: "demo_" + r, displayName: {ops:"演示运营",editor:"演示拍剪",assistant:"演示助理"}[r], role: r, isActive: true, accountKind: "employee", currentTeam: null }))];
   const assetUsers = accounts.map((a) => ({ id: a.id, username: a.wechatId, displayName: a.wechatId, wechatId: a.wechatId, accountKind: "cs_service", role: "cs", isActive: true, currentTeam: { id: a.teamId, name: a.teamName } }));
+  if (Array.isArray(savedAdminTeams)) {
+    for (const row of savedAdminTeams) {
+      if (row?.id && row?.name && !teams.some((team) => team.id === row.id)) teams.push({ id: String(row.id), name: String(row.name).slice(0, 64) });
+    }
+  }
+  function saveAdminTeams() { window.sessionStorage.setItem("cms-demo-admin-teams", JSON.stringify(teams.map((team) => ({ id: team.id, name: team.name })))); }
   const fans = [
     { id:"demo-fan-1", userId:accounts[0].id, businessDate:today, pageName:"演示主页 A", msToday:4, wsToday:3, msMonth:120, wsMonth:48, validToday:5, commReplied:3, commReadNoReply:1, commUnread:1, commInvalid:1, addedCount:7 },
     { id:"demo-fan-2", userId:accounts[1].id, businessDate:today, pageName:"演示主页 B", msToday:3, wsToday:2, msMonth:96, wsMonth:35, validToday:4, commReplied:2, commReadNoReply:1, commUnread:1, commInvalid:1, addedCount:5 },
@@ -661,6 +675,40 @@
         return json({code});
       }catch(error){return json({error:error.message||'广告户保存失败'},400);}
     }
+    if(role==="admin"&&path.startsWith("/api/admin/teams")&&!["GET","HEAD"].includes(method)){
+      const body=(()=>{try{return JSON.parse(options.body||"{}");}catch{return null;}})();
+      if(path==="/api/admin/teams"&&method==="POST"){
+        const name=String(body?.name||"").trim();
+        if(!name||name.length>64)return json({error:"小组名称无效"},400);
+        if(teams.some((team)=>team.name===name))return json({error:"已有同名小组"},409);
+        const team={id:"demo-team-"+Date.now().toString(36),name};
+        teams.push(team);saveAdminTeams();return json({team},201);
+      }
+      const teamMatch=path.match(/^\/api\/admin\/teams\/([^/]+)$/);
+      if(!teamMatch)return json({error:"不支持此操作"},405);
+      const id=decodeURIComponent(teamMatch[1]);
+      const team=teams.find((item)=>item.id===id);
+      if(!team)return json({error:"小组不存在"},404);
+      if(method==="PATCH"){
+        const name=String(body?.name||"").trim();
+        if(!name||name.length>64)return json({error:"小组名称无效"},400);
+        if(teams.some((item)=>item.id!==id&&item.name===name))return json({error:"已有同名小组"},409);
+        team.name=name;
+        accounts.forEach((account)=>{if(account.teamId===id)account.teamName=name;});
+        assetUsers.forEach((user)=>{if(user.currentTeam&&user.currentTeam.id===id)user.currentTeam.name=name;});
+        saveAdminTeams();return json({team:{id,name}});
+      }
+      if(method==="DELETE"){
+        const accountCount=accounts.filter((account)=>account.teamId===id).length;
+        const supervisorCount=staff.filter((person)=>(person.managedTeamIds||[]).includes(id)).length;
+        const parts=[];
+        if(accountCount)parts.push(accountCount+" 个接待账号");
+        if(supervisorCount)parts.push(supervisorCount+" 名主管");
+        if(parts.length)return json({error:"这个小组还有"+parts.join("、")+"，不能删除。可以改名。"},409);
+        teams.splice(teams.findIndex((item)=>item.id===id),1);saveAdminTeams();return json({ok:true});
+      }
+      return json({error:"不支持此操作"},405);
+    }
     if(!["GET","HEAD"].includes(method))return json({error:"这是公开只读演示，不保存任何修改。请在正式后台操作。"},403);
     if(path==='/api/demo/service-directory')return ['cs','cs_supervisor'].includes(role)?json(currentDirectory()||{enabled:false}):json({error:'当前身份不能查看接待账号名册'},403);
     if(path==='/api/demo/report-history')return reportHistory(q);
@@ -729,7 +777,7 @@
       const url=URL.createObjectURL(await response.blob()),download=document.createElement("a");download.href=url;download.download="fictional-demo-fans.csv";download.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
     });
     const disableWrites=()=>{
-      document.querySelectorAll("form").forEach((form)=>{if(form.querySelector("#password")||form.matches(".account-editor form,.ops-feedback-form,.ops-ad-account-form,.editor-daily-form,.daily-operating-form,.so-note-form,.warehouse-form,.reimbursement-form"))return;form.querySelectorAll('button[type="submit"],button:not([type])').forEach((button)=>{if(!button.textContent.includes("查询")){button.disabled=true;button.title="公开只读演示，不保存修改";}});});
+      document.querySelectorAll("form").forEach((form)=>{if(form.querySelector("#password")||form.matches(".account-editor form,.ops-feedback-form,.ops-ad-account-form,.editor-daily-form,.daily-operating-form,.so-note-form,.warehouse-form,.reimbursement-form,.admin-team-form,.admin-team-edit"))return;form.querySelectorAll('button[type="submit"],button:not([type])').forEach((button)=>{if(!button.textContent.includes("查询")){button.disabled=true;button.title="公开只读演示，不保存修改";}});});
       document.querySelectorAll('#root select[aria-label$="角色"]').forEach((select)=>{select.disabled=true;});
       document.querySelectorAll("button").forEach((button)=>{if(/^(确认重新发码|停用|启用|停用账号|启用账号)$/.test(button.textContent.trim())){button.disabled=true;button.title="公开只读演示，不保存修改";}});
     };

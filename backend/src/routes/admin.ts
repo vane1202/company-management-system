@@ -85,6 +85,80 @@ export function createAdminRouter(db: Pool): Router {
     }
   });
 
+  
+  router.patch("/teams/:id", async (req, res, next) => {
+    try {
+      const id = String(req.params.id || "");
+      if (!UUID_RE.test(id)) throw new HttpError(400, "小组不存在");
+      const name = String(req.body?.name ?? "").trim();
+      if (!name || name.length > 64) throw new HttpError(400, "小组名称无效");
+      const before = await queryOne<{ id: string; name: string }>(db, "SELECT id, name FROM teams WHERE id = $1", [id]);
+      if (!before) throw new HttpError(404, "小组不存在");
+      if (before.name !== name) {
+        const duplicate = await queryOne(db, "SELECT id FROM teams WHERE name = $1 AND id <> $2", [name, id]);
+        if (duplicate) throw new HttpError(409, "已有同名小组");
+        await queryOne(db, "UPDATE teams SET name = $1 WHERE id = $2", [name, id]);
+        await writeAudit(db, {
+          actorId: req.actor!.id,
+          action: "team_update",
+          entityType: "team",
+          entityId: id,
+          before: { name: before.name },
+          after: { name },
+          ip: req.ip
+        });
+      }
+      res.json({ team: { id, name } });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.delete("/teams/:id", async (req, res, next) => {
+    try {
+      const id = String(req.params.id || "");
+      if (!UUID_RE.test(id)) throw new HttpError(400, "小组不存在");
+      const before = await queryOne<{ id: string; name: string }>(db, "SELECT id, name FROM teams WHERE id = $1", [id]);
+      if (!before) throw new HttpError(404, "小组不存在");
+      const links = await queryOne<{ members: number; supervisors: number; reports: number; leads: number; codes: number }>(
+        db,
+        `SELECT
+           (SELECT count(*)::int FROM team_memberships WHERE team_id = $1) AS members,
+           (SELECT count(*)::int FROM supervisor_scopes WHERE team_id = $1) AS supervisors,
+           (SELECT count(*)::int FROM fan_reports WHERE team_id = $1) AS reports,
+           (SELECT count(*)::int FROM fan_leads WHERE team_id = $1) AS leads,
+           (SELECT count(*)::int FROM cs_registration_codes WHERE team_id = $1) AS codes`,
+        [id]
+      );
+      const parts: string[] = [];
+      if (links?.members) parts.push(links.members + " 条员工归属");
+      if (links?.supervisors) parts.push(links.supervisors + " 条主管负责范围");
+      if (links?.reports) parts.push(links.reports + " 条加粉日报");
+      if (links?.leads) parts.push(links.leads + " 条客户线索");
+      if (links?.codes) parts.push(links.codes + " 条登记码");
+      if (parts.length) throw new HttpError(409, "这个小组还有" + parts.join("、") + "，不能删除。可以改名。");
+      try {
+        await queryOne(db, "DELETE FROM teams WHERE id = $1", [id]);
+      } catch (error) {
+        if (typeof error === "object" && error && "code" in error && (error as { code: string }).code === "23503") {
+          throw new HttpError(409, "这个小组还有员工或业务记录，不能删除。可以改名。");
+        }
+        throw error;
+      }
+      await writeAudit(db, {
+        actorId: req.actor!.id,
+        action: "team_delete",
+        entityType: "team",
+        entityId: id,
+        before: { name: before.name },
+        ip: req.ip
+      });
+      res.json({ ok: true });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   router.get("/users", async (_req, res, next) => {
     try {
       const users = await query(

@@ -445,6 +445,23 @@ describe("公司内部管理系统集成测试", () => {
       .expect(403);
   });
 
+  it("管理员可以改小组名，空小组可删，有归属的小组不能删", async () => {
+    const admin = await login("admin");
+    const created = await write(admin.agent, admin.csrf, "post", "/api/admin/teams").send({ name: "临时组" }).expect(201);
+    const id = created.body.team.id as string;
+    await write(admin.agent, admin.csrf, "patch", "/api/admin/teams/" + id).send({ name: "临时组已改" }).expect(200);
+    const listed = await admin.agent.get("/api/admin/teams").expect(200);
+    expect(listed.body.teams.some((team: { id: string; name: string }) => team.id === id && team.name === "临时组已改")).toBe(true);
+    await write(admin.agent, admin.csrf, "patch", "/api/admin/teams/" + id).send({ name: "一组" }).expect(409);
+    const blocked = await write(admin.agent, admin.csrf, "delete", "/api/admin/teams/" + ids.teamA).expect(409);
+    expect(blocked.body.error).toContain("不能删除");
+    await write(admin.agent, admin.csrf, "delete", "/api/admin/teams/" + id).expect(200);
+    const after = await admin.agent.get("/api/admin/teams").expect(200);
+    expect(after.body.teams.some((team: { id: string }) => team.id === id)).toBe(false);
+    const boss = await login("boss");
+    await write(boss.agent, boss.csrf, "patch", "/api/admin/teams/" + ids.teamA).send({ name: "越权改名" }).expect(403);
+  });
+
   it("停用账号不改写历史应报，且导出人员与汇总一致", async () => {
     const hist = addDays(today, -1);
     const boss = await login("admin");

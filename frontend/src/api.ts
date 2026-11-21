@@ -190,6 +190,10 @@ export const api = {
   teams: () => requestInner<{ teams: Team[] }>("/api/admin/teams"),
   createTeam: (payload: Record<string, unknown>) =>
     requestInner("/api/admin/teams", { method: "POST", body: JSON.stringify(payload) }),
+  updateTeam: (id: string, payload: { name: string }) =>
+    requestInner("/api/admin/teams/" + encodeURIComponent(id), { method: "PATCH", body: JSON.stringify(payload) }),
+  deleteTeam: (id: string) =>
+    requestInner("/api/admin/teams/" + encodeURIComponent(id), { method: "DELETE" }),
   users: () => requestInner<{ users: AdminUser[] }>("/api/admin/users"),
   createUser: (payload: Record<string, unknown>) =>
     requestInner("/api/admin/users", { method: "POST", body: JSON.stringify(payload) }),
