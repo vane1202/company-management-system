@@ -8,14 +8,27 @@ const range={from:'2026-11-11',to:'2026-11-12'},none={editor:'',persona:''};
 const row=(id:string,date:string,editorName:string,personaName:string,inventorySnapshot:number|null,extra:object={}):ProductionRow=>({id,businessDate:date,editorName,personaName,inventorySnapshot,shootCount:2,editCount:1,sentToOpsCount:1,...extra});
 describe('拍剪期间流量与截止库存分别统计',()=>{
   const rows=[row('old','2026-11-10','魏磊','A',8),row('1','2026-11-11','魏磊','A',5),row('2','2026-11-12','魏磊','A',4),row('3','2026-11-10','尚杰','B',3),row('future','2026-11-13','魏磊','A',999)];
-  it('产出按期间累加，库存逐师逐人设取最近快照并保留区间前有效快照',()=>{
+  it('产出按期间累加，库存只取最近填报日当天的屯量',()=>{
     const view=editorAnalysis(rows,range,none,'editor');
-    expect(view.summary).toMatchObject({shoot:4,edit:2,sent:2,inventory:7,snapshotDates:['2026-11-10','2026-11-12']});
-    expect(view.groups.find(g=>g.name==='尚杰')).toMatchObject({shoot:null,inventory:3,records:0});
-    expect(view.series.inventory.points.map(p=>p.value)).toEqual(['8','7']);
-    expect(view.series.inventory.points[1].native).toContain('2026-11-10');expect(view.series.inventory.points[1].native).toContain('沿用快照');
+    expect(view.summary).toMatchObject({shoot:4,edit:2,sent:2,inventory:4,snapshotDates:['2026-11-12']});
+    expect(view.groups.find(g=>g.name==='尚杰')).toMatchObject({shoot:null,inventory:null,records:0});
+    expect(view.series.inventory.points.map(p=>p.value)).toEqual(['5','4']);
+    expect(view.series.inventory.points[1].native).toContain('2026-11-12');
     expect(view.series.shoot.points.map(p=>p.value)).toEqual(['2','2']);
-    expect(view.groups.reduce((n,g)=>n+(g.inventory||0),0)).toBe(view.summary.inventory);
+    expect(view.groups.find(g=>g.name==='魏磊')?.inventory).toBe(view.summary.inventory);
+  });
+  it('11月20日只加当天三列屯量，不把更早人设算进实时库存',()=>{
+    const sheet=[
+      row('1','2026-11-12','尚杰','小雪',4),row('2','2026-11-03','尚杰','涵则',1),row('3','2026-11-03','尚杰','糖糖',4),
+      row('4','2026-11-20','尚杰','主播文强',4),row('5','2026-11-20','尚杰','伟哥',2),
+      row('6','2026-11-20','魏磊','圆哥',4),row('7','2026-11-20','魏磊','文强',1),
+      row('8','2026-11-20','十七','甜甜',1),row('9','2026-11-20','十七','秋菊',1)
+    ];
+    const view=editorAnalysis(sheet,{from:'2026-11-01',to:'2026-11-21'},none,'editor');
+    expect(view.summary.inventory).toBe(13);
+    expect(view.groups.find(g=>g.name==='尚杰')?.inventory).toBe(6);
+    expect(view.groups.find(g=>g.name==='魏磊')?.inventory).toBe(5);
+    expect(view.groups.find(g=>g.name==='十七')?.inventory).toBe(2);
   });
   it('按人设分类和人员筛选不绑定一师一人设，分组总量与汇总相等',()=>{
     const view=editorAnalysis([...rows,row('4','2026-11-12','魏磊','B',6)],range,{editor:'魏磊',persona:''},'persona');
@@ -25,13 +38,13 @@ describe('拍剪期间流量与截止库存分别统计',()=>{
   it('缺字段不当零；晚出现的库存组合不回填历史；明确零保留',()=>{
     const view=editorAnalysis([row('1','2026-11-11','魏磊','A',0,{editCount:0}),row('2','2026-11-12','尚杰','A',null,{editCount:null})],range,none,'editor');
     expect(view.summary.edit).toBeNull();expect(view.summary.inventory).toBeNull();
-    expect(view.series.inventory.points.map(p=>p.value)).toEqual([null,null]);
+    expect(view.series.inventory.points.map(p=>p.value)).toEqual(['0',null]);
     expect(view.series.edit.points.map(p=>p.value)).toEqual(['0',null]);
     expect(editorAnalysis([],range,none,'editor').summary).toMatchObject({shoot:null,inventory:null});
   });
   it('历史未归类账号保持独立库存，不冒认给当前三位老师',()=>{
     const view=editorAnalysis([row('a','2026-11-11','','A',2,{userId:'old-1'}),row('b','2026-11-12','','A',3,{userId:'old-2'})],range,{editor:'legacy',persona:''},'editor');
-    expect(view.summary.inventory).toBe(5);expect(view.groups[0].name).toBe('历史未归类');
+    expect(view.summary.inventory).toBe(3);expect(view.groups[0].name).toBe('历史未归类');
   });
 });
 
