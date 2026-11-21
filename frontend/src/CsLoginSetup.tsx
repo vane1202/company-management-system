@@ -30,7 +30,7 @@ export function CsLoginSetup() {
 
   return (
     <section className="card cs-login-setup">
-      <h2>开通客服登录</h2>
+      <h2>新增客服账号</h2>
       <ol className="notice">
         <li>填写这位客服的姓名、登录名和初始密码，小组选她所在的组。</li>
         <li>用另一个窗口，用初始密码登录这个账号。</li>
@@ -48,7 +48,7 @@ export function CsLoginSetup() {
         </div>
       )}
       {!loaded && !error && <p role="status">正在读取本组客服…</p>}
-      {loaded && !teams.length && <div className="empty-state"><strong>还没有负责小组</strong><p>请让后台管理员先把你的负责小组设置好，再开通客服。</p></div>}
+      {loaded && !teams.length && <div className="empty-state"><strong>还没有负责小组</strong><p>请让后台管理员先把你的负责小组设置好，再新增客服账号。</p></div>}
       {!!teams.length && (
         <form className="cs-login-form" onSubmit={async (event) => {
           event.preventDefault();
@@ -65,7 +65,7 @@ export function CsLoginSetup() {
           } catch (err) {
             const text = toErrorMessage(err, "开通失败");
             setError(text);
-            toast.error("开通客服失败：" + text);
+            toast.error("新增客服账号失败：" + text);
           } finally {
             setPending(false);
           }
@@ -74,7 +74,7 @@ export function CsLoginSetup() {
           <label className="row">姓名<input required maxLength={64} value={form.displayName} onChange={(event) => setForm({ ...form, displayName: event.target.value })} /></label>
           <label className="row">初始密码<input required type="password" minLength={10} maxLength={128} autoComplete="new-password" placeholder="至少 10 位，含字母和数字" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} /></label>
           <label className="row">所属小组<select required value={form.teamId} onChange={(event) => setForm({ ...form, teamId: event.target.value })}>{teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label>
-          <button type="submit" disabled={pending}>{pending ? "开通中…" : "开通客服"}</button>
+          <button type="submit" disabled={pending}>{pending ? "开通中…" : "新增客服账号"}</button>
           {error && <p className="action-error" role="alert">{error}</p>}
         </form>
       )}

@@ -23,7 +23,6 @@ import { DashboardIcon } from "./DashboardIcon";
 import { IdentityName, useIdentityPrivacy } from "./IdentityName";
 import { CsDeviceRegistration } from "./CsDeviceRegistration";
 import { CsAccountsPage } from "./CsAccountsPage";
-import { CsLoginSetup } from "./CsLoginSetup";
 import { fillEntries, fillEntryFromPath, canUseFillEntry } from "./fillEntries";
 import { type FormEvent, type ReactNode, lazy, Suspense, useCallback, useEffect, useId, useRef, useState } from "react";
 import { canQueryByDate, isIsoDate } from "./dates";
@@ -296,7 +295,6 @@ export function App() {
       {pagePanel("modules", <><ModuleSettings onError={pageError("modules")} onChange={setModules} /><SystemSettings defaultDays={backfillDays} /></>)}
       {pagePanel("people", <PeoplePage today={today} currentUserId={user.id} onError={pageError("people")} />)}
       {pagePanel("csAccounts", DemoRegisteredAccounts ? <Suspense fallback={<p role="status">正在读取账号名册…</p>}><DemoRegisteredAccounts supervisor={user.role === "cs_supervisor"} /></Suspense> : <CsAccountsPage supervisor={user.role === "cs_supervisor"} />)}
-      {pagePanel("csLogins", user.role === "cs_supervisor" ? <CsLoginSetup /> : null)}
       {pagePanel("finance", user.role==='finance'?<FinanceDesk today={today} section="finance" active={activePage==='finance'} onOpenSalary={()=>goTo('salaries')} onSubViewChange={handleFinanceSub}/>:<FinanceWorkspace today={today} readOnly cashView={navigation.views.finance?.cash} />)}
       {pagePanel("financeOut", <FinanceDesk today={today} section="financeOut" active={activePage==='financeOut'} onOpenSalary={()=>goTo('salaries')} onSubViewChange={handleFinanceSub}/>)}
       {pagePanel("salaries", <SalaryWorkspace today={today} readOnly={user.role !== "finance"} />)}
@@ -810,7 +808,7 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
       <div className="card">
         <h2>员工账号与权限</h2>
         {scopeUser && <form ref={userPanelRef} className="review-card" onSubmit={async (e) => { e.preventDefault(); if (savingUser) return; const target = scopeUser; setSavingUser(target.id); try { await api.setSupervisorTeams(target.id, scopeIds); setScopeUser(null); onError(""); toast.success(`已保存 ${target.displayName} 的负责小组（${scopeIds.length} 个）`); await refreshAfterSave(); } catch (err) { fail(`${target.displayName} 负责小组未保存`, err); } finally { setSavingUser(""); } }}><h3>设置 {scopeUser.displayName} 的负责小组</h3><p className="notice">未勾选任何小组时，主管不能查看业务数据或登记客服接待账号。</p>{teams.map((team) => <label className="row" key={team.id}><input type="checkbox" checked={scopeIds.includes(team.id)} disabled={!!savingUser} onChange={(e) => setScopeIds(e.target.checked ? [...scopeIds,team.id] : scopeIds.filter((id) => id !== team.id))} />{team.name}</label>)}<div className="actions"><button disabled={!!savingUser}>{savingUser ? "保存中…" : "保存负责小组"}</button><button type="button" className="secondary" disabled={!!savingUser} onClick={() => setScopeUser(null)}>取消</button></div></form>}
-        <p className="notice">在这里开通员工登录账号、分配角色和主管负责小组。客服账号也可以由客服主管在「开通客服」里录入；首次登录改密由主管完成并保管。忘记密码时，仍在这里重置。WhatsApp、Messenger 接待账号的新增、持有人更换和登记码由本组客服主管管理。</p>
+        <p className="notice">在这里开通员工登录账号、分配角色和主管负责小组。客服账号也可以由客服主管在「客服账号管理」里新增；首次登录改密由主管完成并保管。忘记密码时，仍在这里重置。WhatsApp、Messenger 接待账号的新增、持有人更换和登记码由本组客服主管管理。</p>
 
         <form
           onSubmit={async (event) => {

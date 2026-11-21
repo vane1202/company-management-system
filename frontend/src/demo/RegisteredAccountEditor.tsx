@@ -21,7 +21,7 @@ export default function RegisteredAccountEditor({ directory, mode, onBack, onSav
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const receiver = employeeId === "new" ? employeeName.trim() : directory.people.find(person => person.id === employeeId)?.name || "";
-  const title = mode.kind === "create" ? "新增账号" : "账号更换／人员交接";
+  const title = mode.kind === "create" ? "新增接粉账号" : "账号更换／人员交接";
 
   async function save() {
     if (busy) return;

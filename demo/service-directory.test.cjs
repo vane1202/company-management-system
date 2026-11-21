@@ -17,6 +17,15 @@ test('拒绝重复账号、未知人员和未确认的小组归属',()=>{
   const unknown=source();unknown.accounts[0].personDraftId='missing';assert.throws(()=>buildServiceDirectory(unknown));
   const group=source();group.accounts[0].teamName='另一组';assert.throws(()=>buildServiceDirectory(group));
 });
+test('加粉表已分组的客服按一线二线显示，不沿用未分组时的海外一线',()=>{
+  const yezi=source();yezi.people[0].name='叶子';
+  const built=buildServiceDirectory(yezi);
+  assert.deepEqual(built.people[0].rooms,['海外二线']);
+  assert.equal(built.accounts[0].registeredRoomName,'海外二线');
+  assert.equal(built.accounts[0].registeredHostName,'甜甜');
+  const both=source();both.people[0].name='小雪';
+  assert.equal(buildServiceDirectory(both).accounts[0].registeredRoomName,'海外一线、海外二线');
+});
 test('按原文保留13位Messenger ID，不补0或截断',()=>{
   const payload=source();payload.accounts[0].platform='Messenger';payload.accounts[0].identifier='6150000000011';
   assert.equal(buildServiceDirectory(payload).accounts[0].accountIdentifier,'6150000000011');

@@ -14,7 +14,6 @@ const paths: Record<Page | "refresh" | "arrow", string> = {
   dashboard: "M3 19l6-6 4 3 8-12 M15 4h6v6",
   people: "M8 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M2 21v-2a6 6 0 0 1 12 0v2 M16 3a4 4 0 0 1 0 8 M17 15a5 5 0 0 1 5 5v1",
   csAccounts: "M7 2h10v20H7z M10 5h4 M11 19h2 M10 9h4v5h-4z",
-  csLogins: "M8 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M2 21v-2a6 6 0 0 1 12 0v2 M17 8h5 M19.5 8v4",
   salaries: "M3 5h18v14H3z M3 9h18 M15 14h3",
   modules: "M4 5h16v6H4z M4 15h16v6H4z M8 8h1 M15 18h1",
   assessment: "M4 19V5 M4 19h16 M8 16v-5 M12 16V7 M16 16v-3",
