@@ -302,7 +302,7 @@
   ];
   // 与 BOSS 营业额同口径：开单卡料价＋代购费；历史简版单用原金额。
   function bookingAmount(o){const d=orderRecord(o);return d.legacy?o.amount:money(d.items.reduce((n,i)=>n+cents(i.price_cny)+cents(i.buying_fee_cny),0n));}
-  const roomTitle=code=>({'DEMO-LIVE-01':'海外一线','DEMO-LIVE-02':'海外二线'}[code]||code||'未归属直播间');
+  const roomTitle=code=>({'DEMO-LIVE-01':'一号直播间','DEMO-LIVE-02':'二号直播间'}[code]||code||'未归属直播间');
   function cashOrderBalances(query){
     const date=query.get('asOf');
     if(!date||!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date))||new Date(date).toISOString().slice(0,10)!==date||date>today){

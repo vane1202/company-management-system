@@ -12,7 +12,7 @@
       const daily=fans.filter(row=>row.employeeId===person.id&&inside(row.date));
       return {...person,...stats(rows),fans:daily.length?daily.reduce((n,row)=>n+row.total,0):null,effective:daily.length&&daily.every(row=>row.effective!==null)?daily.reduce((n,row)=>n+row.effective,0):null,invalid:daily.length&&daily.every(row=>row.invalid!==null)?daily.reduce((n,row)=>n+row.invalid,0):null,pendingInvalid:daily.reduce((n,row)=>n+(row.pendingInvalid||0),0)};
     });
-    const rooms=[{id:'overseas-one',name:'海外一线',team:'秋菊组',status:'ready'},{id:'overseas-two',name:'海外二线',team:null,status:'pending'},{id:'unassigned',name:'归属待核对',team:null,status:'unassigned'}].map(room=>({...room,...stats(valid.filter(row=>(row.room||'unassigned')===room.id)),members:members.filter(person=>(person.room||'unassigned')===room.id)}));
+    const rooms=[{id:'overseas-one',name:'一号直播间',team:'秋菊组',status:'ready'},{id:'overseas-two',name:'二号直播间',team:null,status:'pending'},{id:'unassigned',name:'归属待核对',team:null,status:'unassigned'}].map(room=>({...room,...stats(valid.filter(row=>(row.room||'unassigned')===room.id)),members:members.filter(person=>(person.room||'unassigned')===room.id)}));
     const expenseRows=expenses.filter(row=>inside(row.date)&&!row.voided);
     const costs=Object.entries(categories).map(([key,label])=>{const rows=expenseRows.filter(row=>row.category===key);return{key,label,amount:rows.length?money(rows.reduce((n,row)=>n+cents(row.amount),0n)):null,count:rows.length,status:key==='salary'?'pending_payroll':rows.length?'registered':'unreported'};});
     const registered=expenseRows.reduce((n,row)=>n+cents(row.amount),0n);

@@ -23,10 +23,15 @@ describe("精简开单信息", () => {
     expect(parseSimpleOrderText("人设：演示甲（P001）\n人设ID：P002", today).errors.length).toBeGreaterThan(0);
   });
   it("主播或直播间可分别识别，按登记绑定带出另一项", () => {
-    for (const text of ["主播：甜甜", "直播间编号：DEMO-LIVE-01", "备注：甜甜直播间", "直播间：海外一线"]) {
+    for (const text of ["主播：甜甜", "直播间编号：DEMO-LIVE-01", "备注：甜甜直播间", "直播间：一号直播间", "直播间：海外一线", "直播间：海外二线"]) {
       const r = parseSimpleOrderText(text, today);
       expect(r.fields).toMatchObject({ hostName: "甜甜", liveRoomCode: "DEMO-LIVE-01" });
-      expect(roomDisplay(r.fields)).toBe("甜甜 · 海外一线（DEMO-LIVE-01）");
+      expect(roomDisplay(r.fields)).toBe("甜甜 · 一号直播间（DEMO-LIVE-01）");
+    }
+    for (const text of ["主播：文强", "直播间编号：DEMO-LIVE-02", "备注：文强直播间", "直播间：二号直播间", "直播间：海外三线"]) {
+      const r = parseSimpleOrderText(text, today);
+      expect(r.fields).toMatchObject({ hostName: "文强", liveRoomCode: "DEMO-LIVE-02" });
+      expect(roomDisplay(r.fields)).toBe("文强 · 二号直播间（DEMO-LIVE-02）");
     }
   });
   it("冲突绑定阻止填入，未知主播或仅有人设不猜关联", () => {

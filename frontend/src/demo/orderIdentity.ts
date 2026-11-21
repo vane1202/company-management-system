@@ -2,9 +2,10 @@ import { parseOrderText, type OrderTextFields, type ParsedOrderText } from "./or
 
 // Confirmed room/host names; internal demo keys remain stable to preserve sample links.
 export const demoOrderRooms = [
-  { code: "DEMO-LIVE-01", name: "海外一线", host: "甜甜" },
-  { code: "DEMO-LIVE-02", name: "海外二线", host: "文强" }
+  { code: "DEMO-LIVE-01", name: "一号直播间", host: "甜甜", lines: ["海外一线", "海外二线"] },
+  { code: "DEMO-LIVE-02", name: "二号直播间", host: "文强", lines: ["海外三线"] }
 ] as const;
+const roomSourceValues = (room: (typeof demoOrderRooms)[number]): readonly string[] => [room.code, room.name, room.host, `${room.host}直播间`, ...room.lines];
 export function personaDisplay(name = "", code = "") { return code ? `${name}（${code}）` : name; }
 export function splitPersona(value: string): { personaName: string; personaCode: string } {
   const match = /^(.+?)[（(]([^()（）]+)[）)]$/.exec(value);
@@ -41,7 +42,7 @@ export function parseSimpleOrderText(text: string, today: string, channel: "live
     return result;
   }
   if (!fields.hostName && !fields.liveRoomCode && fields.source) {
-    const sourceRoom = demoOrderRooms.find(r => [r.name, r.host, r.code, `${r.host}直播间`].includes(fields.source!));
+    const sourceRoom = demoOrderRooms.find(r => roomSourceValues(r).includes(fields.source!));
     if (sourceRoom) { fields.hostName = sourceRoom.host; fields.liveRoomCode = sourceRoom.code; }
   }
   const room = boundRoom(fields);
@@ -49,6 +50,6 @@ export function parseSimpleOrderText(text: string, today: string, channel: "live
   else if (fields.hostName && fields.liveRoomCode && demoOrderRooms.some(r => r.host === fields.hostName || r.code === fields.liveRoomCode)) result.errors.push("主播与直播间编号不符合已登记的绑定关系，请核对后重新识别。");
   else result.warnings.push("请在「主播 / 直播间」中选择已绑定的直播间；不根据人设推断直播间。");
   if (!fields.customerLabel) result.warnings.push("客户名未提供，请补填。");
-  if (fields.source && room && ![room.code, room.name, room.host, `${room.host}直播间`].includes(fields.source)) result.warnings.push(`原文来源「${fields.source}」与已选直播间不同，原文保留，请核对；页面不再单独填来源。`);
+  if (fields.source && room && !roomSourceValues(room).includes(fields.source)) result.warnings.push(`原文来源「${fields.source}」与已选直播间不同，原文保留，请核对；页面不再单独填来源。`);
   return result;
 }
