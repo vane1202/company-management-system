@@ -709,6 +709,32 @@
       }
       return json({error:"不支持此操作"},405);
     }
+    if(path==="/api/cs-logins"){
+      if(role!=="cs_supervisor")return json({error:"仅客服主管可开通本组客服登录"},403);
+      const key="cms-demo-cs-logins";
+      let saved=[];
+      try{saved=JSON.parse(window.sessionStorage.getItem(key)||"[]");}catch{saved=[];}
+      if(!Array.isArray(saved))saved=[];
+      const managed=visibleTeams();
+      const visible=saved.filter((user)=>managed.some((team)=>team.id===user.teamId));
+      if(method==="GET"||method==="HEAD")return json({teams:managed,users:visible});
+      if(method==="POST"){
+        const username=String(body?.username||"").trim().toLowerCase();
+        const displayName=String(body?.displayName||"").trim();
+        const password=String(body?.password||"");
+        const teamId=String(body?.teamId||"");
+        if(!/^[a-z0-9][a-z0-9_-]{2,31}$/.test(username))return json({error:"登录名须为 3-32 位小写字母、数字、下划线或短横线"},400);
+        if(!displayName||displayName.length>64)return json({error:"姓名无效"},400);
+        if(password.length<10||password.length>128||/\s/.test(password)||!/[A-Za-z]/.test(password)||!/\d/.test(password)||password.toLowerCase().includes(username))return json({error:"密码须为 10 到 128 位，同时包含字母和数字，且不能包含登录名"},400);
+        const team=managed.find((item)=>item.id===teamId);
+        if(!team)return json({error:"请选择你负责的小组"},400);
+        if(saved.some((user)=>user.username===username))return json({error:"登录名已被使用，请更换"},409);
+        const user={id:"demo-cs-login-"+Date.now(),username,displayName,teamId:team.id,teamName:team.name,isActive:true,mustChangePassword:true};
+        saved.push(user);
+        window.sessionStorage.setItem(key,JSON.stringify(saved));
+        return json({user:{id:user.id,username,displayName,mustChangePassword:true}},201);
+      }
+    }
     if(!["GET","HEAD"].includes(method))return json({error:"这是公开只读演示，不保存任何修改。请在正式后台操作。"},403);
     if(path==='/api/demo/service-directory')return ['cs','cs_supervisor'].includes(role)?json(currentDirectory()||{enabled:false}):json({error:'当前身份不能查看接待账号名册'},403);
     if(path==='/api/demo/report-history')return reportHistory(q);
@@ -777,7 +803,7 @@
       const url=URL.createObjectURL(await response.blob()),download=document.createElement("a");download.href=url;download.download="fictional-demo-fans.csv";download.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
     });
     const disableWrites=()=>{
-      document.querySelectorAll("form").forEach((form)=>{if(form.querySelector("#password")||form.matches(".account-editor form,.ops-feedback-form,.ops-ad-account-form,.editor-daily-form,.daily-operating-form,.so-note-form,.warehouse-form,.reimbursement-form,.admin-team-form,.admin-team-edit"))return;form.querySelectorAll('button[type="submit"],button:not([type])').forEach((button)=>{if(!button.textContent.includes("查询")){button.disabled=true;button.title="公开只读演示，不保存修改";}});});
+      document.querySelectorAll("form").forEach((form)=>{if(form.querySelector("#password")||form.matches(".account-editor form,.ops-feedback-form,.ops-ad-account-form,.editor-daily-form,.daily-operating-form,.so-note-form,.warehouse-form,.reimbursement-form,.admin-team-form,.admin-team-edit,.cs-login-form"))return;form.querySelectorAll('button[type="submit"],button:not([type])').forEach((button)=>{if(!button.textContent.includes("查询")){button.disabled=true;button.title="公开只读演示，不保存修改";}});});
       document.querySelectorAll('#root select[aria-label$="角色"]').forEach((select)=>{select.disabled=true;});
       document.querySelectorAll("button").forEach((button)=>{if(/^(确认重新发码|停用|启用|停用账号|启用账号)$/.test(button.textContent.trim())){button.disabled=true;button.title="公开只读演示，不保存修改";}});
     };

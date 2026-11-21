@@ -101,6 +101,29 @@ describe("公司内部管理系统集成测试", () => {
     return agent[method](url).set("Origin", ORIGIN).set("X-CSRF-Token", csrf);
   }
 
+  it("客服主管只给本组开通客服，首次登录必须改密", async () => {
+    const sup = await login("sup_a");
+    const other = await login("sup_b");
+    const admin = await login("admin");
+    const created = await write(sup.agent, sup.csrf, "post", "/api/cs-logins")
+      .send({ username: "kefu_new", displayName: "新客服", password: "KeeperPass1234", teamId: ids.teamA })
+      .expect(201);
+    expect(created.body.user.mustChangePassword).toBe(true);
+    expect(created.body.user.password).toBeUndefined();
+    const list = await sup.agent.get("/api/cs-logins").expect(200);
+    expect(list.body.users.some((user: { username: string }) => user.username === "kefu_new")).toBe(true);
+    const hidden = await other.agent.get("/api/cs-logins").expect(200);
+    expect(hidden.body.users.some((user: { username: string }) => user.username === "kefu_new")).toBe(false);
+    await write(sup.agent, sup.csrf, "post", "/api/cs-logins")
+      .send({ username: "kefu_other", displayName: "越组", password: "KeeperPass1234", teamId: ids.teamB })
+      .expect(403);
+    await write(admin.agent, admin.csrf, "post", "/api/cs-logins").send({ username: "kefu_admin", displayName: "不该走这里", password: "KeeperPass1234", teamId: ids.teamA }).expect(403);
+    const fresh = request.agent(app);
+    const csrf = (await fresh.get("/api/auth/csrf")).body.csrfToken;
+    const signed = await fresh.post("/api/auth/login").set("Origin", ORIGIN).set("X-CSRF-Token", csrf).send({ username: "kefu_new", password: "KeeperPass1234" }).expect(200);
+    expect(signed.body.user.mustChangePassword).toBe(true);
+  });
+
   it("没有开放注册接口", async () => {
     const agent = request.agent(app);
     const csrf = (await agent.get("/api/auth/csrf")).body.csrfToken;

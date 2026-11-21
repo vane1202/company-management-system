@@ -5,7 +5,7 @@ import { validLiveView, liveViewKey, type LiveView } from './liveBusinessNavigat
 import { validCashView, cashViewKey, type CashView } from './cashNavigation';
 import { validOpsView, opsViewKey, type OpsView } from './opsNavigation';
 
-const pages: readonly Page[] = ["home", "finance", "financeOut", "fans", "summary", "orders", "ops", "opsAccounts", "opsFeedback", "editor", "dashboard", "people", "csAccounts", "salaries", "modules", "assessment", "reportHistory", "customerReview"];
+const pages: readonly Page[] = ["home", "finance", "financeOut", "fans", "summary", "orders", "ops", "opsAccounts", "opsFeedback", "editor", "dashboard", "people", "csAccounts", "csLogins", "salaries", "modules", "assessment", "reportHistory", "customerReview"];
 export type WorkspaceRoute = { page: Page; orderId?: string; live?: LiveView; orderList?: true; cash?: CashView; ops?: OpsView };
 type Trail = { key: string; route: WorkspaceRoute; position: number; scrollY: number };
 export type WorkspaceEntry = Trail & { owner: string; parents: Trail[] };

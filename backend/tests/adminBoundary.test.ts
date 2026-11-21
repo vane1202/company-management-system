@@ -11,7 +11,7 @@ describe("administrator and supervisor service-account boundaries", () => {
     }
   });
   it("preserves administrator settings and supervisor scoped routing", () => {
-    for (const [role, path, method] of [["admin", "/api/admin/users", "POST"], ["admin", "/api/admin/teams", "GET"], ["admin", "/api/modules", "PUT"], ["cs_supervisor", "/api/cs-accounts", "GET"], ["cs_supervisor", "/api/cs-accounts/registration-codes", "POST"]]) {
+    for (const [role, path, method] of [["admin", "/api/admin/users", "POST"], ["admin", "/api/admin/teams", "GET"], ["admin", "/api/modules", "PUT"], ["cs_supervisor", "/api/cs-accounts", "GET"], ["cs_supervisor", "/api/cs-accounts/registration-codes", "POST"], ["cs_supervisor", "/api/cs-logins", "GET"], ["cs_supervisor", "/api/cs-logins", "POST"]]) {
       const next = vi.fn();
       enforceRoleBoundary({ path, method, actor: { role } } as Request, {} as Response, next);
       expect(next).toHaveBeenCalledWith();
