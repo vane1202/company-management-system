@@ -50,15 +50,22 @@ export function createPeopleWorkbenchRouter(db: Pool, _config: AppConfig): Route
       const employees = people.map(row => ({ id: row.id, code: row.code, name: row.name, status: row.active ? "active" : "left", teamId: row.team_id || "" }));
       const leads = (await query<Record<string, string | null>>(db,
         `SELECT l.id::text, l.user_id::text AS account_id, l.received_on::text AS business_date, l.user_id::text AS employee_id,
-                l.page_name, l.channel, l.contact_status, l.qualified_on::text AS qualified_on, l.invalid_reason
+                l.page_name, l.channel, l.contact_status, l.qualified_on::text AS qualified_on, l.invalid_reason,
+                l.invalid_reason_code, l.invalid_review_status, l.attempt_contact
            FROM fan_leads l
           WHERE l.voided_at IS NULL AND ($1::boolean OR l.team_id = ANY($2::uuid[]) OR ($3::boolean AND l.user_id = $4::uuid))`,
-        [visible.all, visible.teams, visible.self, actor.id])).map(row => ({
+        [visible.all, visible.teams, visible.self, actor.id])).map(row => {
+          const confirmedInvalid = row.invalid_review_status === "approved";
+          const reasonCode = ["no_chinese", "misclick", "obscene", "custom"].includes(String(row.invalid_reason_code || ""))
+            ? String(row.invalid_reason_code)
+            : (row.invalid_reason ? "custom" : "");
+          return {
           id: row.id, accountId: row.account_id, businessDate: row.business_date, employeeId: row.employee_id,
           pageName: row.page_name || "", channel: row.channel === "ws" ? "ws" : "ms",
-          contact: ["replied", "read_no_reply", "unread"].includes(String(row.contact_status)) ? row.contact_status : "unread",
-          qualified: !!row.qualified_on, invalidReason: row.invalid_reason ? "custom" : ""
-        }));
+          contact: confirmedInvalid ? "invalid" : (["replied", "read_no_reply", "unread"].includes(String(row.contact_status)) ? row.contact_status : "unread"),
+          qualified: confirmedInvalid ? false : !!row.qualified_on,
+          invalidReason: confirmedInvalid ? reasonCode : ""
+        };});
       const attendance = (await query<Record<string, string | number | null>>(db,
         `SELECT f.id::text, f.user_id::text AS account_id, f.business_date::text, f.user_id::text AS employee_id,
                 COALESCE(NULLIF(f.page_name, ''), '未登记') AS room_name, f.added_count
@@ -204,7 +211,8 @@ export function createPeopleWorkbenchRouter(db: Pool, _config: AppConfig): Route
                      ELSE '' END AS status,
                 l.customer_label AS name, l.customer_ref, l.operator_name, t.name AS team_name,
                 COALESCE(NULLIF(u.service_account_label,''), NULLIF(u.wechat_id,''), u.display_name) AS account_label,
-                l.page_name, l.received_on::text AS created_on, l.invalid_reason AS reason, l.note, l.need_summary,
+                l.page_name, l.received_on::text AS created_on, l.invalid_reason AS reason, l.invalid_reason_code,
+                l.attempt_contact, l.note, l.need_summary,
                 l.invalid_review_note, l.created_at::text AS requested_at,
                 EXISTS(SELECT 1 FROM orders o WHERE o.user_id = l.user_id AND o.customer_label = l.customer_label AND o.status <> 'refunded'
                    AND NOT EXISTS(SELECT 1 FROM order_cancellations x WHERE x.order_id = o.id AND x.voided_at IS NULL)) AS dealt
@@ -247,6 +255,8 @@ export function createPeopleWorkbenchRouter(db: Pool, _config: AppConfig): Route
                 invalid_reviewed_by = $4,
                 invalid_reviewed_at = now(),
                 invalid_reason = CASE WHEN $2 = 'approved' THEN invalid_reason ELSE '' END,
+                invalid_reason_code = CASE WHEN $2 = 'approved' THEN invalid_reason_code ELSE '' END,
+                attempt_contact = CASE WHEN $2 = 'approved' THEN FALSE ELSE TRUE END,
                 version = version + 1,
                 updated_by = $4,
                 updated_at = now()
@@ -279,7 +289,9 @@ function presentReview(row: Record<string, unknown>) {
     id: String(row.id), version: Number(row.version), status: String(row.status), name: String(row.name || ""),
     customerRef: String(row.customer_ref || ""), employeeName: String(row.operator_name || ""), teamName: String(row.team_name || ""),
     accountLabel: String(row.account_label || ""), source: String(row.page_name || ""), createdOn: String(row.created_on || ""),
-    reason: String(row.reason || ""), note: String(row.note || ""), need: String(row.need_summary || ""),
+    reason: String(row.reason || ""), reasonCode: String(row.invalid_reason_code || ""),
+    attemptContact: row.attempt_contact === true || String(row.attempt_contact) === "true",
+    note: String(row.note || ""), need: String(row.need_summary || ""),
     reviewNote: String(row.invalid_review_note || ""), requestedAt: String(row.requested_at || ""), dealt: row.dealt === true || String(row.dealt) === "true"
   };
 }

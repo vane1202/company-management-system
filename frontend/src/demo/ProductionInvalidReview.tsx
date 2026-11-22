@@ -5,7 +5,7 @@ import { toErrorMessage } from "../errors";
 import "./customer-invalid-review.css";
 
 const tabs = { pending: "待复核", approved: "无效客资池", history: "处理记录" } as const;
-const outcomes = { pending: "待复核", approved: "已确认无效", rejected: "已退回跟进", restored: "已恢复跟进" } as const;
+const outcomes = { pending: "待复核", approved: "已确认无效", rejected: "已驳回 · 尝试沟通", restored: "已恢复 · 尝试沟通" } as const;
 const stamp = (value?: string) => value ? new Date(value).toLocaleString("zh-CN", { hour12: false, timeZone: "Asia/Shanghai" }) : "—";
 
 type ProductionReview = {
@@ -72,7 +72,7 @@ export function ProductionInvalidReview() {
     setError("");
     try {
       await requestInner("/api/customer-reviews/" + encodeURIComponent(selected.id), { method: "POST", body: JSON.stringify({ decision, note, version: selected.version }) });
-      setMessage(decision === "approve" ? "已确认无效，并移入无效客资池。" : decision === "reject" ? "已退回客服继续跟进。" : "已恢复跟进。原订单仍保留。");
+      setMessage(decision === "approve" ? "已确认无效，并移入无效客资池。" : decision === "reject" ? "已驳回无效判定，该客户已打上「尝试沟通」标识并退回客服跟进。" : "已恢复跟进并打上「尝试沟通」标识。原订单仍保留。");
       setSelectedId("");
       setNote("");
       setTick((value) => value + 1);
@@ -84,7 +84,7 @@ export function ProductionInvalidReview() {
   }
   const count = (key: keyof typeof tabs) => rows.filter((row) => key === "history" ? row.status === "rejected" || row.status === "restored" : row.status === key).length;
   return <section className="customer-invalid-review" aria-label="无效客资复核" aria-busy={loading}>
-    <header className="cir-heading"><div><p className="eyebrow">客服主管 · 本组客资</p><h1>无效客资复核</h1></div><InfoTip label="无效客资复核规则" text="客服把客户标为无效后，先进入待复核。主管确认后才计入无效客资。退回或恢复必须填写原因。已有订单会保留。" /></header>
+    <header className="cir-heading"><div><p className="eyebrow">客服主管 · 本组客资</p><h1>无效客资复核</h1></div><InfoTip label="无效客资复核规则" text="语言不通、误点咨询/不感兴趣、色粉三类预设原因由客服登记后直接计入无效客资池；其他原因进入待复核。主管确认后计入无效，驳回或恢复时必须填写原因，客户会自动打上「尝试沟通」标识。" /></header>
     <nav className="cir-tabs" aria-label="客资复核视图">{(Object.entries(tabs) as [keyof typeof tabs, string][]).map(([key, label]) => <button type="button" key={key} aria-pressed={tab === key} onClick={() => { setTab(key); setSelectedId(""); setError(""); }}><span>{label}</span><b>{count(key)}</b></button>)}</nav>
     {loadError && <p className="error" role="alert">{loadError}<button type="button" onClick={() => setTick((value) => value + 1)}>重新读取</button></p>}
     {message && <p className="notice" role="status">{message}</p>}

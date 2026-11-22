@@ -261,17 +261,124 @@ export function createFanRouter(db: Pool, config: AppConfig): Router {
       }
       const scope = await managedTeamIds(db, actor);
       const totals = await queryOne<{ total_added: string | null }>(db,
-        `SELECT sum(CASE WHEN f.ms_today IS NULL AND f.ws_today IS NULL THEN f.added_count
-                         ELSE COALESCE(f.ms_today,0) + COALESCE(f.ws_today,0) END)::text AS total_added
-           FROM fan_reports f
-          WHERE f.business_date BETWEEN $1::date AND $2::date
-            AND (f.team_id = ANY($3::uuid[]) OR (f.team_id IS NULL AND EXISTS (
-              SELECT 1 FROM team_memberships m
-               WHERE m.user_id=f.user_id AND m.team_id=ANY($3::uuid[])
-                 AND m.start_date<=f.business_date AND (m.end_date IS NULL OR m.end_date>=f.business_date)
-            )))`, [from, to, scope]);
+        `WITH lead_days AS (
+           SELECT l.user_id, l.received_on AS business_date, count(*)::int AS added
+             FROM fan_leads l
+            WHERE l.voided_at IS NULL
+              AND l.received_on BETWEEN $1::date AND $2::date
+              AND l.team_id = ANY($3::uuid[])
+            GROUP BY l.user_id, l.received_on
+         ),
+         report_days AS (
+           SELECT f.user_id, f.business_date,
+                  sum(CASE WHEN f.ms_today IS NULL AND f.ws_today IS NULL THEN f.added_count
+                           ELSE COALESCE(f.ms_today,0) + COALESCE(f.ws_today,0) END)::int AS added
+             FROM fan_reports f
+            WHERE f.business_date BETWEEN $1::date AND $2::date
+              AND (f.team_id = ANY($3::uuid[]) OR (f.team_id IS NULL AND EXISTS (
+                SELECT 1 FROM team_memberships m
+                 WHERE m.user_id=f.user_id AND m.team_id=ANY($3::uuid[])
+                   AND m.start_date<=f.business_date AND (m.end_date IS NULL OR m.end_date>=f.business_date)
+              )))
+              AND NOT EXISTS (
+                SELECT 1 FROM lead_days ld WHERE ld.user_id = f.user_id AND ld.business_date = f.business_date
+              )
+            GROUP BY f.user_id, f.business_date
+         ),
+         combined AS (
+           SELECT added FROM lead_days
+           UNION ALL
+           SELECT added FROM report_days
+         )
+         SELECT sum(added)::text AS total_added FROM combined`, [from, to, scope]);
       const totalAdded = totals?.total_added == null ? null : Number(totals.total_added);
       res.set("Cache-Control", "private, no-store").json({ from, to, totalAdded });
+    } catch (error) { next(error); }
+  });
+
+  router.get("/zero-status", async (req, res, next) => {
+    try {
+      const actor = req.actor!;
+      if (actor.role !== "cs") throw new HttpError(403, "仅客服本人可查看零进粉状态");
+      const today = businessToday(new Date(), config.businessTimezone);
+      const date = String(req.query.date ?? today);
+      if (!isIsoDate(date) || date > today) throw new HttpError(400, "业务日格式无效");
+      const leadCountRow = await queryOne<{ n: string }>(
+        db,
+        `SELECT count(*)::text AS n FROM fan_leads WHERE user_id = $1 AND received_on = $2::date AND voided_at IS NULL`,
+        [actor.id, date]
+      );
+      const zeroRow = await queryOne<{ id: string; updated_at: string }>(
+        db,
+        `SELECT id::text, updated_at::text FROM fan_reports WHERE user_id = $1 AND business_date = $2::date AND added_count = 0 LIMIT 1`,
+        [actor.id, date]
+      );
+      const leadCount = Number(leadCountRow?.n ?? 0);
+      res.set("Cache-Control", "private, no-store").json({
+        date,
+        leadCount,
+        zeroCheckedIn: Boolean(zeroRow),
+        checkedInAt: zeroRow?.updated_at ?? null
+      });
+    } catch (error) { next(error); }
+  });
+
+  router.post("/zero-report", async (req, res, next) => {
+    try {
+      const actor = req.actor!;
+      if (actor.role !== "cs") throw new HttpError(403, "仅客服本人可提交今日零进粉打卡");
+      const today = businessToday(new Date(), config.businessTimezone);
+      const businessDate = String(req.body?.businessDate ?? today);
+      if (!isIsoDate(businessDate) || businessDate > today) throw new HttpError(400, "业务日格式无效");
+      await assertCanWriteFan(db, actor, actor.id, businessDate, today, config);
+      const membership = await membershipOnDate(db, actor.id, businessDate);
+      if (!membership) throw new HttpError(400, "当前账号在该业务日没有小组归属，请联系客服主管先维护小组");
+      const leadCountRow = await queryOne<{ n: string }>(
+        db,
+        `SELECT count(*)::text AS n FROM fan_leads WHERE user_id = $1 AND received_on = $2::date AND voided_at IS NULL`,
+        [actor.id, businessDate]
+      );
+      const leadCount = Number(leadCountRow?.n ?? 0);
+      if (leadCount > 0) {
+        res.json({ ok: true, date: businessDate, leadCount, zeroCheckedIn: false, alreadyHasLeads: true });
+        return;
+      }
+      const existing = await queryOne<{ id: string }>(
+        db,
+        `SELECT id::text FROM fan_reports WHERE user_id = $1 AND business_date = $2::date AND page_name = '今日零进粉'`,
+        [actor.id, businessDate]
+      );
+      if (!existing) {
+        const client = await db.connect();
+        try {
+          await client.query("BEGIN");
+          const inserted = await queryOne(
+            client,
+            `INSERT INTO fan_reports (
+                user_id, team_id, business_date, added_count, page_name,
+                ms_today, ws_today, ms_month, ws_month, valid_today,
+                comm_replied, comm_read_no_reply, comm_unread, comm_invalid, note, last_submitted_by
+             ) VALUES ($1,$2,$3,0,'今日零进粉',0,0,NULL,NULL,0,0,0,0,0,'今日零进粉打卡',$4)
+             RETURNING id`,
+            [actor.id, membership.team_id, businessDate, actor.id]
+          );
+          await writeAudit(client, {
+            actorId: actor.id,
+            action: "fan_zero_checkin",
+            entityType: "fan_report",
+            entityId: String(inserted!.id),
+            after: { businessDate, addedCount: 0, note: "今日零进粉打卡" },
+            ip: req.ip
+          });
+          await client.query("COMMIT");
+        } catch (err) {
+          await client.query("ROLLBACK");
+          throw err;
+        } finally {
+          client.release();
+        }
+      }
+      res.json({ ok: true, date: businessDate, leadCount: 0, zeroCheckedIn: true, alreadyHasLeads: false });
     } catch (error) { next(error); }
   });
 
@@ -560,6 +667,16 @@ async function buildFanSummaries(
           [date, members.map((item) => item.user_id)]
         )
       : [];
+    const leads = members.length
+      ? await query<Record<string, unknown>>(
+          db,
+          `SELECT id::text, user_id::text, page_name, channel, contact_status, invalid_review_status, updated_at
+             FROM fan_leads
+            WHERE received_on = $1::date AND user_id = ANY($2::uuid[]) AND voided_at IS NULL
+            ORDER BY page_name ASC, created_at ASC`,
+          [date, members.map((item) => item.user_id)]
+        )
+      : [];
     const reportsByUser = new Map<string, Record<string, unknown>[]>();
     for (const report of reports) {
       const userId = String(report.user_id);
@@ -567,8 +684,94 @@ async function buildFanSummaries(
       list.push(report);
       reportsByUser.set(userId, list);
     }
+    const leadsByUser = new Map<string, Record<string, unknown>[]>();
+    for (const lead of leads) {
+      const userId = String(lead.user_id);
+      const list = leadsByUser.get(userId) ?? [];
+      list.push(lead);
+      leadsByUser.set(userId, list);
+    }
+    const effectiveRows: FanMetricRow[] = [];
     const details = members.map((member) => {
+      const userLeads = leadsByUser.get(member.user_id) ?? [];
+      if (userLeads.length > 0) {
+        const byPage = new Map<string, Record<string, unknown>[]>();
+        for (const lead of userLeads) {
+          const pageName = String(lead.page_name || "未填主页");
+          const list = byPage.get(pageName) ?? [];
+          list.push(lead);
+          byPage.set(pageName, list);
+        }
+        const syntheticRows: FanMetricRow[] = [];
+        const pages: FanPageDetail[] = [...byPage.entries()].map(([pageName, list]) => {
+          const msToday = list.filter((l) => l.channel === "ms").length;
+          const wsToday = list.filter((l) => l.channel === "ws").length;
+          const commInvalid = list.filter((l) => l.invalid_review_status === "approved").length;
+          const activeList = list.filter((l) => l.invalid_review_status !== "approved");
+          const commReplied = activeList.filter((l) => l.contact_status === "replied").length;
+          const commReadNoReply = activeList.filter((l) => l.contact_status === "read_no_reply").length;
+          const commUnread = activeList.filter((l) => l.contact_status === "unread").length;
+          const addedCount = msToday + wsToday;
+          const validToday = Math.max(0, addedCount - commInvalid);
+          const updatedAt = list.reduce<string | null>((latest, item) => {
+            const v = item.updated_at ? String(item.updated_at) : null;
+            if (!v) return latest;
+            return !latest || v > latest ? v : latest;
+          }, null);
+          syntheticRows.push({
+            user_id: member.user_id,
+            business_date: date,
+            added_count: addedCount,
+            ms_today: msToday,
+            ws_today: wsToday,
+            ms_month: null,
+            ws_month: null,
+            valid_today: validToday,
+            comm_replied: commReplied,
+            comm_read_no_reply: commReadNoReply,
+            comm_unread: commUnread,
+            comm_invalid: commInvalid
+          });
+          return {
+            reportId: `leads:${member.user_id}:${pageName}`,
+            pageName,
+            isLegacyUnclassified: false,
+            addedCount,
+            msToday,
+            wsToday,
+            msMonth: null,
+            wsMonth: null,
+            validToday,
+            commReplied,
+            commReadNoReply,
+            commUnread,
+            commInvalid,
+            note: "由客户线索自动汇总",
+            updatedAt
+          };
+        });
+        effectiveRows.push(...syntheticRows);
+        const summary = summarizeFanRows(syntheticRows);
+        const updatedAt = pages.reduce<string | null>((latest, item) => {
+          if (!item.updatedAt) return latest;
+          return !latest || item.updatedAt > latest ? item.updatedAt : latest;
+        }, null);
+        return {
+          userId: member.user_id,
+          displayName: member.display_name,
+          username: member.username,
+          accountKind: member.account_kind,
+          wechatId: member.wechat_id,
+          addedCount: summary.todayTotal,
+          status: "reported" as const,
+          updatedAt,
+          pages,
+          legacyUnclassifiedAdded: 0,
+          statsIncomplete: false
+        };
+      }
       const userReports = reportsByUser.get(member.user_id) ?? [];
+      effectiveRows.push(...(userReports as FanMetricRow[]));
       const summary = summarizeFanRows(userReports as FanMetricRow[]);
       const pages: FanPageDetail[] = userReports.map((report) => {
         const legacy = fanRowIsLegacyUnclassified(report as FanMetricRow);
@@ -610,7 +813,7 @@ async function buildFanSummaries(
       };
     });
     const reported = details.filter((item) => item.status === "reported");
-    const allRows = reports as FanMetricRow[];
+    const allRows = effectiveRows;
     const totals = summarizeFanRows(allRows);
     summaries.push({
       teamId: team.id,

@@ -17,6 +17,7 @@ describe("客资标签与无效复核", () => {
     expect(officialInvalidCustomers(approved).some(customer => customer.id === pending.id)).toBe(true);
     const rejected = reduceCrm(seed, { type: "reviewInvalid", actor: supervisor, reviewId: "sample-r1", decision: "reject", note: "仍可继续聊需求" }, today);
     expect(customerStatus(rejected, pending)).toBe("valid");
+    expect(customerTags(rejected, pending)).toContain("尝试沟通");
     expect(rejected.orders).toHaveLength(seed.orders.length);
     const restored = reduceCrm(seed, { type: "reviewInvalid", actor: supervisor, reviewId: "sample-r2", decision: "restore", note: "客户后来可以用中文沟通" }, today);
     const invalid = seed.customers.find(customer => customer.id === "sample-invalid")!;
@@ -45,10 +46,12 @@ describe("客资标签与无效复核", () => {
     expect(personalPerformance(moved, "other").privateCount).toBe(0);
   });
 
-  it("客服提交无效申请不直接改状态，主管以外不能复核", () => {
+  it("预设无效原因直接生效，其他原因须提交主管复核，主管以外不能复核", () => {
     const seed = createSeed(today);
     const target = seed.customers.find(customer => customer.id === "sample-valid")!;
-    const requested = reduceCrm(seed, { type: "requestInvalid", actor: cs, customerId: target.id, reason: "obscene", note: "聊天内容不适" }, today);
+    const preset = reduceCrm(seed, { type: "requestInvalid", actor: cs, customerId: target.id, reason: "obscene", note: "色粉骚扰" }, today);
+    expect(customerStatus(preset, target)).toBe("invalid");
+    const requested = reduceCrm(seed, { type: "requestInvalid", actor: cs, customerId: target.id, reason: "custom", note: "同行套价广告号" }, today);
     expect(customerStatus(requested, target)).toBe("valid");
     expect(() => reduceCrm(requested, { type: "reviewInvalid", actor: cs, reviewId: requested.reviews.at(-1)!.id, decision: "approve", note: "" }, today)).toThrow("只有客服主管");
     expect(() => reduceCrm(seed, { type: "addOrder", actor: cs, customerId: target.id, businessDate: today, channel: "private", materialCny: "980", feeCny: "98" }, today)).toThrow("不收代购费");

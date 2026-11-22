@@ -2,10 +2,10 @@ import { useCallback, useRef, useState } from "react";
 import { shiftDate, type InvalidReason } from "./assessmentFoundation";
 
 export const invalidReasons = {
-  no_chinese: "非中文客户",
-  misclick: "误点咨询",
-  obscene: "淫秽、色情类",
-  custom: "自定义"
+  no_chinese: "语言不通（未能取得正常沟通）",
+  misclick: "误点咨询/不感兴趣",
+  obscene: "色粉",
+  custom: "其他（需主管复核）"
 } as const satisfies Record<InvalidReason, string>;
 
 export type SpendTier = "" | "A" | "B" | "C";
@@ -126,7 +126,9 @@ export function customerTags(state: CrmState, customer: CrmCustomer): string[] {
   const tags = [status === "dealt" ? "已成交" : status === "invalid" ? "无效" : "有效"];
   if (customer.spendTier) tags.push(customer.spendTier + "档");
   if (validOrderCount(state, customer.id) > 2) tags.push("复购");
-  if (state.reviews.some(review => review.customerId === customer.id && review.status === "pending")) tags.push("待复核");
+  const latest = reviewsOf(state, customer.id).at(-1);
+  if (latest?.status === "pending") tags.push("待复核");
+  if (latest && (latest.status === "rejected" || latest.status === "restored") && status === "valid") tags.push("尝试沟通");
   return tags;
 }
 export function officialInvalidCustomers(state: CrmState): CrmCustomer[] {
@@ -178,7 +180,7 @@ function buildSamples(today: string, owner: DirectorySample, prefix: string): Cr
     { ...order(prefix + "o7", prefix + "repeat", -3, "live", 99900, 9990), cancelled: true }
   ];
   const reviews: CrmReview[] = [
-    { id: prefix + "r1", customerId: prefix + "pending", teamId: owner.teamId, reason: "misclick", note: "客户说明按错了咨询按钮", status: "pending", requestedAt: today + "T02:00:00.000Z", requestedBy: owner.personName },
+    { id: prefix + "r1", customerId: prefix + "pending", teamId: owner.teamId, reason: "custom", note: "对方反复发送无关广告链接", status: "pending", requestedAt: today + "T02:00:00.000Z", requestedBy: owner.personName },
     { id: prefix + "r2", customerId: prefix + "invalid", teamId: owner.teamId, reason: "no_chinese", note: "全程无法用中文沟通", status: "approved", requestedAt: shiftDate(today, -1) + "T02:00:00.000Z", requestedBy: owner.personName, reviewer: "演示客服主管", reviewedAt: shiftDate(today, -1) + "T06:00:00.000Z", reviewNote: "确认后供运营参考" }
   ];
   return { customers, orders, reviews };
@@ -244,7 +246,19 @@ function requestInvalid(state: CrmState, action: Extract<CrmAction, { type: "req
   if (action.note.trim().length > 1000) throw Error("备注不能超过 1000 字");
   if (state.reviews.some(review => review.customerId === customer.id && review.status === "pending")) throw Error("该客户已有待复核申请");
   if (customerStatus(state, customer) === "invalid") throw Error("该客户已确认无效");
-  const review: CrmReview = { id: nextId(state, "review-"), customerId: customer.id, teamId: customer.teamId, reason: action.reason, note: action.note.trim(), status: "pending", requestedAt: today + "T08:00:00.000Z", requestedBy: action.actor.employeeName };
+  if (action.reason === "custom" && !action.note.trim()) throw Error("选择“其他（需主管复核）”时须填写判定原因");
+  const isPreset = action.reason === "no_chinese" || action.reason === "misclick" || action.reason === "obscene";
+  const review: CrmReview = {
+    id: nextId(state, "review-"),
+    customerId: customer.id,
+    teamId: customer.teamId,
+    reason: action.reason,
+    note: action.note.trim(),
+    status: isPreset ? "approved" : "pending",
+    requestedAt: today + "T08:00:00.000Z",
+    requestedBy: action.actor.employeeName,
+    ...(isPreset ? { reviewer: "预设规则自动确认", reviewedAt: today + "T08:00:00.000Z" } : {})
+  };
   return { ...state, reviews: [...state.reviews, review] };
 }
 

@@ -9,7 +9,7 @@ import "./customer-invalid-review.css";
 
 const actor: CrmActor = { role: "cs_supervisor", employeeId: "demo-supervisor", employeeName: "演示客服主管", teamIds: ["demo-team-a", "registered-team-qiuju"] };
 const tabs = { pending: "待复核", approved: "无效客资池", history: "处理记录" } as const;
-const outcomes = { pending: "待复核", approved: "已确认无效", rejected: "已退回跟进", restored: "已恢复跟进" } as const;
+const outcomes = { pending: "待复核", approved: "已确认无效", rejected: "已驳回 · 尝试沟通", restored: "已恢复 · 尝试沟通" } as const;
 const stamp = (value?: string) => value ? new Date(value).toLocaleString("zh-CN", { hour12: false, timeZone: "Asia/Shanghai" }) : "—";
 
 /** Project jade tokens and compact, actionable rows; instructions stay beside irreversible decisions. */

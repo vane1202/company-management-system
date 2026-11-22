@@ -1,8 +1,8 @@
 export const invalidReasonLabels = {
-  no_chinese: "非中文客户",
-  misclick: "误点咨询",
-  obscene: "淫秽、色情类",
-  custom: "自定义"
+  no_chinese: "语言不通（未能取得正常沟通）",
+  misclick: "误点咨询/不感兴趣",
+  obscene: "色粉",
+  custom: "其他（需主管复核）"
 } as const;
 export type InvalidReason = keyof typeof invalidReasonLabels;
 export type ContactStatus = "replied" | "read_no_reply" | "unread" | "invalid";

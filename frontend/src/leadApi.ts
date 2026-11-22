@@ -1,17 +1,31 @@
 import {requestInner} from './api';
-export type Lead={id:string;accountId:string;wechatId:string;teamId:string;teamName:string;receivedOn:string;pageName:string;personaCode:string;operatorName:string;sourceAdAccountId?:string;channel:'ms'|'ws';customerLabel:string;customerRef:string;contactStatus:'unread'|'read_no_reply'|'replied';repliedOn:string|null;qualifiedOn:string|null;needSummary:string;invalidReason:string;lossReason:string;nextFollowup:string|null;note:string;version:number;voidedAt:string|null;voidReason:string|null};
+export const INVALID_REASON_PRESETS = {
+  no_chinese: '语言不通（未能取得正常沟通）',
+  misclick: '误点咨询/不感兴趣',
+  obscene: '色粉'
+} as const;
+export type InvalidReasonCode = '' | keyof typeof INVALID_REASON_PRESETS | 'custom';
+export type InvalidReviewStatus = '' | 'pending' | 'approved' | 'rejected' | 'restored';
+export type Lead={id:string;accountId:string;wechatId:string;teamId:string;teamName:string;receivedOn:string;pageName:string;personaCode:string;operatorName:string;sourceAdAccountId?:string;channel:'ms'|'ws';customerLabel:string;customerRef:string;contactStatus:'unread'|'read_no_reply'|'replied';repliedOn:string|null;qualifiedOn:string|null;needSummary:string;invalidReason:string;invalidReasonCode?:InvalidReasonCode;invalidReviewStatus?:InvalidReviewStatus;invalidReviewNote?:string;attemptContact?:boolean;lossReason:string;nextFollowup:string|null;note:string;version:number;voidedAt:string|null;voidReason:string|null};
 export type LeadReport={accountId:string;pageName:string;businessDate:string;msToday:number|null;wsToday:number|null;addedCount:number};
+export type ZeroStatus={date:string;leadCount:number;zeroCheckedIn:boolean;checkedInAt:string|null};
+export function isConfirmedInvalidLead(lead:Pick<Lead,'invalidReason'|'invalidReviewStatus'>):boolean{
+  if(lead.invalidReviewStatus!==undefined)return lead.invalidReviewStatus==='approved';
+  return Boolean(lead.invalidReason);
+}
 export const leadApi={
   list:(from:string,to:string)=>requestInner<{from:string;to:string;today:string;leads:Lead[];reports:LeadReport[]}>(`/api/fan-leads?${new URLSearchParams({from,to})}`),
   create:(payload:Record<string,unknown>)=>requestInner<{id:string}>('/api/fan-leads',{method:'POST',body:JSON.stringify(payload)}),
   update:(id:string,payload:Record<string,unknown>)=>requestInner<{id:string}>(`/api/fan-leads/${encodeURIComponent(id)}`,{method:'PATCH',body:JSON.stringify(payload)}),
-  history:(id:string)=>requestInner<{history:{created_at:string;actor_name:string;action:string;after_data:Record<string,unknown>}[]}>(`/api/fan-leads/${encodeURIComponent(id)}/history`)
+  history:(id:string)=>requestInner<{history:{created_at:string;actor_name:string;action:string;after_data:Record<string,unknown>}[]}>(`/api/fan-leads/${encodeURIComponent(id)}/history`),
+  zeroStatus:(date:string)=>requestInner<ZeroStatus>(`/api/fans/zero-status?${new URLSearchParams({date})}`),
+  submitZeroReport:(businessDate:string)=>requestInner<{ok:boolean;date:string;leadCount:number;zeroCheckedIn:boolean;alreadyHasLeads:boolean}>('/api/fans/zero-report',{method:'POST',body:JSON.stringify({businessDate})})
 };
 export function leadStats(leads:Lead[],today:string){
   const active=leads.filter(l=>!l.voidedAt),n=active.length;
   const end=(date:string)=>new Date(Date.parse(date+'T00:00:00Z')+6*86400000).toISOString().slice(0,10);
   const sameDay=active.filter(l=>l.qualifiedOn===l.receivedOn).length,withinSeven=active.filter(l=>l.qualifiedOn&&l.qualifiedOn<=end(l.receivedOn)).length;
-  return {received:n,ms:active.filter(l=>l.channel==='ms').length,ws:active.filter(l=>l.channel==='ws').length,replied:active.filter(l=>l.repliedOn).length,sameDay,withinSeven,invalid:active.filter(l=>l.invalidReason).length,lost:active.filter(l=>l.lossReason).length,observing:active.filter(l=>end(l.receivedOn)>today).length,sameDayRate:n?Math.round(sameDay/n*1000)/10:null,sevenDayRate:n?Math.round(withinSeven/n*1000)/10:null};
+  return {received:n,ms:active.filter(l=>l.channel==='ms').length,ws:active.filter(l=>l.channel==='ws').length,replied:active.filter(l=>l.repliedOn&&!isConfirmedInvalidLead(l)).length,sameDay,withinSeven,invalid:active.filter(l=>isConfirmedInvalidLead(l)).length,pendingInvalid:active.filter(l=>l.invalidReviewStatus==='pending').length,lost:active.filter(l=>l.lossReason).length,observing:active.filter(l=>end(l.receivedOn)>today).length,sameDayRate:n?Math.round(sameDay/n*1000)/10:null,sevenDayRate:n?Math.round(withinSeven/n*1000)/10:null};
 }
 export function percent(n:number|null){return n===null?'—':`${n}%`;}
 export function leadCoverage(leads:Lead[],reports:LeadReport[]){
