@@ -58,7 +58,8 @@ export default function BossEstimateBoard({ today, onError, onOpen, onDrill }: {
   const period = custom || dashboardPresetRange(today, preset);
   const cash = useMemo(() => finance ? buildCashBoard(finance, period) : null, [finance, period.from, period.to]);
   const pendingCash = useBossCashPending(period.to, cashOrders, cash?.pending);
-  const receivedAmount = cashLoading ? "…" : !cash ? "—" : cash.totalCny === null ? "待核对" : `¥${formatCashValue(cash.totalCny)}`;
+  const receivedAmount = cashLoading ? "…" : !cash ? "—" : cash.customerPaidCny === null ? "待核对" : `¥${formatCashValue(cash.customerPaidCny)}`;
+  const unconfirmedAmount = !cashLoading && cash && cash.unconfirmedThirdPartyCny !== "0.00" ? `¥${formatCashValue(cash.unconfirmedThirdPartyCny)}` : null;
   const outstandingAmount = loading || cashLoading || pendingCash.loading ? "…" : formatPendingCash(pendingCash.value?.total);
   function drill(kind: "income" | "expenses" | "ads") {
     if (kind === "ads") onDrill?.({ page: "ops", ops: { ...period } });
@@ -143,10 +144,11 @@ export default function BossEstimateBoard({ today, onError, onOpen, onDrill }: {
     />
     <BossPriority from={period.from} to={period.to} tick={trendTick} onSalary={()=>onOpen?.("salaries")} receipts={
       <button type="button" className="payment-inline-button"
-        aria-label={`实收金额 ${receivedAmount}，待收金额 ${outstandingAmount}，查看收款与到账`}
+        aria-label={`实收金额 ${receivedAmount}${unconfirmedAmount ? `（含待财务确认 ${unconfirmedAmount}）` : ""}，待收金额 ${outstandingAmount}，查看收款与到账`}
         onClick={()=>onOpen?.("finance",{...period,metric:"receipts",scope:"company"})}>
         <span className="payment-inline-metrics">
           <span><span>实收金额</span><InlinePaymentAmount value={receivedAmount}/></span>
+          {unconfirmedAmount && <span className="payment-inline-subnote">含待财务确认 {unconfirmedAmount}</span>}
           <span><span>待收金额</span><InlinePaymentAmount value={outstandingAmount}/></span>
         </span>
         <span aria-hidden="true">›</span>

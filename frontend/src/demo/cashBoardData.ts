@@ -96,6 +96,7 @@ export function buildCashBoard(data:FinanceData,period:{from:string;to:string}){
   }
   const receipts=initial(),pending=initial(),arrivals:CashArrival[]=[];
   let directCny:string|null='0.00',thirdPartyCny:string|null='0.00';
+  let unconfirmedThirdPartyCents=0n;
   const groupMap=new Map<string,AgencyGroup>();
   for(const p of payments){
     const amount=clean(p.amount);
@@ -115,6 +116,13 @@ export function buildCashBoard(data:FinanceData,period:{from:string;to:string}){
     if(paid!==null&&used>paid)issueCount++;
     const remaining=bad?null:money(paid!-used);
     pending[p.currency]=add(pending[p.currency],remaining);
+    if(inPeriod(p.payment_date)&&!bad&&paid!==null&&paid>0n&&paid>used&&p.received_cny){
+      const rec=aggregateCents(clean(p.received_cny));
+      if(rec!==null&&rec>0n){
+        const rem=paid-used;
+        unconfirmedThirdPartyCents+=used===0n?rec:(rec*rem+paid/2n)/paid;
+      }
+    }
     if(remaining==='0.00')continue;
     const key=JSON.stringify([p.channel,p.currency]);
     let group=groupMap.get(key);
@@ -141,5 +149,8 @@ export function buildCashBoard(data:FinanceData,period:{from:string;to:string}){
   if(unscopedPayments||unscopedSettlements)for(const g of groups){g.pending=null;for(const p of g.payments)p.pendingAsOf=null;if(unscopedSettlements)g.lastTransferDate='待核对';}
   for(const g of groups)g.payments.sort((a,b)=>a.payment_date.localeCompare(b.payment_date)||a.id.localeCompare(b.id));
   arrivals.sort((a,b)=>b.date.localeCompare(a.date)||a.id.localeCompare(b.id));
-  return {period,receipts,pending,directCny,thirdPartyCny,totalCny:add(directCny,thirdPartyCny),groups,arrivals,issueCount,pendingIncomplete:currencies.some(c=>pending[c]===null),receiptsIncomplete:currencies.some(c=>receipts[c]===null),paymentCount:payments.filter(p=>inPeriod(p.payment_date)).length,heldCount:groups.reduce((n,g)=>n+g.count,0)};
+  const totalCny=add(directCny,thirdPartyCny);
+  const unconfirmedThirdPartyCny=money(unconfirmedThirdPartyCents);
+  const customerPaidCny=add(totalCny,unconfirmedThirdPartyCny);
+  return {period,receipts,pending,directCny,thirdPartyCny,totalCny,unconfirmedThirdPartyCny,customerPaidCny,groups,arrivals,issueCount,pendingIncomplete:currencies.some(c=>pending[c]===null),receiptsIncomplete:currencies.some(c=>receipts[c]===null),paymentCount:payments.filter(p=>inPeriod(p.payment_date)).length,heldCount:groups.reduce((n,g)=>n+g.count,0)};
 }

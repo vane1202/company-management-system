@@ -171,6 +171,7 @@ export function createBossAnalyticsRouter(db: Pool, config: AppConfig): Router {
           status: string;
           cancelled: boolean;
           booking_amount: string;
+          deal_channel: string;
           room_code: string;
           operator_name: string;
           user_id: string;
@@ -183,6 +184,7 @@ export function createBossAnalyticsRouter(db: Pool, config: AppConfig): Router {
                   CASE WHEN d.order_id IS NULL THEN o.amount
                        ELSE COALESCE((SELECT SUM(i.price_cny + i.buying_fee_cny) FROM order_items i WHERE i.order_id = o.id), o.amount)
                   END::numeric(14,2)::text AS booking_amount,
+                  COALESCE(NULLIF(trim(d.deal_channel), ''), 'live') AS deal_channel,
                   COALESCE(NULLIF(trim(d.live_room_code), ''), 'unassigned') AS room_code,
                   COALESCE(NULLIF(trim(d.operator_name), ''), u.display_name, '') AS operator_name,
                   o.user_id::text AS user_id,
@@ -247,15 +249,20 @@ export function createBossAnalyticsRouter(db: Pool, config: AppConfig): Router {
 
 const validOrders = orders.filter((row) => !row.cancelled && row.status !== "refunded");
       const statsOf = (rows: typeof validOrders) => {
-        const liveCents = rows.reduce((sum, r) => sum + moneyToCents(r.booking_amount), 0n);
-        const privateCents = 0n;
+        let liveCents = 0n;
+        let privateCents = 0n;
+        for (const r of rows) {
+          const amt = moneyToCents(r.booking_amount);
+          if (r.deal_channel === "private") privateCents += amt;
+          else liveCents += amt;
+        }
         const totalCents = liveCents + privateCents;
         return {
           live: centsToMoney(liveCents),
           private: centsToMoney(privateCents),
           total: centsToMoney(totalCents),
           count: rows.length,
-          privateShare: totalCents > 0n ? 0 : null
+          privateShare: totalCents > 0n ? Number((privateCents * 10000n) / totalCents) / 100 : null
         };
       };
 
