@@ -87,7 +87,7 @@ export default function OpsAnalysis({today,onOpenReports,onOpenFeedback,context}
   function costNote(t?:Totals){if(!t||t.costStatus==='ready')return null;const text=t.costStatus==='no_consultation'?'有消耗无咨询':t.costStatus==='no_spend'?'零咨询':t.costStatus==='incomplete'?'字段待补':t.costStatus==='empty'?'尚无日报':'';return text?<span className="oa-secondary-value">{text}</span>:null;}
   function coverage(t:Totals){return t.missingSpendCount+t.missingConsultCount+t.missingClickCount>0?'字段待补':t.costStatus==='no_consultation'?'有消耗无咨询':t.costStatus==='no_spend'?'零消耗／零咨询':'';}
   return <section className={onOpenReports ? "ops-analysis oa-home" : "ops-analysis"} aria-label="运营投放分析" aria-busy={loading}>
-    {onOpenReports && <OpsIdentity />}
+    {isDemoMode && onOpenReports && <OpsIdentity />}
     <header className="oa-heading">
       <div><span className="oa-eyebrow">{onOpenReports?"运营 · 本人投放日报":"BOSS · 运营投入与咨询"}</span><h1>{onOpenReports?"运营工作台":"投流数据"}</h1></div>
       {onOpenReports && <OpsBalanceStrip compact key={filters.account+":"+filters.persona+":"+selectedRange.to} account={filters.account} rows={data?.balances.accounts||[]} loading={loading} error={error} endDate={selectedRange.to}/>}

@@ -450,6 +450,56 @@ const validOrders = orders.filter((row) => !row.cancelled && row.status !== "ref
     }
   });
 
+  router.get("/ops-workspace", async (req, res, next) => {
+    if (!req.actor || !["boss", "ops"].includes(req.actor.role)) {
+      next(new HttpError(403, "仅 BOSS 与运营可查看运营工作台范围"));
+      return;
+    }
+    try {
+      const userFilter = req.actor.role === "ops" ? req.actor.id : null;
+      const [accRes, repRes] = await Promise.all([
+        db.query<{ code: string; name: string }>(
+          `SELECT code, name FROM ad_accounts ORDER BY code ASC`
+        ),
+        db.query<{ ad_account_ref: string | null; platform: string | null; persona_name: string }>(
+          `SELECT DISTINCT ad_account_ref, platform, persona_name
+             FROM ops_reports
+            WHERE ($1::uuid IS NULL OR user_id = $1)
+            ORDER BY ad_account_ref NULLS LAST, persona_name ASC`,
+          [userFilter]
+        )
+      ]);
+      const byAccount = new Map<string, { id: string; label: string; platform: string; personas: Set<string> }>();
+      for (const a of accRes.rows) {
+        byAccount.set(a.code, { id: a.code, label: a.name || a.code, platform: "", personas: new Set() });
+      }
+      for (const r of repRes.rows) {
+        const accId = (r.ad_account_ref ?? "").trim();
+        if (!accId) continue;
+        let entry = byAccount.get(accId);
+        if (!entry) {
+          entry = { id: accId, label: accId, platform: "", personas: new Set() };
+          byAccount.set(accId, entry);
+        }
+        if (r.platform && !entry.platform) entry.platform = r.platform;
+        const p = (r.persona_name ?? "").trim();
+        if (p) entry.personas.add(p);
+      }
+      const accounts = [...byAccount.values()]
+        .filter((a) => req.actor!.role !== "ops" || a.personas.size > 0 || accRes.rows.some((x) => x.code === a.id))
+        .map((a) => ({
+          id: a.id,
+          label: a.label,
+          platform: a.platform,
+          personas: [...a.personas].sort()
+        }));
+      const me = { id: req.actor.id, name: req.actor.displayName, code: req.actor.username };
+      res.json({ people: [me], current: me, accounts, loginEnabled: false });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   router.get("/ops-analysis", async (req, res, next) => {
     if (!req.actor || !["boss", "ops"].includes(req.actor.role)) {
       next(new HttpError(403, "仅 BOSS 与运营可查看投放分析"));

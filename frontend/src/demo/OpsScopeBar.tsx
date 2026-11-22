@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { opsRequest, type OpsAccount, type OpsWorkspace } from "./opsWorkspace";
+import { opsRequest, opsWorkspaceApi, type OpsAccount, type OpsWorkspace } from "./opsWorkspace";
 import { changeScopeAccount, emptyOpsScope, type OpsScope } from "./opsScope";
 import "./ops-scope.css";
 
@@ -18,7 +18,7 @@ export default function OpsScopeBar({ value, onChange, refresh, inline = false }
   const callback = useRef(onChange), current = useRef(value); callback.current = onChange; current.current = value;
   useEffect(() => {
     const controller = new AbortController();
-    opsRequest<OpsWorkspace>("/api/demo/ops-workspace", undefined, controller.signal).then(workspace => {
+    opsRequest<OpsWorkspace>(opsWorkspaceApi, undefined, controller.signal).then(workspace => {
       setAccounts(workspace.accounts); setReady(true); setError("");
       const scope = current.current;
       const account = workspace.accounts.some(item => item.id === scope.account) ? scope.account : "";
