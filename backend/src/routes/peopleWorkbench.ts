@@ -38,7 +38,13 @@ export function createPeopleWorkbenchRouter(db: Pool, _config: AppConfig): Route
               ORDER BY start_date DESC LIMIT 1
            ) m ON TRUE
           WHERE u.role = 'cs' AND u.account_kind IN ('employee','cs_wechat','cs_service')
-            AND ($1::boolean OR m.team_id = ANY($2::uuid[]) OR ($3::boolean AND u.id = $4::uuid))
+            AND ($1::boolean OR EXISTS(
+              SELECT 1 FROM team_memberships tm
+               WHERE tm.user_id = u.id
+                 AND tm.team_id = ANY($2::uuid[])
+                 AND tm.start_date <= CURRENT_DATE
+                 AND (tm.end_date IS NULL OR tm.end_date >= CURRENT_DATE)
+            ) OR ($3::boolean AND u.id = $4::uuid))
           ORDER BY u.display_name`,
         [visible.all, visible.teams, visible.self, actor.id]);
       const employees = people.map(row => ({ id: row.id, code: row.code, name: row.name, status: row.active ? "active" : "left", teamId: row.team_id || "" }));

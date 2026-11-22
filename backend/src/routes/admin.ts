@@ -5,7 +5,7 @@ import { query, queryOne, withTransaction } from "../db.js";
 import { isIsoDate } from "../lib/dates.js";
 import { generateTemporaryPassword, hashPassword, validatePassword } from "../lib/password.js";
 import { HttpError, type UserRole } from "../types.js";
-import { isBossOrAdmin, normalizeUsername, setUserTeamMembership } from "../users.js";
+import { isBossOrAdmin, normalizeUsername, setUserTeamMembership, setUserTeamMemberships } from "../users.js";
 
 const ROLES: UserRole[] = ["boss", "admin", "finance", "assistant", "ops", "editor", "cs", "cs_supervisor", "warehouse"];
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -171,7 +171,20 @@ export function createAdminRouter(db: Pool): Router {
                    WHERE m.user_id = u.id AND m.end_date IS NULL
                    ORDER BY m.start_date DESC
                    LIMIT 1
-                ) AS current_team
+                ) AS current_team,
+                (
+                  SELECT COALESCE(
+                    json_agg(json_build_object('id', t.id, 'name', t.name) ORDER BY t.name, m.start_date),
+                    '[]'::json
+                  )
+                    FROM (
+                      SELECT DISTINCT ON (team_id) team_id, start_date
+                        FROM team_memberships
+                       WHERE user_id = u.id AND end_date IS NULL
+                       ORDER BY team_id, start_date DESC
+                    ) m
+                    JOIN teams t ON t.id = m.team_id
+                ) AS current_teams
            FROM users u
           WHERE u.account_kind = 'employee'
           ORDER BY u.display_name`
@@ -190,6 +203,7 @@ export function createAdminRouter(db: Pool): Router {
           mustChangePassword: user.must_change_password,
           createdAt: user.created_at,
           currentTeam: user.current_team,
+          currentTeams: Array.isArray(user.current_teams) ? user.current_teams : (user.current_team ? [user.current_team] : []),
           managedTeamIds: scopes.filter((scope) => scope.supervisor_id === user.id).map((scope) => scope.team_id)
         }))
       });
@@ -205,6 +219,11 @@ export function createAdminRouter(db: Pool): Router {
       const password = String(req.body?.password ?? "");
       const role = String(req.body?.role ?? "") as UserRole;
       const teamId = req.body?.teamId ? String(req.body.teamId) : "";
+      const teamIds: string[] = Array.isArray(req.body?.teamIds)
+        ? [...new Set<string>(req.body.teamIds.map(String).filter(Boolean))]
+        : teamId
+          ? [teamId]
+          : [];
       const membershipStart = String(req.body?.membershipStart ?? "");
       const managedTeamIds = Array.isArray(req.body?.managedTeamIds)
         ? req.body.managedTeamIds.map(String)
@@ -225,17 +244,19 @@ export function createAdminRouter(db: Pool): Router {
            RETURNING id, username, display_name, role, is_active, must_change_password`,
           [username, passwordHash, displayName, role]
         );
-        if (teamId) {
-          if (!UUID_RE.test(teamId)) throw new HttpError(400, "请选择有效小组");
-          const team = await queryOne(client, "SELECT id FROM teams WHERE id = $1 AND is_active = TRUE FOR SHARE", [teamId]);
-          if (!team) throw new HttpError(400, "请选择有效小组");
+        if (teamIds.length && role !== "cs_supervisor") {
+          if (teamIds.some((id) => !UUID_RE.test(id))) throw new HttpError(400, "请选择有效小组");
+          const found = await query(client, "SELECT id FROM teams WHERE id = ANY($1::uuid[]) AND is_active = TRUE FOR SHARE", [teamIds]);
+          if (found.length !== teamIds.length) throw new HttpError(400, "请选择有效小组");
           if (!membershipStart || !isIsoDate(membershipStart)) {
             throw new HttpError(400, "加入小组时须提供有效的归属起始日");
           }
-          await client.query(
-            `INSERT INTO team_memberships (user_id, team_id, start_date) VALUES ($1, $2, $3)`,
-            [created!.id, teamId, membershipStart]
-          );
+          for (const tid of teamIds) {
+            await client.query(
+              `INSERT INTO team_memberships (user_id, team_id, start_date) VALUES ($1, $2, $3)`,
+              [created!.id, tid, membershipStart]
+            );
+          }
         }
         if (role === "cs_supervisor") {
           for (const managedId of managedTeamIds) {
@@ -251,7 +272,7 @@ export function createAdminRouter(db: Pool): Router {
           action: "user_create",
           entityType: "user",
           entityId: created!.id,
-          after: { username, displayName, role, teamId: teamId || null },
+          after: { username, displayName, role, teamId: teamIds[0] || null, teamIds },
           ip: req.ip
         });
         return created!;
@@ -404,12 +425,52 @@ export function createAdminRouter(db: Pool): Router {
     try {
       const userId = String(req.params.id ?? "");
       if (!UUID_RE.test(userId)) throw new HttpError(400, "员工标识无效");
-      if (!req.body || !Object.prototype.hasOwnProperty.call(req.body, "teamId")) {
+      const hasTeamIds = Boolean(req.body && Object.prototype.hasOwnProperty.call(req.body, "teamIds"));
+      const hasTeamId = Boolean(req.body && Object.prototype.hasOwnProperty.call(req.body, "teamId"));
+      if (!hasTeamIds && !hasTeamId) {
         throw new HttpError(400, "请选择新小组");
       }
-      const rawTeamId = req.body.teamId === null || req.body.teamId === undefined ? "" : String(req.body.teamId).trim();
       const effectiveDate = String(req.body?.effectiveDate ?? "");
       if (!isIsoDate(effectiveDate)) throw new HttpError(400, "生效日期无效");
+      if (hasTeamIds) {
+        if (!Array.isArray(req.body.teamIds)) throw new HttpError(400, "小组列表无效");
+        const nextTeamIds: string[] = [...new Set<string>(req.body.teamIds.map((v: unknown) => String(v ?? "").trim()).filter(Boolean))];
+        if (nextTeamIds.some((id) => !UUID_RE.test(id))) throw new HttpError(400, "请选择有效小组");
+        await withTransaction(db, async (client) => {
+          const user = await queryOne<{ id: string; account_kind: string; role: UserRole }>(
+            client,
+            "SELECT id, account_kind, role FROM users WHERE id = $1 FOR UPDATE",
+            [userId]
+          );
+          if (!user) throw new HttpError(404, "员工不存在");
+          if (["cs_wechat", "cs_service"].includes(user.account_kind ?? "")) {
+            throw new HttpError(400, "客服接待账号请在客服账号管理页面调整小组");
+          }
+          if (nextTeamIds.length) {
+            const found = await query(client, "SELECT id FROM teams WHERE id = ANY($1::uuid[]) AND is_active = TRUE FOR SHARE", [nextTeamIds]);
+            if (found.length !== nextTeamIds.length) throw new HttpError(400, "请选择有效小组");
+          }
+          const result = await setUserTeamMemberships(client, {
+            userId,
+            teamIds: nextTeamIds,
+            effectiveDate
+          });
+          if (result.changed) {
+            await writeAudit(client, {
+              actorId: req.actor!.id,
+              action: "user_transfer",
+              entityType: "user",
+              entityId: userId,
+              before: { teamIds: result.previousTeamIds },
+              after: { teamIds: nextTeamIds, effectiveDate },
+              ip: req.ip
+            });
+          }
+        });
+        res.json({ ok: true });
+        return;
+      }
+      const rawTeamId = req.body.teamId === null || req.body.teamId === undefined ? "" : String(req.body.teamId).trim();
       if (rawTeamId && !UUID_RE.test(rawTeamId)) throw new HttpError(400, "请选择有效小组");
 
       await withTransaction(db, async (client) => {

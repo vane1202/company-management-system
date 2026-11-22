@@ -29,12 +29,15 @@ export function createCsLoginsRouter(db: Pool, config: AppConfig): Router {
       const users = teamIds.length
         ? await query<{ id: string; username: string; display_name: string; is_active: boolean; must_change_password: boolean; team_id: string; team_name: string }>(
             db,
-            `SELECT u.id, u.username, u.display_name, u.is_active, u.must_change_password, t.id AS team_id, t.name AS team_name
+            `SELECT u.id, u.username, u.display_name, u.is_active, u.must_change_password,
+                    (array_agg(t.id ORDER BY t.name))[1] AS team_id,
+                    string_agg(DISTINCT t.name, '、' ORDER BY t.name) AS team_name
                FROM users u
                JOIN team_memberships m ON m.user_id = u.id AND m.end_date IS NULL
                JOIN teams t ON t.id = m.team_id
               WHERE u.role = 'cs' AND u.account_kind = 'employee' AND t.id = ANY($1::uuid[])
-              ORDER BY t.name, u.display_name`,
+              GROUP BY u.id, u.username, u.display_name, u.is_active, u.must_change_password
+              ORDER BY min(t.name), u.display_name`,
             [teamIds]
           )
         : [];

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PoolClient } from "pg";
-import { setUserTeamMembership } from "../src/users.js";
+import { setUserTeamMembership, setUserTeamMemberships } from "../src/users.js";
 
 type MembershipRow = { id: string; user_id: string; team_id: string; start_date: string; end_date: string | null };
 
@@ -14,7 +14,10 @@ function createMockClient(initial: MembershipRow[]) {
         const open = rows
           .filter((r) => r.user_id === userId && r.end_date === null)
           .sort((a, b) => b.start_date.localeCompare(a.start_date));
-        return { rows: open.slice(0, 1), rowCount: open.length ? 1 : 0 };
+        if (sql.includes("LIMIT 1")) {
+          return { rows: open.slice(0, 1), rowCount: open.length ? 1 : 0 };
+        }
+        return { rows: open, rowCount: open.length };
       }
       if (sql.startsWith("DELETE FROM team_memberships")) {
         const id = params[0] as string;
@@ -109,5 +112,40 @@ describe("setUserTeamMembership", () => {
         effectiveDate: "2026-11-14"
       })
     ).rejects.toThrow("调组日期不能早于当前归属起始日");
+  });
+});
+
+describe("setUserTeamMemberships", () => {
+  it("allows adding a second team without closing the existing team membership", async () => {
+    const { client, getRows } = createMockClient([
+      { id: "m-old", user_id: "u1", team_id: "t1", start_date: "2026-11-10", end_date: null }
+    ]);
+    const result = await setUserTeamMemberships(client, {
+      userId: "u1",
+      teamIds: ["t1", "t2"],
+      effectiveDate: "2026-11-22"
+    });
+    expect(result).toEqual({ changed: true, previousTeamIds: ["t1"] });
+    expect(getRows()).toEqual([
+      { id: "m-old", user_id: "u1", team_id: "t1", start_date: "2026-11-10", end_date: null },
+      { id: "m-1", user_id: "u1", team_id: "t2", start_date: "2026-11-22", end_date: null }
+    ]);
+  });
+
+  it("closes only removed teams while keeping retained memberships active", async () => {
+    const { client, getRows } = createMockClient([
+      { id: "m-1", user_id: "u1", team_id: "t1", start_date: "2026-11-10", end_date: null },
+      { id: "m-2", user_id: "u1", team_id: "t2", start_date: "2026-11-15", end_date: null }
+    ]);
+    const result = await setUserTeamMemberships(client, {
+      userId: "u1",
+      teamIds: ["t1"],
+      effectiveDate: "2026-11-22"
+    });
+    expect(result).toEqual({ changed: true, previousTeamIds: ["t2", "t1"] });
+    expect(getRows()).toEqual([
+      { id: "m-1", user_id: "u1", team_id: "t1", start_date: "2026-11-10", end_date: null },
+      { id: "m-2", user_id: "u1", team_id: "t2", start_date: "2026-11-15", end_date: "2026-11-21" }
+    ]);
   });
 });

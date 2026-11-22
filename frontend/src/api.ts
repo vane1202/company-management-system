@@ -391,6 +391,7 @@ export type AdminUser = {
   accountKind?: string;
   wechatId?: string | null;
   currentTeam?: { id: string; name: string } | null;
+  currentTeams?: { id: string; name: string }[];
   managedTeamIds?: string[];
 };
 export type CsAccount = { id: string; wechatId: string; platform?:'whatsapp'|'messenger'|'legacy_wechat';accountIdentifier?:string;phoneLabel: string | null; holderName?: string | null; isActive: boolean; teamId: string | null; teamName: string | null; createdAt: string };

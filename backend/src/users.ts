@@ -183,3 +183,62 @@ export async function setUserTeamMembership(
   }
   return { changed: true, previousTeamId: current?.team_id ?? null };
 }
+
+/**
+ * Updates an employee's active team memberships to match `teamIds` as of `effectiveDate`.
+ * Supports an employee belonging to multiple teams simultaneously (e.g. 客服一组 + 志伟组).
+ * Existing memberships kept in `teamIds` remain untouched; removed memberships are closed
+ * on the day before `effectiveDate` (or deleted if started on `effectiveDate`).
+ */
+export async function setUserTeamMemberships(
+  client: PoolClient,
+  options: {
+    userId: string;
+    teamIds: string[];
+    effectiveDate: string;
+  }
+): Promise<{ changed: boolean; previousTeamIds: string[] }> {
+  const { userId, effectiveDate } = options;
+  const nextIds = [...new Set(options.teamIds.filter(Boolean))];
+  const nextSet = new Set(nextIds);
+  const currentRows = await query<{ id: string; team_id: string; start_date: string }>(
+    client,
+    `SELECT id, team_id, start_date::text
+       FROM team_memberships
+      WHERE user_id = $1 AND end_date IS NULL
+      ORDER BY start_date ASC, id ASC
+      FOR UPDATE`,
+    [userId]
+  );
+  const previousTeamIds = [...new Set(currentRows.map((row) => row.team_id))];
+  const currentSet = new Set(previousTeamIds);
+  const toRemove = currentRows.filter((row) => !nextSet.has(row.team_id));
+  const toAdd = nextIds.filter((id) => !currentSet.has(id));
+
+  if (!toRemove.length && !toAdd.length) {
+    return { changed: false, previousTeamIds };
+  }
+
+  for (const row of toRemove) {
+    if (row.start_date > effectiveDate) {
+      throw new HttpError(400, nextIds.length ? "调组日期不能早于当前归属起始日" : "移出日期不能早于当前归属起始日");
+    }
+    if (row.start_date === effectiveDate) {
+      await client.query("DELETE FROM team_memberships WHERE id = $1", [row.id]);
+    } else {
+      await client.query("UPDATE team_memberships SET end_date = $1 WHERE id = $2", [
+        addDays(effectiveDate, -1),
+        row.id
+      ]);
+    }
+  }
+
+  for (const teamId of toAdd) {
+    await client.query(
+      "INSERT INTO team_memberships (user_id, team_id, start_date) VALUES ($1, $2, $3)",
+      [userId, teamId, effectiveDate]
+    );
+  }
+
+  return { changed: true, previousTeamIds };
+}

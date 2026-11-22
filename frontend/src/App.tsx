@@ -650,10 +650,10 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
     role: string;
     initialUsername: string;
     initialDisplayName: string;
-    initialTeamId: string;
+    initialTeamIds: string[];
     username: string;
     displayName: string;
-    teamId: string;
+    teamIds: string[];
     effectiveDate: string;
   } | null>(null);
   const [editError, setEditError] = useState("");
@@ -668,7 +668,7 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
     displayName: "",
     password: "",
     role: "ops",
-    teamId: "",
+    teamIds: [] as string[],
     membershipStart: today
   });
 
@@ -686,16 +686,20 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
     setScopeUser(null);
     setResetUser(null);
     setEditError("");
-    const currentTeamId = item.currentTeam?.id ?? "";
+    const currentTeamIds = item.currentTeams?.length
+      ? item.currentTeams.map((team) => team.id)
+      : item.currentTeam?.id
+        ? [item.currentTeam.id]
+        : [];
     setEditingUser({
       id: item.id,
       role: item.role,
       initialUsername: item.username,
       initialDisplayName: item.displayName,
-      initialTeamId: currentTeamId,
+      initialTeamIds: [...currentTeamIds].sort(),
       username: item.username,
       displayName: item.displayName,
-      teamId: currentTeamId,
+      teamIds: currentTeamIds,
       effectiveDate: today
     });
     scrollUserPanel();
@@ -832,14 +836,22 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
             const created = { name: form.displayName.trim() || form.username.trim(), role: roleLabel[form.role as keyof typeof roleLabel] ?? form.role };
             setUserPending(true); setUserError("");
             try {
-              await api.createUser({ ...form, managedTeamIds: form.role === "cs_supervisor" && form.teamId ? [form.teamId] : [] });
+              await api.createUser({
+                username: form.username,
+                displayName: form.displayName,
+                password: form.password,
+                role: form.role,
+                membershipStart: form.membershipStart,
+                teamIds: form.role === "cs_supervisor" ? [] : form.teamIds,
+                managedTeamIds: form.role === "cs_supervisor" ? form.teamIds : []
+              });
             } catch (err) {
               fail("开通账号失败", err, setUserError);
               return;
             } finally {
               setUserPending(false);
             }
-            setForm({ ...form, username: "", displayName: "", password: "" });
+            setForm({ ...form, username: "", displayName: "", password: "", teamIds: [] });
             onError("");
             toast.success(`已开通账号：${created.name}（${created.role}）`);
             await refreshAfterSave();
@@ -853,12 +865,27 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
               {Object.entries(roleLabel).filter(([key]) => key !== "assistant").map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
           </Field>
-          <Field label="所属/负责小组">
-            <select value={form.teamId} onChange={(e) => setForm({ ...form, teamId: e.target.value })}>
-              <option value="">不设置</option>
-              {teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
-            </select>
-          </Field>
+          <div className="field-label">
+            <span>所属/负责小组（可多选，不勾选则暂不分配）</span>
+            <div className="actions" style={{ marginTop: 6, flexWrap: "wrap" }}>
+              {teams.map((team) => (
+                <label className="row" key={team.id} style={{ width: "auto", marginRight: 12 }}>
+                  <input
+                    type="checkbox"
+                    checked={form.teamIds.includes(team.id)}
+                    disabled={userPending}
+                    onChange={(e) => setForm({
+                      ...form,
+                      teamIds: e.target.checked
+                        ? [...form.teamIds, team.id]
+                        : form.teamIds.filter((id) => id !== team.id)
+                    })}
+                  />
+                  {team.name}
+                </label>
+              ))}
+            </div>
+          </div>
           <button type="submit" disabled={userPending}>{userPending ? "保存中…" : "开通账号"}</button>
           {userError && <p className="action-error" role="alert">{userError}</p>}
         </form>
@@ -867,7 +894,8 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
           if (savingUser) return;
           const target = editingUser;
           const profileChanged = target.username !== target.initialUsername || target.displayName.trim() !== target.initialDisplayName;
-          const teamChanged = target.role !== "cs_supervisor" && target.teamId !== target.initialTeamId;
+          const sortedNextTeams = [...new Set(target.teamIds)].sort();
+          const teamChanged = target.role !== "cs_supervisor" && JSON.stringify(sortedNextTeams) !== JSON.stringify(target.initialTeamIds);
           setSavingUser(target.id); setEditError("");
           let profileSaved = false;
           try {
@@ -877,7 +905,7 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
             }
             if (teamChanged) {
               await api.transferUser(target.id, {
-                teamId: target.teamId || "",
+                teamIds: sortedNextTeams,
                 effectiveDate: target.effectiveDate || today
               });
             }
@@ -885,7 +913,7 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
             const summary = target.username !== target.initialUsername
               ? "账号信息已更新，下次登录请使用新登录名"
               : teamChanged
-                ? (target.teamId ? "账号信息与所属小组已更新" : "账号信息已更新，已移出原小组")
+                ? (sortedNextTeams.length ? "账号信息与所属小组已更新" : "账号信息已更新，已移出原小组")
                 : "账号信息已更新";
             toast.success(summary);
             await refreshAfterSave();
@@ -906,9 +934,27 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
           <label className="row field-label">登录名<input required minLength={3} maxLength={32} pattern="[a-z0-9][a-z0-9_-]{2,31}" value={editingUser.username} disabled={!!savingUser} autoCapitalize="none" autoCorrect="off" onChange={event => setEditingUser({ ...editingUser, username: event.target.value.toLowerCase() })} /></label>
           {editingUser.role !== "cs_supervisor" && (
             <>
-              <label className="row field-label">所属小组<select disabled={!!savingUser} value={editingUser.teamId} onChange={event => setEditingUser({ ...editingUser, teamId: event.target.value })}><option value="">不设置</option>{teams.map(team => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label>
-              {editingUser.teamId !== editingUser.initialTeamId && (
-                <label className="row field-label">{editingUser.teamId ? "小组生效日期" : "移出小组生效日期"}<input type="date" required value={editingUser.effectiveDate} disabled={!!savingUser} onChange={event => setEditingUser({ ...editingUser, effectiveDate: event.target.value })} /></label>
+              <div className="field-label">
+                <span>所属小组（可多选，支持同时归属多个小组）</span>
+                {teams.map(team => (
+                  <label className="row" key={team.id}>
+                    <input
+                      type="checkbox"
+                      checked={editingUser.teamIds.includes(team.id)}
+                      disabled={!!savingUser}
+                      onChange={event => setEditingUser({
+                        ...editingUser,
+                        teamIds: event.target.checked
+                          ? [...editingUser.teamIds, team.id]
+                          : editingUser.teamIds.filter(id => id !== team.id)
+                      })}
+                    />
+                    {team.name}
+                  </label>
+                ))}
+              </div>
+              {JSON.stringify([...new Set(editingUser.teamIds)].sort()) !== JSON.stringify(editingUser.initialTeamIds) && (
+                <label className="row field-label">{editingUser.teamIds.length ? "小组生效日期" : "移出小组生效日期"}<input type="date" required value={editingUser.effectiveDate} disabled={!!savingUser} onChange={event => setEditingUser({ ...editingUser, effectiveDate: event.target.value })} /></label>
               )}
             </>
           )}
@@ -958,7 +1004,7 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
                   <td data-label="姓名">{item.displayName}</td>
                   <td data-label="登录名">{item.username}</td>
                   <td data-label="角色"><select aria-label={`${item.username}角色`} disabled={!!savingUser} value={item.role} onChange={async (e) => { if (savingUser) return; const role = e.target.value; setSavingUser(item.id); try { await api.updateUser(item.id, { role }); onError(""); toast.success(`已将 ${item.displayName} 的角色改为${roleLabel[role as keyof typeof roleLabel] ?? role}`); await refreshAfterSave(); } catch (err) { fail(`${item.displayName} 角色未修改`, err); } finally { setSavingUser(""); } }}>{Object.entries(roleLabel).filter(([key]) => key !== "assistant" || item.role === "assistant").map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></td>
-                  <td data-label="小组 / 管理范围">{item.role === "cs_supervisor" ? <div className="admin-scope-cell"><p>{(item.managedTeamIds ?? []).map((id) => teams.find((team) => team.id === id)?.name || id).join("、") || "暂未分配小组"}</p><button className="secondary" type="button" disabled={!!savingUser} onClick={() => openScopePanel(item)}>设置负责小组</button></div> : <div className="admin-scope-cell"><p>{item.currentTeam?.name ?? "未分配"}</p><button className="secondary" type="button" disabled={!!savingUser} onClick={() => openEditPanel(item)}>调整小组</button></div>}</td>
+                  <td data-label="小组 / 管理范围">{item.role === "cs_supervisor" ? <div className="admin-scope-cell"><p>{(item.managedTeamIds ?? []).map((id) => teams.find((team) => team.id === id)?.name || id).join("、") || "暂未分配小组"}</p><button className="secondary" type="button" disabled={!!savingUser} onClick={() => openScopePanel(item)}>设置负责小组</button></div> : <div className="admin-scope-cell"><p>{(item.currentTeams?.length ? item.currentTeams.map((t) => t.name).join("、") : item.currentTeam?.name) || "未分配"}</p><button className="secondary" type="button" disabled={!!savingUser} onClick={() => openEditPanel(item)}>调整小组</button></div>}</td>
                   <td data-label="状态"><button className="secondary" type="button" disabled={!!savingUser} onClick={async () => { if (savingUser) return; setSavingUser(item.id); try { await api.updateUser(item.id, { isActive: !item.isActive }); onError(""); toast.success(`已${item.isActive ? "停用" : "启用"}账号：${item.displayName}`); await refreshAfterSave(); } catch (err) { fail(`${item.displayName} ${item.isActive ? "停用" : "启用"}失败`, err); } finally { setSavingUser(""); } }}>{savingUser === item.id ? "保存中…" : item.isActive ? "停用账号" : "启用账号"}</button></td>
                   <td data-label="操作"><div className="actions">
                     <button className="secondary" type="button" disabled={!!savingUser} onClick={() => openEditPanel(item)}>修改信息</button>
