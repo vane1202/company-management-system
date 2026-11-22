@@ -2,7 +2,7 @@ import type { CsAccount, Currency, Order, OrderRecord } from "../api";
 import { convertCustomerPayments, type CustomerPaymentRow } from "./adExchangeRates";
 
 export type Source = { identity: Order; record: OrderRecord };
-export type Selection = { from: string; to: string; operator: string; account: string; persona: string; room: string };
+export type Selection = { from: string; to: string; operator: string; account: string; persona: string; room: string; team?: string };
 export const UNKNOWN = "待确认归属";
 export function amount(value: string): bigint {
   if (!/^\d+(?:\.\d{1,2})?$/.test(value)) throw Error("金额待核对");
@@ -11,6 +11,13 @@ export function amount(value: string): bigint {
 }
 export const money = (value: bigint) => `${value / 100n}.${String(value % 100n).padStart(2, "0")}`;
 export const operatorOf = (s: Source) => s.record.details?.operatorName.trim() || s.identity.operatorName?.trim() || UNKNOWN;
+export function teamOf(s: Source, accounts: CsAccount[] = []): string {
+  const direct = s.identity.teamName?.trim();
+  if (direct) return direct;
+  const op = operatorOf(s);
+  const matched = accounts.find(a => a.id === s.identity.userId || (a.holderName && a.holderName === op));
+  return matched?.teamName?.trim() || "";
+}
 export function channelOf(s: Source): "live" | "private" {
   return s.record.details?.dealChannel === "private" || s.identity.dealChannel === "private" ? "private" : "live";
 }
@@ -19,10 +26,11 @@ export function shiftDay(date: string, n: number) {
   const clock = new Date(`${date}T00:00:00Z`); clock.setUTCDate(clock.getUTCDate() + n);
   return clock.toISOString().slice(0, 10);
 }
-export function matching(s: Source, f: Selection) {
+export function matching(s: Source, f: Selection, accounts: CsAccount[] = []) {
   return (!f.operator || operatorOf(s) === f.operator) && (!f.account || s.identity.userId === f.account)
     && (!f.persona || (s.identity.personaCode || s.identity.personaName) === f.persona)
-    && (!f.room || s.identity.liveRoomCode === f.room);
+    && (!f.room || s.identity.liveRoomCode === f.room)
+    && (!f.team || teamOf(s, accounts) === f.team);
 }
 const activeOrder = (s: Source) => !s.record.order.cancelled && s.record.order.status !== "refunded";
 export function booking(s: Source) {
@@ -74,10 +82,10 @@ export async function convert(rows: CustomerPaymentRow[], quote?: Parameters<typ
 }
 export function aggregate(sources: Source[], f: Selection, accounts: CsAccount[] = []) {
   // Personal/account focus must not turn a person's share of the team into 100%.
-  const teamValid=sources.filter(s=>matching(s,{...f,operator:"",account:""})&&inRange(s.record.order.business_date,f.from,f.to)&&activeOrder(s));
+  const teamValid=sources.filter(s=>matching(s,{...f,operator:"",account:""},accounts)&&inRange(s.record.order.business_date,f.from,f.to)&&activeOrder(s));
   const teamUnknownBookings=teamValid.filter(s=>booking(s)===null).length;
   const teamTurnover=teamValid.reduce((n,s)=>n+(booking(s)||0n),0n);
-  const scoped = sources.filter(s => matching(s, f));
+  const scoped = sources.filter(s => matching(s, f, accounts));
   const bookings = scoped.filter(s => inRange(s.record.order.business_date, f.from, f.to));
   const valid = bookings.filter(activeOrder);
   const unknownBookings = valid.filter(s => booking(s) === null).length;
@@ -86,7 +94,7 @@ export function aggregate(sources: Source[], f: Selection, accounts: CsAccount[]
   const pending = scoped.flatMap(s => pendingFor(s, f.to));
   const names = new Set(scoped.map(operatorOf));
   // Current holders can have zero business; they never replace the order's historical operator.
-  if (!f.persona && !f.room) for (const a of accounts) if ((!f.account || a.id === f.account) && a.holderName && (!f.operator || a.holderName === f.operator)) names.add(a.holderName);
+  if (!f.persona && !f.room) for (const a of accounts) if ((!f.account || a.id === f.account) && (!f.team || a.teamName === f.team) && a.holderName && (!f.operator || a.holderName === f.operator)) names.add(a.holderName);
   const sumBooking = (rows: Source[]) => rows.reduce((n,s)=>n+(booking(s)||0n),0n);
   const contributions = [...names].filter(name => !f.operator || name === f.operator).map(name => {
     const records = scoped.filter(s => operatorOf(s) === name);

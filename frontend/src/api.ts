@@ -303,6 +303,8 @@ export type Order = {
   displayName?: string;
   wechatId?: string | null;
   accountKind?: string;
+  teamId?: string | null;
+  teamName?: string | null;
   businessDate: string;
   orderRef: string;
   customerLabel?: string | null;

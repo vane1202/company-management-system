@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { api, type CsAccount, type Team } from "./api";
+import { CsLoginSetup } from "./CsLoginSetup";
 import { toErrorMessage } from "./errors";
 import { FillEntryLinks } from "./FillEntryLinks";
 import { createRequestGate } from "./requestGate";
@@ -11,6 +12,7 @@ const REFRESH_AFTER_SAVE_FAILED = "已保存，但列表刷新失败，请点刷
 
 
 export function CsAccountsPage({ supervisor = false }: { supervisor?: boolean }) {
+  const [section, setSection] = useState<"accounts" | "logins">("accounts");
   const [teams, setTeams] = useState<Team[]>([]);
   const [accounts, setAccounts] = useState<CsAccount[]>([]);
   const [teamId, setTeamId] = useState("");
@@ -60,9 +62,18 @@ export function CsAccountsPage({ supervisor = false }: { supervisor?: boolean })
     setPending(false);
   }
   return <section className="cs-accounts-page">
+    {supervisor && (
+      <div className="card" style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", justifyContent: "space-between" }}>
+        <div className="actions" role="tablist" aria-label="客服账号管理模块">
+          <button type="button" role="tab" aria-selected={section === "accounts"} className={section === "accounts" ? "" : "secondary"} onClick={() => setSection("accounts")}>接粉账号管理</button>
+          <button type="button" role="tab" aria-selected={section === "logins"} className={section === "logins" ? "" : "secondary"} onClick={() => setSection("logins")}>客服登录账号管理</button>
+        </div>
+      </div>
+    )}
+    {supervisor && section === "logins" ? <CsLoginSetup /> : <>
     <div className="card"><h2>{supervisor ? "客服账号管理" : "客服接待账号"}</h2><p className="notice">一个公司客服接待账号对应一份长期业务档案。换人不换号，数据继续积累在原账号下；员工工资仍按员工维护。账号持有人只记录当前负责人，改姓名不改变历史归属。</p>
       {error && <p className="error" role="alert">{error}</p>}{message && <p className="ok" role="status">{message}</p>}
-      <form className="review-card" onSubmit={async e=>{e.preventDefault();if(pending)return;setPending(true);setError('');setMessage('');try{const holderName=newAccount.holderName.trim();if(!holderName)throw new Error('请填写账号持有人');await api.createCsAccount({...newAccount,teamId,holderName,phoneLabel:newAccount.phoneLabel.trim(),accountIdentifier:newAccount.accountIdentifier.trim()});await refresh();setNewAccount({...newAccount,accountIdentifier:'',phoneLabel:'',holderName:''});setMessage('接待账号已预先录入，可发放登记码让客服选择。');}catch(e){setError(toErrorMessage(e));}finally{setPending(false);}}}><h3>预先录入接待账号</h3><div className="grid two"><label className="row">所属小组<select required value={teamId} onChange={e=>setTeamId(e.target.value)}><option value="">选择小组</option>{teams.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></label><label className="row">聊天平台<select value={newAccount.platform} onChange={e=>setNewAccount({...newAccount,platform:e.target.value as 'whatsapp'|'messenger',accountIdentifier:''})}><option value="whatsapp">WhatsApp</option><option value="messenger">Messenger</option></select></label><label className="row">{newAccount.platform==='whatsapp'?'WhatsApp国际号码':'Messenger主页ID／用户名'}<input required type={newAccount.platform==='whatsapp'?'tel':'text'} inputMode={newAccount.platform==='whatsapp'?'tel':'text'} maxLength={256} autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder={newAccount.platform==='whatsapp'?'+60123456789 或 wa.me 链接':'主页ID、用户名或 https://m.me/…'} value={newAccount.accountIdentifier} onChange={e=>setNewAccount({...newAccount,accountIdentifier:e.target.value})}/></label><label className="row">账号持有人<input required maxLength={32} autoComplete="name" placeholder="当前负责这个账号的客服姓名" value={newAccount.holderName} onChange={e=>setNewAccount({...newAccount,holderName:e.target.value})}/></label><label className="row">设备备注（可选）<input maxLength={64} value={newAccount.phoneLabel} onChange={e=>setNewAccount({...newAccount,phoneLabel:e.target.value})}/></label></div><button disabled={pending||!teamId}>保存接待账号</button></form>
+      <form className="review-card" onSubmit={async e=>{e.preventDefault();if(pending)return;setPending(true);setError('');setMessage('');try{const holderName=newAccount.holderName.trim();if(!holderName)throw new Error('请填写账号持有人');await api.createCsAccount({...newAccount,teamId,holderName,phoneLabel:newAccount.phoneLabel.trim(),accountIdentifier:newAccount.accountIdentifier.trim()});await refresh();setNewAccount({...newAccount,accountIdentifier:'',phoneLabel:'',holderName:''});setMessage('接粉账号已预先录入，可发放登记码让客服选择。');}catch(e){setError(toErrorMessage(e));}finally{setPending(false);}}}><h3>新增接粉账号</h3><div className="grid two"><label className="row">所属小组<select required value={teamId} onChange={e=>setTeamId(e.target.value)}><option value="">选择小组</option>{teams.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></label><label className="row">聊天平台<select value={newAccount.platform} onChange={e=>setNewAccount({...newAccount,platform:e.target.value as 'whatsapp'|'messenger',accountIdentifier:''})}><option value="whatsapp">WhatsApp</option><option value="messenger">Messenger</option></select></label><label className="row">{newAccount.platform==='whatsapp'?'WhatsApp国际号码':'Messenger主页ID／用户名'}<input required type={newAccount.platform==='whatsapp'?'tel':'text'} inputMode={newAccount.platform==='whatsapp'?'tel':'text'} maxLength={256} autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder={newAccount.platform==='whatsapp'?'+60123456789 或 wa.me 链接':'主页ID、用户名或 https://m.me/…'} value={newAccount.accountIdentifier} onChange={e=>setNewAccount({...newAccount,accountIdentifier:e.target.value})}/></label><label className="row">账号持有人<input required maxLength={32} autoComplete="name" placeholder="当前负责这个账号的客服姓名" value={newAccount.holderName} onChange={e=>setNewAccount({...newAccount,holderName:e.target.value})}/></label><label className="row">设备备注（可选）<input maxLength={64} value={newAccount.phoneLabel} onChange={e=>setNewAccount({...newAccount,phoneLabel:e.target.value})}/></label></div><button disabled={pending||!teamId}>保存接粉账号</button></form>
       <form onSubmit={(event) => { event.preventDefault(); issue(); }}>
         <div className="row"><label htmlFor="cs-code-team">账号选择码授权小组</label><select id="cs-code-team" required value={teamId} onChange={(e) => setTeamId(e.target.value)}><option value="">请选择小组</option>{teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></div>
         <button type="submit" disabled={pending || !teamId}>生成本组账号选择码</button>
@@ -111,5 +122,6 @@ export function CsAccountsPage({ supervisor = false }: { supervisor?: boolean })
       {!accounts.length && <p className="notice">尚无接待账号，请先按真实名单录入WhatsApp或Messenger账号。</p>}
       <div className="grid two">{accounts.filter((a) => `${a.wechatId} ${a.holderName ?? ""} ${a.phoneLabel ?? ""}`.toLowerCase().includes(filter.toLowerCase())).map((account) => <article className="review-card cs-account-card" key={account.id}><h3>{account.wechatId}</h3><p>持有人：{account.holderName || "未填写"}</p><p>{account.phoneLabel || "未填设备备注"} · {account.teamName || "无当前小组"}</p><p className={account.isActive ? "ok" : "notice"}>{account.isActive ? "启用中" : "已停用"}</p><div className="actions"><button className="secondary" disabled={pending} onClick={() => { setSelected(null); setEditing(account); setEditForm({ accountIdentifier: account.accountIdentifier??account.wechatId, phoneLabel: account.phoneLabel || "", holderName: account.holderName || "", teamId: account.teamId || "" }); setIssued(null); scrollActionPanel(); }}>更新资料</button><button disabled={pending || !account.isActive} onClick={() => { setEditing(null); setSelected(account); setIssued(null); scrollActionPanel(); }}>重新登记</button><button className="secondary" disabled={pending} onClick={() => toggle(account)}>{account.isActive ? "停用" : "启用"}</button></div></article>)}</div>
     </div>{DemoTenurePanel && <Suspense fallback={<p className="notice">正在读取账号使用历史。</p>}><DemoTenurePanel accounts={accounts} /></Suspense>}<button className="secondary" type="button" disabled={pending} onClick={() => refresh().catch((err) => setError(toErrorMessage(err)))}>刷新接待账号列表</button>{!supervisor && <FillEntryLinks />}
+    </>}
   </section>;
 }

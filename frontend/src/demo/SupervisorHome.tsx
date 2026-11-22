@@ -9,7 +9,7 @@ import { InfoTip } from "../InfoTip";
 import { dashboardPresetRange } from "../dates";
 import { PeriodToolbar, type StandardPreset } from "../PeriodToolbar";
 import { customerStatus, customerTags, useCustomerCrm } from "./customerCrm";
-import { aggregate, money, type Source } from "./supervisorPerformanceData";
+import { aggregate, money, teamOf, type Source } from "./supervisorPerformanceData";
 import type { AssessmentFoundation } from "./assessmentFoundation";
 import { customerDesk, openingSnapshot, supervisorTeamIds, type DeskCustomer } from "./supervisorHomeModel";
 
@@ -29,6 +29,7 @@ export function SupervisorWorkbench({ today, onNavigate }: { today: string; onNa
   const period = customRange ?? dashboardPresetRange(today, preset);
   const [view, setView] = useState<"home" | "customers">("home");
   const [personId, setPersonId] = useState("");
+  const [selectedTeam, setSelectedTeam] = useState("");
   const [home, setHome] = useState<Awaited<ReturnType<typeof loadSupervisorHome>> | null>(null);
   const [foundation, setFoundation] = useState<AssessmentFoundation | null>(null);
   const [sources, setSources] = useState<Source[] | null>(null);
@@ -66,7 +67,13 @@ export function SupervisorWorkbench({ today, onNavigate }: { today: string; onNa
   const missing = teams?.reduce((sum, team) => sum + team.missingCount, 0);
   const teamIds = import.meta.env.MODE === "demo" ? supervisorTeamIds : [...new Set((foundation?.employees ?? []).map((employee) => employee.teamId))];
   const opening = foundation ? openingSnapshot(foundation.leads ?? [], foundation.employees ?? [], period, teamIds) : null;
-  const stats = sources && accounts ? aggregate(sources, { from: period.from, to: period.to, operator: "", account: "", persona: "", room: "" }, accounts) : null;
+  const perfTeams = [...new Set([
+    ...(teams ?? []).map((t) => t.teamName),
+    ...(accounts ?? []).map((a) => a.teamName || ""),
+    ...(sources ?? []).map((s) => teamOf(s, accounts ?? []))
+  ].filter(Boolean))].sort((a, b) => a.localeCompare(b, "zh-CN"));
+  const activeTeam = selectedTeam && perfTeams.includes(selectedTeam) ? selectedTeam : "";
+  const stats = sources && accounts ? aggregate(sources, { from: period.from, to: period.to, operator: "", account: "", persona: "", room: "", team: activeTeam }, accounts) : null;
   const customers: DeskCustomer[] = crm.state.customers.filter((customer) => teamIds.includes(customer.teamId)).map((customer) => ({
     id: customer.id, name: customer.name, employeeId: customer.employeeId, employeeName: customer.employeeName, spendTier: customer.spendTier,
     status: customerStatus(crm.state, customer), pending: crm.state.reviews.some((review) => review.customerId === customer.id && review.status === "pending"),
@@ -114,7 +121,8 @@ export function SupervisorWorkbench({ today, onNavigate }: { today: string; onNa
           <footer className="supervisor-card-actions"><button type="button" onClick={() => onNavigate("summary")}>加粉明细</button><button type="button" onClick={() => onNavigate("reportHistory")}>填报历史</button>{!!missing && <button type="button" className="supervisor-attention" onClick={() => onNavigate("summary")}>未报粉 {missing}</button>}</footer>
         </section>
         <section className="supervisor-board" aria-label="本组业绩数据">
-          <header><button type="button" className="supervisor-card-link" onClick={() => onNavigate("orders")}><h2>本组业绩数据</h2><span aria-hidden="true">›</span></button><InfoTip label="首页业绩口径" text="只统计今日开单。直播间是料价加代购费，私推只计料价。贡献按开单时的经办客服，换账号不改旧单。" /></header>
+          <header><button type="button" className="supervisor-card-link" onClick={() => onNavigate("orders")}><h2>本组业绩数据</h2><span aria-hidden="true">›</span></button><InfoTip label="首页业绩口径" text="按所选日期统计开单。直播间是料价加代购费，私推只计料价。贡献按开单时的经办客服，换账号不改旧单。" /></header>
+          {perfTeams.length > 1 && <div className="supervisor-card-actions" role="group" aria-label="按小组筛选业绩" style={{ marginTop: 0, marginBottom: 8 }}><button type="button" className={activeTeam === "" ? "" : "secondary"} aria-pressed={activeTeam === ""} onClick={() => setSelectedTeam("")}>全部小组</button>{perfTeams.map((name) => <button type="button" key={name} className={activeTeam === name ? "" : "secondary"} aria-pressed={activeTeam === name} onClick={() => setSelectedTeam(name)}>{name}</button>)}</div>}
           <div className="supervisor-figures"><Figure label="直播间开单" value={stats ? (stats.unknownLive ? "待核对" : yuan(stats.liveTurnover)) : loading ? "…" : "—"} /><Figure label="客服私推" value={stats ? yuan(stats.privateTurnover) : loading ? "…" : "—"} /><Figure label="有效开单" value={stats ? stats.valid.length + " 笔" : loading ? "…" : "—"} /></div>
           <footer className="supervisor-card-actions"><button type="button" onClick={() => onNavigate("orders")}>业绩明细</button></footer>
         </section>

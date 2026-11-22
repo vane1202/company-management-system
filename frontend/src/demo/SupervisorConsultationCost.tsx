@@ -13,6 +13,14 @@ export default function SupervisorConsultationCost({ today, refresh }: { today: 
   const [error, setError] = useState(""), [loading, setLoading] = useState(true);
   const revision = useReferenceQuotes();
   useEffect(() => {
+    if (import.meta.env.MODE !== "demo") {
+      const unlinked: Daily = { date: today, status: "unlinked", spendUsd: null, consultCount: null, recordCount: 0 };
+      setData({ version: "supervisor-consultation-cost/v1", scope: "team", team: { id: "", name: "本组" }, current: unlinked, previous: unlinked, definition: "仅统计本组已确认关联的广告户；关联待补时不使用公司平均值。" });
+      setValues([null, null]);
+      setError("");
+      setLoading(false);
+      return;
+    }
     const controller = new AbortController(); setData(null); setValues(null); setError(""); setLoading(true);
     fetch("/api/demo/supervisor-consultation-cost?date=" + encodeURIComponent(today), { signal: controller.signal, cache: "no-store" }).then(async response => {
       const payload = await response.json();
