@@ -4,7 +4,7 @@ import { toErrorMessage } from "./errors";
 import { toast } from "./Toast";
 
 type Team = { id: string; name: string };
-type Staff = { id: string; username: string; displayName: string; isActive: boolean; mustChangePassword: boolean; teamId: string; teamName: string };
+type Staff = { id: string; username: string; displayName: string; isActive: boolean; mustChangePassword: boolean; teamId: string; teamIds?: string[]; teamName: string };
 type Issued = { username: string; displayName: string; password: string };
 
 export function CsLoginSetup() {
@@ -14,13 +14,20 @@ export function CsLoginSetup() {
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const [issued, setIssued] = useState<Issued | null>(null);
-  const [form, setForm] = useState({ username: "", displayName: "", password: "", teamId: "" });
+  const [form, setForm] = useState({ username: "", displayName: "", password: "", teamIds: [] as string[] });
+  const [editingUser, setEditingUser] = useState<Staff | null>(null);
+  const [editingTeamIds, setEditingTeamIds] = useState<string[]>([]);
+  const [savingTeamId, setSavingTeamId] = useState("");
+  const [editError, setEditError] = useState("");
 
   async function refresh() {
     const data = await api.csLogins();
     setTeams(data.teams);
     setUsers(data.users);
-    setForm((current) => ({ ...current, teamId: current.teamId || data.teams[0]?.id || "" }));
+    setForm((current) => ({
+      ...current,
+      teamIds: current.teamIds.length ? current.teamIds : (data.teams[0]?.id ? [data.teams[0].id] : [])
+    }));
     setLoaded(true);
   }
 
@@ -53,13 +60,17 @@ export function CsLoginSetup() {
         <form className="cs-login-form" onSubmit={async (event) => {
           event.preventDefault();
           if (pending) return;
-          const next = { username: form.username.trim().toLowerCase(), displayName: form.displayName.trim(), password: form.password, teamId: form.teamId };
+          if (!form.teamIds.length) {
+            setError("请至少选择一个所属小组");
+            return;
+          }
+          const next = { username: form.username.trim().toLowerCase(), displayName: form.displayName.trim(), password: form.password, teamIds: form.teamIds };
           setPending(true);
           setError("");
           try {
             await api.createCsLogin(next);
             setIssued({ username: next.username, displayName: next.displayName, password: next.password });
-            setForm({ username: "", displayName: "", password: "", teamId: form.teamId });
+            setForm({ username: "", displayName: "", password: "", teamIds: form.teamIds });
             toast.success("已开通 " + next.displayName + "，请登录一次并修改密码");
             await refresh();
           } catch (err) {
@@ -73,7 +84,27 @@ export function CsLoginSetup() {
           <label className="row">登录名<input required minLength={3} maxLength={32} pattern="[a-z0-9][a-z0-9_-]{2,31}" autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder="小写字母、数字、_ 或 -" value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value.toLowerCase() })} /></label>
           <label className="row">姓名<input required maxLength={64} value={form.displayName} onChange={(event) => setForm({ ...form, displayName: event.target.value })} /></label>
           <label className="row">初始密码<input required type="password" minLength={10} maxLength={128} autoComplete="new-password" placeholder="至少 10 位，含字母和数字" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} /></label>
-          <label className="row">所属小组<select required value={form.teamId} onChange={(event) => setForm({ ...form, teamId: event.target.value })}>{teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label>
+          <div className="field-label">
+            <span>所属小组{teams.length > 1 ? "（可多选）" : ""}</span>
+            <div className="actions" style={{ marginTop: 6, flexWrap: "wrap" }}>
+              {teams.map((team) => (
+                <label className="row" key={team.id} style={{ width: "auto", marginRight: 12 }}>
+                  <input
+                    type="checkbox"
+                    checked={form.teamIds.includes(team.id)}
+                    disabled={pending}
+                    onChange={(event) => setForm({
+                      ...form,
+                      teamIds: event.target.checked
+                        ? [...form.teamIds, team.id]
+                        : form.teamIds.filter((id) => id !== team.id)
+                    })}
+                  />
+                  {team.name}
+                </label>
+              ))}
+            </div>
+          </div>
           <button type="submit" disabled={pending}>{pending ? "开通中…" : "新增客服账号"}</button>
           {error && <p className="action-error" role="alert">{error}</p>}
         </form>
@@ -89,6 +120,74 @@ export function CsLoginSetup() {
                   <strong>{user.displayName}</strong>
                   <span>{user.username} · {user.teamName}</span>
                   <span>{!user.isActive ? "已停用" : user.mustChangePassword ? "待主管改密" : "已设置密码"}</span>
+                  {teams.length > 1 && editingUser?.id !== user.id && (
+                    <div className="admin-team-actions">
+                      <button
+                        type="button"
+                        className="secondary"
+                        disabled={!!savingTeamId}
+                        onClick={() => {
+                          setEditingUser(user);
+                          setEditingTeamIds(user.teamIds?.length ? user.teamIds : [user.teamId]);
+                          setEditError("");
+                        }}
+                      >
+                        调整小组
+                      </button>
+                    </div>
+                  )}
+                  {editingUser?.id === user.id && (
+                    <form
+                      className="review-card"
+                      style={{ marginTop: 8, width: "100%" }}
+                      onSubmit={async (event) => {
+                        event.preventDefault();
+                        if (savingTeamId) return;
+                        if (!editingTeamIds.length) {
+                          setEditError("请至少保留一个所属小组");
+                          return;
+                        }
+                        setSavingTeamId(editingUser.id);
+                        setEditError("");
+                        try {
+                          await api.updateCsLoginTeams(editingUser.id, { teamIds: editingTeamIds });
+                          toast.success(`已更新 ${editingUser.displayName} 的所属小组`);
+                          setEditingUser(null);
+                          await refresh();
+                        } catch (err) {
+                          const text = toErrorMessage(err, "保存失败");
+                          setEditError(text);
+                          toast.error(`调整 ${editingUser.displayName} 小组失败：${text}`);
+                        } finally {
+                          setSavingTeamId("");
+                        }
+                      }}
+                    >
+                      <p className="notice">勾选所属小组（可多选，仅限你负责的小组范围内调整）：</p>
+                      <div className="actions" style={{ marginTop: 6, flexWrap: "wrap" }}>
+                        {teams.map((team) => (
+                          <label className="row" key={team.id} style={{ width: "auto", marginRight: 12 }}>
+                            <input
+                              type="checkbox"
+                              checked={editingTeamIds.includes(team.id)}
+                              disabled={!!savingTeamId}
+                              onChange={(event) => setEditingTeamIds(
+                                event.target.checked
+                                  ? [...editingTeamIds, team.id]
+                                  : editingTeamIds.filter((id) => id !== team.id)
+                              )}
+                            />
+                            {team.name}
+                          </label>
+                        ))}
+                      </div>
+                      {editError && <p className="action-error" role="alert">{editError}</p>}
+                      <div className="actions" style={{ marginTop: 8 }}>
+                        <button type="submit" disabled={!!savingTeamId}>{savingTeamId ? "保存中…" : "保存小组"}</button>
+                        <button type="button" className="secondary" disabled={!!savingTeamId} onClick={() => { setEditingUser(null); setEditError(""); }}>取消</button>
+                      </div>
+                    </form>
+                  )}
                 </li>
               ))}
             </ul>
