@@ -17,7 +17,7 @@ import "./role-workbenches.css";
 const modules = [
   { id: "leads", title: "新增客资登记", detail: "加粉详情·需求记录", icon: "fans" },
   { id: "library", title: "开单与售后", detail: "客户开单/售后记录", icon: "orders" },
-  { id: "performance", title: "个人业绩查询", detail: "直播间业绩 · 私推业绩", icon: "summary" }
+  { id: "performance", title: "个人业绩查询", detail: "直播间/私推业绩", icon: "summary" }
 ] as const;
 type ModuleId = typeof modules[number]["id"];
 type FillPage = "home" | ModuleId;
