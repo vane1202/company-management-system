@@ -87,6 +87,16 @@ export function App() {
     setError(""); setMobileNavOpen(false);
   }, [page, navigation.route.orderId, navigation.route.live]);
   useEffect(() => { setPageErrors({}); }, [user?.id, user?.role]);
+  useEffect(() => {
+    function redirectAttendance() {
+      if (/^\/fill\/attendance\/?$/.test(window.location.pathname)) {
+        window.history.replaceState(window.history.state, "", "/fill" + window.location.search);
+      }
+    }
+    redirectAttendance();
+    window.addEventListener("popstate", redirectAttendance);
+    return () => window.removeEventListener("popstate", redirectAttendance);
+  }, []);
 
   function applySession(nextUser: User, payload?: SessionMeta) {
     const meta = readSessionMeta(payload);

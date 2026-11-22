@@ -151,6 +151,10 @@ test('主管咨询成本只读且限本组，未关联不回退公司总数，�
  const linked=environment('cs_supervisor','',undefined,new Map(),[{teamId:'demo-team-a',account:'DEMO-ADS-01',from:'2026-01-01'}]);
  const scoped=await linked.json(path);
  assert.equal(scoped.body.current.spendUsd,'22.20');assert.equal(scoped.body.current.consultCount,5);
+ const date=scoped.body.current.date;
+ const period=await linked.json(path+'?from='+date+'&to='+date);
+ assert.equal(period.status,200);
+ assert.deepEqual(period.body.days,[scoped.body.current]);
  const ops=(await environment('ops').json('/api/demo/ops-analysis?account=DEMO-ADS-01')).body;
  assert.equal(scoped.body.current.spendUsd,ops.summary.spendUsd);assert.equal(scoped.body.current.consultCount,ops.summary.consultCount);
  assert.equal(JSON.stringify(scoped.body).includes('DEMO-ADS-02'),false);

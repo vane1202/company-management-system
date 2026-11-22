@@ -33,6 +33,7 @@ import { guardModuleWrites } from "./lib/modules.js";
 import { createCsAccountsRouter, createCsDeviceRegistrationRouter } from "./routes/csAccounts.js";
 import { createCsBindingsRouter } from "./routes/csBindings.js";
 import { createSupervisorFollowupsRouter } from "./routes/supervisorFollowups.js";
+import { createSupervisorConsultationRouter } from "./routes/supervisorConsultation.js";
 import { enforceRoleBoundary } from "./lib/access.js";
 import { restrictLanClients } from "./lib/lan.js";
 import { createOrderRecordsRouter } from "./routes/orderRecords.js";
@@ -155,6 +156,7 @@ export function createApp(db: Pool, config: AppConfig) {
   app.use("/api/cs-accounts", createCsAccountsRouter(db, config));
   app.use("/api/cs-device-bindings", createCsBindingsRouter(db, config));
   app.use("/api/supervisor/order-followups", createSupervisorFollowupsRouter(db, config));
+  app.use("/api/supervisor/consultation-cost", createSupervisorConsultationRouter(db, config));
   app.use("/api/fan-reports", guardModuleWrites(db, "fans"), createFanRouter(db, config));
   app.use("/api/fan-leads", guardModuleWrites(db, "fans"), createFanLeadsRouter(db, config));
   app.use("/api/admin", createAdminRouter(db));

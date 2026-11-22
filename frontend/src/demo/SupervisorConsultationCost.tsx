@@ -1,37 +1,71 @@
 import { useEffect, useState } from "react";
 import { InfoTip } from "../InfoTip";
-import { buildAccountTrends } from "./opsAccountTrendData";
+import { cents, money } from "../commerceUi";
+import { yuan } from "../dashboardDisplay";
+import { convertAdSpend, getReferenceQuote } from "./adExchangeRates";
 import { useReferenceQuotes } from "./useReferenceQuotes";
 
-type Daily = { date: string; status: "unlinked" | "ambiguous" | "empty" | "incomplete" | "zero_consultations" | "ready"; spendUsd: string | null; consultCount: number | null; recordCount: number };
-type CostData = { version: string; scope: "team"; team: { id: string; name: string }; current: Daily; previous: Daily; definition: string };
-const amount = (value: string) => "约 ¥" + Number(value).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const label = (daily: Daily) => ({ unlinked: "待关联", ambiguous: "归属待核对", empty: "未报", incomplete: "数据待补", zero_consultations: "暂无咨询", ready: "汇率待补" })[daily.status];
+type Status = "unlinked" | "ambiguous" | "empty" | "incomplete" | "zero_consultations" | "ready";
+type Daily = { date: string; status: Status; spendUsd: string | null; consultCount: number | null };
+const labels: Record<Status, string> = {
+  unlinked: "待关联", ambiguous: "归属待核对", empty: "未报", incomplete: "数据待补",
+  zero_consultations: "暂无咨询", ready: "汇率待补"
+};
+const definition = "按消耗日参考汇率折算广告消耗，合计后除以广告咨询次数。仅纳入本组已确认且数据齐全的日报。";
 
-export default function SupervisorConsultationCost({ today, refresh }: { today: string; refresh: number }) {
-  const [data, setData] = useState<CostData | null>(null), [values, setValues] = useState<(string | null)[] | null>(null);
-  const [error, setError] = useState(""), [loading, setLoading] = useState(true);
+export default function SupervisorConsultationCost({ from, to, refresh }: { from: string; to: string; refresh: number }) {
+  const [days, setDays] = useState<Daily[]>([]);
+  const [cost, setCost] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [converting, setConverting] = useState(false);
   const revision = useReferenceQuotes();
+
   useEffect(() => {
-    if (import.meta.env.MODE !== "demo") {
-      const unlinked: Daily = { date: today, status: "unlinked", spendUsd: null, consultCount: null, recordCount: 0 };
-      setData({ version: "supervisor-consultation-cost/v1", scope: "team", team: { id: "", name: "本组" }, current: unlinked, previous: unlinked, definition: "仅统计本组已确认关联的广告户；关联待补时不使用公司平均值。" });
-      setValues([null, null]);
-      setError("");
-      setLoading(false);
-      return;
-    }
-    const controller = new AbortController(); setData(null); setValues(null); setError(""); setLoading(true);
-    fetch("/api/demo/supervisor-consultation-cost?date=" + encodeURIComponent(today), { signal: controller.signal, cache: "no-store" }).then(async response => {
+    const controller = new AbortController();
+    setDays([]); setError(""); setLoading(true);
+    const path = import.meta.env.MODE === "demo" ? "/api/demo/supervisor-consultation-cost" : "/api/supervisor/consultation-cost";
+    fetch(path + "?" + new URLSearchParams({ from, to }), { signal: controller.signal, cache: "no-store" }).then(async response => {
       const payload = await response.json();
       if (!response.ok) throw Error(payload.error || "咨询成本读取失败");
-      if (payload.version !== "supervisor-consultation-cost/v1" || payload.scope !== "team") throw Error("咨询成本接口口径不匹配");
-      const result = payload as CostData;
-      const days = [result.previous, result.current];
-      const series = await buildAccountTrends(days.filter(day => day.status === "ready").map(day => ({ adAccountRef: "team", businessDate: day.date, spendUsd: day.spendUsd, consultCount: day.consultCount })), days.map(day => day.date), ["team"], "consultationCostCny");
-      if (!controller.signal.aborted) { setData(result); setValues(series[0].points.map(point => point.value)); }
-    }).catch(cause => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "咨询成本读取失败"); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
+      if (!Array.isArray(payload.days)) throw Error("咨询成本数据不完整");
+      if (!controller.signal.aborted) setDays(payload.days);
+    }).catch(cause => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "咨询成本读取失败"); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [today, refresh, revision]);
-  return <div className="supervisor-consultation-cost" aria-label="本组咨询成本"><div><span>咨询成本<InfoTip label="本组咨询成本口径" text={(data?.definition || "仅统计本组已确认关联的广告户；关联待补时不使用公司平均值。") + " 与运营端使用同一发生日参考汇率，金额为参考值；零咨询不计算。"} /></span><strong>{loading ? "读取中…" : error ? "暂不可用" : data ? values?.[1] !== null && values?.[1] !== undefined ? amount(values[1]) : label(data.current) : "—"}</strong></div><small>{error ? error : data?.current.status === "unlinked" ? "本组广告户对应关系待补" : data ? "昨日 " + (values?.[0] !== null && values?.[0] !== undefined ? amount(values[0]) : label(data.previous)) : ""}</small></div>;
+  }, [from, to, refresh]);
+
+  useEffect(() => {
+    let live = true;
+    const eligible = days.filter(day => day.status === "ready" || day.status === "zero_consultations");
+    const count = eligible.reduce((sum, day) => sum + (day.consultCount ?? 0), 0);
+    setCost(null);
+    setConverting(count > 0);
+    if (count > 0) {
+      const spend = eligible.flatMap(day => day.spendUsd === null ? [] : [{ date: day.date, amount: day.spendUsd }]);
+      const total = money(spend.reduce((sum, row) => sum + (cents(row.amount) ?? 0n), 0n));
+      void convertAdSpend(spend, total, date => getReferenceQuote(date, "USD"), eligible.length - spend.length).then(result => {
+        if (!live) return;
+        const totalCents = result.cny === null ? null : cents(result.cny);
+        if (totalCents !== null) setCost(money((totalCents + BigInt(Math.floor(count / 2))) / BigInt(count)));
+        setConverting(false);
+      });
+    }
+    return () => { live = false; };
+  }, [days, revision]);
+
+  const included = days.filter(day => day.status === "ready" || day.status === "zero_consultations");
+  const first = included[0]?.date.slice(5);
+  const last = included.at(-1)?.date.slice(5);
+  const status = (["ready", "zero_consultations", "ambiguous", "incomplete", "empty", "unlinked"] as const).find(value => days.some(day => day.status === value));
+  const excluded = days.length - included.length;
+  const coverage = included.length
+    ? `${first === last ? first : first + " 至 " + last} · 已纳入 ${included.length} 天${excluded ? `，其余 ${excluded} 天待关联、缺报或待补` : ""}`
+    : status === "unlinked" ? "所选日期的投放归属待补" : "";
+  return <div className="supervisor-consultation-cost" aria-label="本组咨询成本">
+    <div><span>咨询成本<InfoTip label="本组咨询成本口径" text={definition} /></span>
+      <strong>{loading || converting ? "读取中…" : error ? "暂不可用" : cost !== null ? "约 " + yuan(cost) : status ? labels[status] : "—"}</strong>
+    </div>
+    {(error || coverage) && <small>{error || coverage}</small>}
+  </div>;
 }

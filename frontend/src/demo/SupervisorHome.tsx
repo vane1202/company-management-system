@@ -117,7 +117,7 @@ export function SupervisorWorkbench({ today, onNavigate }: { today: string; onNa
           <header><button type="button" className="supervisor-card-link" onClick={() => onNavigate("summary")}><h2>本组加粉情况</h2><span aria-hidden="true">›</span></button><InfoTip label="加粉统计口径" text="开口转化率＝已明确需求 ÷ 正常沟通，按今日客户明细和客服本人统计。" /></header>
           <div className="supervisor-figures"><Figure label="今日进粉" value={added ?? (loading ? "…" : "—")} /><Figure label="正常沟通" value={opening ? opening.replied + " 人" : loading ? "…" : "—"} /><Figure label="开口转化率" value={opening?.replied ? opening.rate : loading ? "…" : "—"} /></div>
           {opening?.replied === 0 && <p className="supervisor-note">暂无正常沟通</p>}
-          <SupervisorConsultationCost today={today} refresh={tick}/>
+          <SupervisorConsultationCost from={period.from} to={period.to} refresh={tick}/>
           <footer className="supervisor-card-actions"><button type="button" onClick={() => onNavigate("summary")}>加粉明细</button><button type="button" onClick={() => onNavigate("reportHistory")}>填报历史</button>{!!missing && <button type="button" className="supervisor-attention" onClick={() => onNavigate("summary")}>未报粉 {missing}</button>}</footer>
         </section>
         <section className="supervisor-board" aria-label="本组业绩数据">

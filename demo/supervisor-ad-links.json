@@ -1,4 +1,5 @@
 [
+  { "teamId": "demo-team-a", "account": "DEMO-ADS-01", "from": "2026-11-15" },
   { "teamId": "registered-team-qiuju", "account": "DEMO-ADS-01", "from": "2026-11-15" },
   { "teamId": "registered-team-qiuju", "account": "DEMO-ADS-02", "from": "2026-11-15" },
   { "teamId": "registered-team-qiuju", "account": "DEMO-XP-ADS-01", "from": "2026-11-15" },

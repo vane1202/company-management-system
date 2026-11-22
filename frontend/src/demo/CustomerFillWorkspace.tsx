@@ -20,16 +20,15 @@ const modules = [
   { id: "performance", title: "个人业绩", detail: "直播间业绩 · 私推业绩", icon: "summary" }
 ] as const;
 type ModuleId = typeof modules[number]["id"];
-type FillPage = "home" | ModuleId | "retired";
+type FillPage = "home" | ModuleId;
 const pathPage = (): FillPage => {
   const key = window.location.pathname.replace(/\/$/, "").split("/").pop();
   if (key === "fans") return "leads";
   if (key === "orders" || key === "after-sales") return "library";
   if (key === "performance") return "performance";
-  if (key === "attendance") return "retired";
   return "home";
 };
-const titles: Record<FillPage, string> = { home: "客服工作台", leads: "新增客资登记", library: "现有客资库", performance: "个人业绩", retired: "入场登记已暂停" };
+const titles: Record<FillPage, string> = { home: "客服工作台", leads: "新增客资登记", library: "现有客资库", performance: "个人业绩" };
 
 export default function CustomerFillWorkspace({ today }: { today: string }) {
   const crm = useCustomerCrm(today);
@@ -67,7 +66,7 @@ export default function CustomerFillWorkspace({ today }: { today: string }) {
   const mine = actor ? crm.state.customers.filter(customer => customer.employeeId === actor.employeeId) : [];
   const customer = mine.find(item => item.id === customerId);
   function navigate(next: FillPage) {
-    const path = next === "leads" ? "/fill/fans" : next === "library" ? "/fill/orders" : next === "performance" ? "/fill/performance" : next === "retired" ? "/fill/attendance" : "/fill";
+    const path = next === "leads" ? "/fill/fans" : next === "library" ? "/fill/orders" : next === "performance" ? "/fill/performance" : "/fill";
     window.history.pushState({}, "", path + "?role=cs");
     setPage(next); setCustomerId("");
     window.scrollTo({ top: 0, behavior: "instant" });
@@ -86,8 +85,7 @@ export default function CustomerFillWorkspace({ today }: { today: string }) {
       {notice && <p className="notice" role="status">{notice}</p>}
     </section>
     {page === "home" && <nav className="fill-home-modules" aria-label="客服业务入口">{modules.map(item => <button key={item.id} type="button" className="fill-module-card" onClick={() => navigate(item.id)}><span className="fill-module-icon" aria-hidden="true"><DashboardIcon name={item.icon} /></span><span className="fill-module-copy"><strong>{item.title}</strong><small>{item.detail}</small></span><span className="fill-module-arrow" aria-hidden="true">›</span></button>)}</nav>}
-    {page === "retired" && <section className="card"><h2>入场登记已暂停</h2><p>直播间后台目前不能准确取得观看客户。开单率先不展示，开口转化率仍按正常沟通人数计算。</p></section>}
-    {page !== "home" && page !== "retired" && !actor && <section className="card"><h2>{loading ? "正在读取客服" : "先选择客服"}</h2><p>第一行选择客服，第二行选择该客服当前负责的接待账号。</p></section>}
+    {page !== "home" && !actor && <section className="card"><h2>{loading ? "正在读取客服" : "先选择客服"}</h2><p>第一行选择客服，第二行选择该客服当前负责的接待账号。</p></section>}
     {actor && page === "leads" && (selected ? <FanFillForm key={selected.id} today={today} account={selected} employees={[]} tenures={[]} onRegister={(leads, source) => {
       try {
         if (selected.holderSince && source.businessDate < selected.holderSince) throw Error("该填报日期早于当前客服接手日期，请由主管核对历史归属");

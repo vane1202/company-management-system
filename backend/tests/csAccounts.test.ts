@@ -301,6 +301,27 @@ describe("客服微信登记与数据归属（独立 PostgreSQL 库）", () => {
     await write(supervisor, "post", path, input).expect(409);
     expect((await supervisor.agent.get("/api/orders").expect(200)).body.orders[0]).toMatchObject({ id: order.id, amount: order.amount, status: order.status });
   });
+  it("主管咨询成本只汇总本人管理范围内的已确认日报", async () => {
+    const date = today;
+    const supervisor = await login("supervisor");
+    const both = await login("registrar");
+    const outsider = await login("unassigned");
+    const path = `/api/supervisor/consultation-cost?from=${date}&to=${date}`;
+    const report = async (name: string, amount: string, count: number) => (await db.query(
+      "INSERT INTO ops_reports(user_id,business_date,persona_name,promo_video_count,promo_cost,spend_usd,consult_count) VALUES($1,$2,$3,0,0,$4,$5) RETURNING id",
+      [ids.legacy, date, name, amount, count])).rows[0].id;
+    const own = await report("scope-one", "21.50", 2);
+    const shared = await report("scope-shared", "8.00", 0);
+    await report("unconfirmed", "90.00", 15);
+    await db.query(`INSERT INTO supervisor_consultation_sources(report_id,active_dates,team_ids)
+      VALUES($1,daterange($5::date,$5::date,'[]'),ARRAY[$3::uuid]),
+       ($2,daterange($5::date,$5::date,'[]'),ARRAY[$3::uuid,$4::uuid])`, [own, shared, ids.teamA, ids.teamB, date]);
+    expect((await supervisor.agent.get(path).expect(200)).body.days).toEqual([{date, status:"ready", spendUsd:"21.50", consultCount:2}]);
+    expect((await both.agent.get(path).expect(200)).body.days).toEqual([{date, status:"ready", spendUsd:"29.50", consultCount:2}]);
+    expect((await outsider.agent.get(path).expect(200)).body.days).toEqual([{date, status:"unlinked", spendUsd:null, consultCount:null}]);
+    await boss.agent.get(path).expect(403);
+    await supervisor.agent.get("/api/supervisor/consultation-cost?from=2026-02-30&to=2026-03-01").expect(400);
+  });
   it("系统保留最后一个管理员，避免权限调整后无人可维护", async () => {
     await write(admin, "patch", `/api/admin/users/${ids.admin}`, { isActive: false }).expect(400);
     await write(admin, "patch", `/api/admin/users/${ids.admin}`, { role: "boss" }).expect(400);

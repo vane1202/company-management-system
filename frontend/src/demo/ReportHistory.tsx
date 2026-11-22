@@ -1,11 +1,36 @@
 import { useEffect, useState } from "react";
 import { toErrorMessage } from "../errors";
+import { formatCents, signedCents, yuan } from "../dashboardDisplay";
 import { shiftDate } from "./assessmentFoundation";
 import { previewCorrection, reportKinds, type Correction, type HistoryData, type HistoryRecord, type ReportKind } from "./reportHistoryData";
 import "./report-history.css";
 
+const visibleKinds = ["fans", "orders", "after-sales"] as const;
+const pageSize = 12;
+
+function recordSummary(record: HistoryRecord): string {
+  const field = (key: string) => record.fields.find(item => item.key === key)?.value;
+  if (record.kind === "fans") {
+    const added = field("added") ?? field("msToday") ?? field("wsToday");
+    const valid = field("valid") ?? field("validToday");
+    return [added ? `新增 ${added} 人` : "", valid ? `有效 ${valid} 人` : ""].filter(Boolean).join(" · ");
+  }
+  const amount = field("amount") ?? field("legacyAmount");
+  if (amount) return yuan(amount);
+  if (record.kind === "orders") {
+    const items = record.fields.filter(item => item.key.endsWith(":price") || item.key.endsWith(":fee"));
+    const amounts = items.map(item => signedCents(item.value));
+    if (amounts.length && amounts.every(value => value !== null)) return yuan(formatCents(amounts.reduce<bigint>((sum, value) => sum + (value ?? 0n), 0n)));
+  }
+  if (record.kind === "after-sales") {
+    const costs = record.fields.filter(item => item.label === "公司成本（¥）").map(item => signedCents(item.value));
+    if (costs.length && costs.every(value => value !== null)) return yuan(formatCents(costs.reduce<bigint>((sum, value) => sum + (value ?? 0n), 0n)));
+  }
+  return "";
+}
+
 export default function ReportHistory({ today, accountId = "", kind = "fans", supervisor = false }: { today: string; accountId?: string; kind?: ReportKind; supervisor?: boolean }) {
-  const [category, setCategory] = useState(kind);
+  const [category, setCategory] = useState<ReportKind>(kind === "attendance" ? "fans" : kind);
   const [account, setAccount] = useState(accountId);
   const [range, setRange] = useState({ from: shiftDate(today, -29), to: today });
   const [data, setData] = useState<HistoryData | null>(null);
@@ -39,11 +64,11 @@ export default function ReportHistory({ today, accountId = "", kind = "fans", su
   const records = (data?.records ?? []).map((record) => [...changes].reverse().find((change) => change.record.id === record.id)?.record ?? record);
   const selected = records.find((record) => record.id === selectedId);
   const canEdit = supervisor && data?.canPreviewCorrections === true;
-  const lastPage = Math.max(0, Math.ceil(records.length / 10) - 1);
+  const lastPage = Math.max(0, Math.ceil(records.length / pageSize) - 1);
   const currentPage = Math.min(page, lastPage);
   return <section className="card report-history" aria-label="历史填报记录" aria-busy={loading}>
     <header className="rh-heading"><div><h2>{supervisor ? "本组填报历史管理" : reportKinds[currentKind] + "历史"}</h2><span className="hint">{import.meta.env.MODE === "demo" ? (supervisor ? "本组可更正" : "所选接待账号 · 只读") + " · " + (currentAccount.startsWith("registered-") ? "已登记账号" : "虚构业务示例") : (supervisor ? "正式记录 · 只读" : "所选接待账号 · 只读")}</span></div><button type="button" className="secondary" disabled={loading} onClick={() => setTick((value) => value + 1)}>刷新</button></header>
-    {supervisor && <div className="rh-categories" role="group" aria-label="历史填报类别">{Object.entries(reportKinds).map(([key, label]) => <button type="button" key={key} aria-pressed={category === key} onClick={() => setCategory(key as ReportKind)}>{label}</button>)}</div>}
+    {supervisor && <div className="rh-categories" role="group" aria-label="历史填报类别">{visibleKinds.map(key => <button type="button" key={key} aria-pressed={category === key} onClick={() => setCategory(key)}>{reportKinds[key]}</button>)}</div>}
     <div className="rh-filters">
       {supervisor && <label>接待账号<select aria-label="历史接待账号" value={account} onChange={(event) => setAccount(event.target.value)}><option value="">本组全部</option>{data?.accounts.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>}
       <label>开始日期<input aria-label="历史开始日期" type="date" max={range.to || today} value={range.from} onChange={(event) => setRange({ ...range, from: event.target.value })} /></label>
@@ -61,7 +86,7 @@ export default function ReportHistory({ today, accountId = "", kind = "fans", su
       {!!changes.filter((change) => change.record.id === selected.id).length && <details className="rh-audit"><summary>本次更正预览记录</summary>{changes.filter((change) => change.record.id === selected.id).map((change) => <article key={change.record.version}><h4>演示客服主管 · {new Date(change.at).toLocaleString("zh-CN")} · V{change.before.version} → V{change.record.version}</h4><p>更正原因：{change.reason}</p><ul>{change.record.fields.filter((field) => field.value !== change.before.fields.find((before) => before.key === field.key)?.value).map((field) => <li key={field.key}>{field.label}：{change.before.fields.find((before) => before.key === field.key)?.value || "空"} → {field.value || "空"}</li>)}</ul></article>)}<button type="button" className="secondary" onClick={() => setChanges((current) => current.filter((change) => change.record.id !== selected.id))}>还原这条预览</button></details>}
     </> : !error && validRange && <>
       <p className="hint">共 {records.length} 条 · 按业务日期排列</p>
-      <div className="rh-list">{records.slice(currentPage * 10, (currentPage + 1) * 10).map((record) => <button type="button" className="rh-record secondary" key={record.id} onClick={() => setSelectedId(record.id)}><span><strong>{record.title}</strong><small>{record.businessDate} · {record.employeeName}{record.employeeCode ? " · " + record.employeeCode : ""}</small><small>{record.accountLabel}</small></span><span>{changes.some((change) => change.record.id === record.id) ? "更正预览" : "查看明细"} ›</span></button>)}</div>
+      <div className="rh-list">{records.slice(currentPage * pageSize, (currentPage + 1) * pageSize).map((record) => <button type="button" className="rh-record secondary" key={record.id} onClick={() => setSelectedId(record.id)}><span><strong>{record.title}</strong><small>{record.businessDate} · {record.employeeName}{record.employeeCode ? " · " + record.employeeCode : ""}</small><small>{record.accountLabel}</small>{recordSummary(record) && <b className="rh-record-metric">{recordSummary(record)}</b>}</span><span>{changes.some((change) => change.record.id === record.id) ? "更正预览" : "查看明细"} ›</span></button>)}</div>
       {!records.length && <p className="notice">{import.meta.env.MODE === "demo" && currentAccount.startsWith("registered-") ? "此登记账号尚无已保存的填报记录。演示试填不会生成历史。" : "所选账号和日期范围暂无" + reportKinds[currentKind] + "历史。可调整日期或账号；未填报不记为0。"}</p>}
       {lastPage > 0 && <div className="actions"><button type="button" className="secondary" disabled={!currentPage} onClick={() => setPage(currentPage - 1)}>上一页</button><span>{currentPage + 1} / {lastPage + 1}</span><button type="button" className="secondary" disabled={currentPage === lastPage} onClick={() => setPage(currentPage + 1)}>下一页</button></div>}
     </>}

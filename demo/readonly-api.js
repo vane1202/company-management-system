@@ -615,7 +615,14 @@
       if(!window.CmsSupervisorConsultationCost)return json({error:'\u54a8\u8be2\u6210\u672c\u7ec4\u4ef6\u672a\u52a0\u8f7d'},503);
       try{
         const allRows=window.CmsOpsWorkspace?window.CmsOpsWorkspace.people.flatMap(person=>window.CmsOpsWorkspace.rowsFor(person,ops)):ops;
-        return json(window.CmsSupervisorConsultationCost.build({rows:allRows,links:window.CmsSupervisorAdLinks||[],team,date}));
+        const links=(window.CmsSupervisorAdLinks||[]).filter(link=>currentDirectory()||!link.teamId.startsWith("registered-"));
+        if(q.has('from')||q.has('to')){
+          const {from,to}=Object.fromEntries(q), span=(Date.parse(to)-Date.parse(from))/86400000;
+          if(!Number.isInteger(span)||span<0||span>366||to>today||shift(from,0)!==from||shift(to,0)!==to)throw Error('日期范围无效');
+          return json({days:Array.from({length:span+1},(_,i)=>
+            window.CmsSupervisorConsultationCost.build({rows:allRows,links,team,date:shift(from,i)}).current)});
+        }
+        return json(window.CmsSupervisorConsultationCost.build({rows:allRows,links,team,date}));
       }catch(error){return json({error:error.message||'\u54a8\u8be2\u6210\u672c\u6682\u4e0d\u53ef\u7528'},400);}
     }
     if(path==='/api/demo/ops-workspace'&&method==='GET')return role==='ops'?json({people:opsPeople,current:opsPerson(),accounts:ownAdAccounts(),loginEnabled:false}):json({error:'仅运营可查看本人工作配置'},403);
