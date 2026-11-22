@@ -4,10 +4,10 @@ import { textField } from './commerce.js';
 
 export function orderIdentity(b: Record<string, unknown>) {
   return {
-    personaCode: textField(b.personaCode, '人设ID', 64),
-    liveRoomCode: textField(b.liveRoomCode, '直播间编号', 64),
-    hostName: textField(b.hostName, '主播姓名', 64),
-    customerCode: textField(b.customerCode, '客户ID', 64)
+    personaCode: textField(b.personaCode ?? '', '人设ID', 64, false),
+    liveRoomCode: textField(b.liveRoomCode ?? '', '直播间编号', 64, b.dealChannel !== 'private'),
+    hostName: textField(b.hostName ?? '', '主播姓名', 64, b.dealChannel !== 'private'),
+    customerCode: textField(b.customerCode ?? '', '客户ID', 64, false)
   };
 }
 export async function effectiveDue(c: PoolClient, id: string, base: string): Promise<string> {

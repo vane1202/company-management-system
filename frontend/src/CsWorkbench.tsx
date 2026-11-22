@@ -211,6 +211,7 @@ export function CsWorkbench({
           today={today}
           editable
           platform={selectedAccount?.platform ?? user.servicePlatform}
+          defaultOperatorName={user.displayName}
         />
       )}
 
