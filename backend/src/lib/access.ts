@@ -27,8 +27,11 @@ export function enforceRoleBoundary(req: Request, _res: Response, next: NextFunc
     const cancellation = req.method === "POST" && new RegExp(`^/api/order-records/${uuidPart}/cancellations(/${uuidPart}/void)?/?$`, "i").test(req.path);
     const peopleRead = read && (req.path === "/api/assessment/foundation" || req.path === "/api/report-history" || req.path === "/api/customer-reviews");
     const reviewWrite = req.method === "POST" && /^\/api\/customer-reviews\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/?$/i.test(req.path);
-    const csLogins = req.path === "/api/cs-logins" && ["GET", "HEAD", "POST"].includes(req.method);
-    if (!metadata && !fans && !orders && !accounts && !cancellation && !peopleRead && !reviewWrite && !csLogins) return next(new HttpError(403, "客服主管仅可查看本组加粉、客资考核和接待账号，并开通本组客服登录"));
+    const csLogins = (req.path === "/api/cs-logins" && ["GET", "HEAD", "POST"].includes(req.method))
+      || (req.method === "PATCH" && new RegExp(`^/api/cs-logins/${uuidPart}/teams/?$`, "i").test(req.path));
+    const followups = req.path === "/api/supervisor/order-followups" && (read || req.method === "POST");
+    const bindings = /^\/api\/cs-device-bindings(?:\/(.*))?$/.test(req.path);
+    if (!metadata && !fans && !orders && !accounts && !cancellation && !peopleRead && !reviewWrite && !csLogins && !followups && !bindings) return next(new HttpError(403, "客服主管仅可操作负责小组内的业务"));
   }
   next();
 }

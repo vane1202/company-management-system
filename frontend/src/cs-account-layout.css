@@ -1,0 +1,10 @@
+.cs-staff-section { margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--line); }
+.cs-staff-grid { list-style: none; margin: 12px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.cs-staff-card { min-width: 0; display: grid; gap: 8px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); overflow-wrap: anywhere; }
+.cs-staff-heading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; align-items: baseline; }
+.cs-staff-heading small { color: var(--muted); }
+.cs-binding-panel { margin-top: 12px; }
+.cs-binding-panel summary { cursor: pointer; padding-block: 8px; }
+.cs-binding-panel .actions { flex-wrap: wrap; }
+@media (max-width: 1100px) { .cs-staff-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 799px) { .cs-staff-grid { grid-template-columns: minmax(0, 1fr); } }

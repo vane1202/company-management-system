@@ -709,6 +709,30 @@
       }
       return json({error:"不支持此操作"},405);
     }
+    const bindingPath=path.match(/^\/api\/cs-device-bindings(?:\/([^/]+)\/(approve|unbind))?$/);
+    if(bindingPath){
+      if(role!=="cs_supervisor")return json({error:"仅客服主管可管理演示绑定"},403);
+      const key="cms-demo-device-bindings-v1";
+      const roster=(currentDirectory()?.accounts || visibleAccounts()).filter(a=>a.isActive!==false);
+      const sample=roster[0];
+      let bindings;
+      try { bindings=JSON.parse(window.sessionStorage.getItem(key)||"null"); } catch {}
+      bindings=bindings || (sample?[{id:"demo-phone-request",accountId:sample.id,label:"演示工作手机",employeeName:"演示客服",state:"pending"}]:[]);
+      if(method==="GET")return json({bindings:bindings.filter(row=>roster.some(a=>a.id===row.accountId))});
+      const [,accountId,action]=bindingPath;
+      if(method==="POST"&&roster.some(a=>a.id===accountId)){
+        if(action==="approve"){
+          let body;
+          try { body=JSON.parse(options.body||"{}"); } catch { return json({error:"演示输入无效"},400); }
+          const row=bindings.find(row=>row.id===body?.bindingId&&row.accountId===accountId&&row.state==="pending");
+          if(!row)return json({error:"申请已处理"},409);
+          row.state="approved";
+        }else if(action==="unbind")bindings=bindings.filter(row=>row.accountId!==accountId);
+        window.sessionStorage.setItem(key,JSON.stringify(bindings));
+        return json({ok:true});
+      }
+      return json({error:"接待号不在可操作范围"},403);
+    }
     if(path==="/api/cs-logins"){
       if(role!=="cs_supervisor")return json({error:"仅客服主管可开通本组客服登录"},403);
       const key="cms-demo-cs-logins";
@@ -716,13 +740,17 @@
       try{saved=JSON.parse(window.sessionStorage.getItem(key)||"[]");}catch{saved=[];}
       if(!Array.isArray(saved))saved=[];
       const managed=visibleTeams();
+      if(!window.sessionStorage.getItem(key)&&managed[0]) saved=Array.from({length:4},(_,i)=>({
+        id:"demo-staff-"+i,username:"demo_cs_"+(i+1),displayName:"演示客服"+["甲","乙","丙","丁"][i],
+        teamId:managed[0].id,teamName:managed[0].name,isActive:true,mustChangePassword:i===0
+      }));
       const visible=saved.filter((user)=>managed.some((team)=>team.id===user.teamId));
       if(method==="GET"||method==="HEAD")return json({teams:managed,users:visible});
       if(method==="POST"){
         const username=String(body?.username||"").trim().toLowerCase();
         const displayName=String(body?.displayName||"").trim();
         const password=String(body?.password||"");
-        const teamId=String(body?.teamId||"");
+        const teamId=String(body?.teamIds?.[0]||body?.teamId||"");
         if(!/^[a-z0-9][a-z0-9_-]{2,31}$/.test(username))return json({error:"登录名须为 3-32 位小写字母、数字、下划线或短横线"},400);
         if(!displayName||displayName.length>64)return json({error:"姓名无效"},400);
         if(password.length<10||password.length>128||/\s/.test(password)||!/[A-Za-z]/.test(password)||!/\d/.test(password)||password.toLowerCase().includes(username))return json({error:"密码须为 10 到 128 位，同时包含字母和数字，且不能包含登录名"},400);

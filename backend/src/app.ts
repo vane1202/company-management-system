@@ -7,7 +7,8 @@ import connectPgSimple from "connect-pg-simple";
 import helmet from "helmet";
 import type { Pool } from "pg";
 import type { AppConfig } from "./config.js";
-import { isDatabaseUnavailable } from "./db.js";
+import { isDatabaseUnavailable, queryOne } from "./db.js";
+import { businessToday } from "./lib/dates.js";
 import { HttpError } from "./types.js";
 import { findUserById, toPublicUser } from "./users.js";
 import {
@@ -30,6 +31,8 @@ import { requireAuth } from "./routes/auth.js";
 import { createModulesRouter } from "./routes/modules.js";
 import { guardModuleWrites } from "./lib/modules.js";
 import { createCsAccountsRouter, createCsDeviceRegistrationRouter } from "./routes/csAccounts.js";
+import { createCsBindingsRouter } from "./routes/csBindings.js";
+import { createSupervisorFollowupsRouter } from "./routes/supervisorFollowups.js";
 import { enforceRoleBoundary } from "./lib/access.js";
 import { restrictLanClients } from "./lib/lan.js";
 import { createOrderRecordsRouter } from "./routes/orderRecords.js";
@@ -122,7 +125,21 @@ export function createApp(db: Pool, config: AppConfig) {
   app.use(
     attachActor(async (id) => {
       const user = await findUserById(db, id);
-      return user && user.is_active ? toPublicUser(user) : undefined;
+      if (!user?.is_active) return undefined;
+      if (user.account_kind === "cs_service" || user.account_kind === "cs_wechat") {
+        const invalid = await queryOne(db, `SELECT 1 FROM cs_device_bindings b
+          JOIN users e ON e.id=b.employee_id
+          WHERE b.account_id=$1 AND b.state='active' AND b.device_version=$2
+          AND (NOT e.is_active OR e.role<>'cs' OR e.must_change_password OR NOT EXISTS(
+            SELECT 1 FROM team_memberships a JOIN team_memberships m ON m.team_id=a.team_id
+            JOIN teams t ON t.id=a.team_id AND t.is_active
+            WHERE a.user_id=b.account_id AND m.user_id=b.employee_id
+              AND a.start_date<=$3 AND (a.end_date IS NULL OR a.end_date >= $3)
+              AND m.start_date<=$3 AND (m.end_date IS NULL OR m.end_date >= $3)))`,
+          [id, user.device_version, businessToday(new Date(), config.businessTimezone)]);
+        if (invalid) return undefined;
+      }
+      return toPublicUser(user);
     })
   );
 
@@ -136,6 +153,8 @@ export function createApp(db: Pool, config: AppConfig) {
   app.use("/api/finance/warehouse", guardModuleWrites(db, "orders"), createWarehouseRouter(db, config));
   app.use("/api/modules", createModulesRouter(db));
   app.use("/api/cs-accounts", createCsAccountsRouter(db, config));
+  app.use("/api/cs-device-bindings", createCsBindingsRouter(db, config));
+  app.use("/api/supervisor/order-followups", createSupervisorFollowupsRouter(db, config));
   app.use("/api/fan-reports", guardModuleWrites(db, "fans"), createFanRouter(db, config));
   app.use("/api/fan-leads", guardModuleWrites(db, "fans"), createFanLeadsRouter(db, config));
   app.use("/api/admin", createAdminRouter(db));

@@ -22,7 +22,6 @@ import { AdminHome } from "./RoleHomes";
 import {AdminWorkbench,SupervisorWorkbench} from "./demo/RoleWorkbenches";
 import { DashboardIcon } from "./DashboardIcon";
 import { IdentityName, useIdentityPrivacy } from "./IdentityName";
-import { CsDeviceRegistration } from "./CsDeviceRegistration";
 import { CsAccountsPage } from "./CsAccountsPage";
 import { fillEntries, fillEntryFromPath, canUseFillEntry } from "./fillEntries";
 import { type FormEvent, type ReactNode, lazy, Suspense, useCallback, useEffect, useId, useRef, useState } from "react";
@@ -158,6 +157,7 @@ export function App() {
         canChangePassword={canChangeCsPassword}
         onOpenPassword={() => setPasswordOpen(true)}
         onLogout={logout}
+        onDeviceActivated={hydrateUser}
         passwordCard={passwordOpen && canChangeCsPassword ? <SelfChangePasswordCard user={user} onClose={() => setPasswordOpen(false)} /> : null}
       />
     );
@@ -330,7 +330,6 @@ export function App() {
 
 
 function Login({ onLogin, entry }: { onLogin: (user: User, extras?: SessionMeta) => void | Promise<void>; entry: keyof typeof fillEntries | null }) {
-  const [employeeLogin, setEmployeeLogin] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -351,7 +350,6 @@ function Login({ onLogin, entry }: { onLogin: (user: User, extras?: SessionMeta)
     }
   }
 
-  if (entry && !employeeLogin) return <CsDeviceRegistration title={fillEntries[entry].title} onRegistered={onLogin} onEmployeeLogin={() => setEmployeeLogin(true)} />;
   return (
     <div className="login-wrap">
       <form className="card login-card" onSubmit={submit}>
@@ -369,7 +367,6 @@ function Login({ onLogin, entry }: { onLogin: (user: User, extras?: SessionMeta)
         </div>
         {error && <p className="error">{error}</p>}
         <button type="submit" disabled={pending}>{pending ? "登录中…" : "登录"}</button>
-        {entry && <button type="button" className="secondary" onClick={() => setEmployeeLogin(false)}>返回客服接待账号登记</button>}
       </form>
     </div>
   );

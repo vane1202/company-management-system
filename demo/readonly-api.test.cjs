@@ -684,3 +684,20 @@ test('登记名册仅供客服、主管和管理员；真实登记账号没有�
  }
  assert.deepEqual((await environment('cs').json('/api/demo/service-directory')).body,{enabled:false});
 });
+
+test('演示主管可批准和解除本组手机绑定，其他角色无权操作', async () => {
+  const supervisor = environment('cs_supervisor');
+  const path = '/api/cs-device-bindings';
+  const [row] = (await supervisor.json(path)).body.bindings;
+  const approval = path + '/' + row.accountId + '/approve';
+  const input = { bindingId: row.id };
+  assert.equal(row.state, 'pending');
+  assert.equal((await environment('cs').json(approval, 'POST', input)).status, 403);
+  assert.equal((await supervisor.json(path + '/outside/approve', 'POST', input)).status, 403);
+  assert.equal((await supervisor.json(approval, 'POST', input)).status, 200);
+  assert.equal((await supervisor.json(path)).body.bindings[0].state, 'approved');
+  assert.equal((await supervisor.json(approval, 'POST', input)).status, 409);
+  assert.equal((await supervisor.json(path + '/' + row.accountId + '/unbind', 'POST', {})).status, 200);
+  assert.equal((await supervisor.json(path)).body.bindings.length, 0);
+  assert.equal(supervisor.network(), 0);
+});

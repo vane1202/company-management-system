@@ -17,7 +17,7 @@ export function createCsAccountsRouter(db: Pool, config: AppConfig): Router {
   const router = Router();
   router.use((req, _res, next) => {
     if (!req.actor) return next(new HttpError(401, "请先登录"));
-    if (req.method === "GET" && req.path === "/" && req.actor.role === "cs") return next();
+    if (req.method === "GET" && req.path === "/" && req.actor.role === "cs" && req.actor.accountKind === "employee") return next();
     if (!["boss", "cs_supervisor"].includes(req.actor.role)) return next(new HttpError(403, "接待账号由本组客服主管管理"));
     next();
   });
@@ -34,8 +34,10 @@ export function createCsAccountsRouter(db: Pool, config: AppConfig): Router {
       if (!isIsoDate(date)) throw new HttpError(400, "业务日无效");
       let scopes: string[] | null = null;
       if (actor.role === "cs") {
-        const membership = await membershipOnDate(db, actor.id, date);
-        scopes = membership ? [membership.team_id] : [];
+        const memberships = await query<{ team_id: string }>(db, `SELECT m.team_id FROM team_memberships m
+          JOIN teams t ON t.id=m.team_id AND t.is_active WHERE m.user_id=$1 AND m.start_date<=$2
+          AND (m.end_date IS NULL OR m.end_date >= $2)`, [actor.id, date]);
+        scopes = memberships.map(({ team_id }) => team_id);
       } else if (!isBossOrAdmin(actor)) {
         scopes = await managedTeamIds(db, actor);
       }
@@ -71,6 +73,8 @@ export function createCsAccountsRouter(db: Pool, config: AppConfig): Router {
           const membership = await membershipOnDate(client, boundUserId, today);
           if (!membership) throw new HttpError(400, "请先维护该接待账号的小组归属");
           teamId = membership.team_id;
+          await assertTeamScope(client, req.actor!, teamId);
+          await assertLegacyRegistrationAvailable(client, boundUserId);
           await client.query("UPDATE users SET device_version=device_version+1 WHERE id=$1", [boundUserId]);
           await client.query("UPDATE cs_registration_codes SET revoked_at=now() WHERE bound_user_id=$1 AND used_at IS NULL AND revoked_at IS NULL", [boundUserId]);
         } else teamId = parseAccountId(req.body?.teamId);
@@ -99,6 +103,7 @@ export function createCsAccountsRouter(db: Pool, config: AppConfig): Router {
         if (!before) throw new HttpError(404, "客服接待账号不存在");
         await assertAccountScope(client, req.actor!, id, config);
         await client.query("UPDATE users SET is_active=$2,device_version=device_version+1,updated_at=now() WHERE id=$1", [id, req.body.isActive]);
+        await client.query("UPDATE cs_device_bindings SET state='closed' WHERE account_id=$1 AND state<>'closed'", [id]);
         await client.query("UPDATE cs_registration_codes SET revoked_at=now() WHERE bound_user_id=$1 AND used_at IS NULL", [id]);
         await writeAudit(client, { actorId: req.actor!.id, action: "cs_account_status", entityType: "user", entityId: id, before, after: { isActive: req.body.isActive }, ip: req.ip });
         await client.query("COMMIT"); res.json({ ok: true });
@@ -138,8 +143,11 @@ export function createCsAccountsRouter(db: Pool, config: AppConfig): Router {
           teamChanged = transfer.changed;
           previousTeamId = transfer.previousTeamId;
         }
-        await client.query("UPDATE users SET wechat_id=$2,display_name=$5,phone_label=$3,holder_name=COALESCE($6,holder_name),device_version=device_version+$4,updated_at=now() WHERE id=$1", [id, wechatId, phoneLabel || null, changedId ? 1 : 0,serviceLabel(String(before.service_platform),wechatId),holderProvided?holderName||null:null]);
-        if (changedId || teamChanged) await client.query("UPDATE cs_registration_codes SET revoked_at=now() WHERE bound_user_id=$1 AND used_at IS NULL AND revoked_at IS NULL", [id]);
+        await client.query("UPDATE users SET wechat_id=$2,display_name=$5,phone_label=$3,holder_name=COALESCE($6,holder_name),device_version=device_version+$4,updated_at=now() WHERE id=$1", [id, wechatId, phoneLabel || null, changedId || teamChanged ? 1 : 0,serviceLabel(String(before.service_platform),wechatId),holderProvided?holderName||null:null]);
+        if (changedId || teamChanged) {
+          await client.query("UPDATE cs_registration_codes SET revoked_at=now() WHERE bound_user_id=$1 AND used_at IS NULL AND revoked_at IS NULL", [id]);
+          await client.query("UPDATE cs_device_bindings SET state='closed' WHERE account_id=$1 AND state<>'closed'", [id]);
+        }
         await writeAudit(client, { actorId: req.actor!.id, action: "cs_account_update", entityType: "user", entityId: id, before: teamChanged ? { ...before, teamId: previousTeamId } : before, after: { wechatId, phoneLabel, holderName: holderProvided ? holderName : before.holder_name, ...(teamChanged ? { teamId: nextTeamId, teamName } : {}) }, ip: req.ip });
         await client.query("COMMIT"); res.json({ ok: true, needsRegistration: changedId, teamChanged });
       } catch (error) { await client.query("ROLLBACK"); throw error; }
@@ -159,6 +167,11 @@ async function assertAccountScope(db: Parameters<typeof membershipOnDate>[0], ac
   const membership = await membershipOnDate(db, id, businessToday(new Date(), config.businessTimezone));
   if (!membership) throw new HttpError(403, "无权管理该接待账号");
   await assertTeamScope(db, actor, membership.team_id);
+}
+
+async function assertLegacyRegistrationAvailable(db: Parameters<typeof membershipOnDate>[0], accountId: string) {
+  const binding = await queryOne(db, "SELECT 1 FROM cs_device_bindings WHERE account_id=$1 AND device_version IS NOT NULL LIMIT 1", [accountId]);
+  if (binding) throw new HttpError(409, "此接待号已使用手机绑定，请登录个人客服账号申请换绑");
 }
 
 export function createCsDeviceRegistrationRouter(db: Pool, config: AppConfig): Router {
@@ -191,6 +204,8 @@ export function createCsDeviceRegistrationRouter(db: Pool, config: AppConfig): R
         if (!invite) throw new HttpError(400, "登记码无效、已使用或已过期，请联系管理员");
         const activeTeam = await queryOne(client, "SELECT id FROM teams WHERE id=$1 AND is_active=TRUE", [invite.team_id]);
         if (!activeTeam) throw new HttpError(400, "登记小组已停用，请联系管理员");
+        const targetId = selectedId ?? invite.bound_user_id;
+        if (targetId) await assertLegacyRegistrationAvailable(client, targetId);
         if(selectedId){
           const existing=await queryOne<DbUser>(client,"SELECT * FROM users WHERE id=$1 AND account_kind IN ('cs_service','cs_wechat') FOR UPDATE",[selectedId]);
           if(!existing||!existing.is_active||(invite.bound_user_id&&invite.bound_user_id!==selectedId))throw new HttpError(400,'登记码与所选账号不匹配或账号已停用');

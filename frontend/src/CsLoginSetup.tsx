@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
 import { toErrorMessage } from "./errors";
+import "./cs-account-layout.css";
 import { toast } from "./Toast";
 
 type Team = { id: string; name: string };
@@ -110,16 +111,16 @@ export function CsLoginSetup() {
         </form>
       )}
       {loaded && (
-        <div>
+        <div className="cs-staff-section">
           <h3>本组客服</h3>
           {!users.length && <p className="notice">还没有客服登录账号。</p>}
           {!!users.length && (
-            <ul className="admin-team-list">
+            <ul className="cs-staff-grid">
               {users.map((user) => (
-                <li className="admin-team-row" key={user.id}>
-                  <strong>{user.displayName}</strong>
+                <li className="cs-staff-card" key={user.id}>
+                  <div className="cs-staff-heading"><strong>{user.displayName}</strong>
+                    <small>{!user.isActive ? "已停用" : user.mustChangePassword ? "待主管改密" : "已设置密码"}</small></div>
                   <span>{user.username} · {user.teamName}</span>
-                  <span>{!user.isActive ? "已停用" : user.mustChangePassword ? "待主管改密" : "已设置密码"}</span>
                   {teams.length > 1 && editingUser?.id !== user.id && (
                     <div className="admin-team-actions">
                       <button

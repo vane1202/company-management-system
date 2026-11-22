@@ -111,6 +111,13 @@ export const api = {
   financeAction: (action: string, payload: Record<string,unknown>) => requestInner<{id:string}>(`/api/finance/${action}`,{method:"POST",body:JSON.stringify(payload)}),
   csAccounts: (date?: string) => requestInner<{ accounts: CsAccount[] }>(`/api/cs-accounts${date ? `?date=${encodeURIComponent(date)}` : ""}`),
   csLogins: () => requestInner<{ teams: { id: string; name: string }[]; users: { id: string; username: string; displayName: string; isActive: boolean; mustChangePassword: boolean; teamId: string; teamIds?: string[]; teamName: string }[] }>("/api/cs-logins"),
+  csBindings: () => requestInner<{bindings: CsBinding[]}>("/api/cs-device-bindings"),
+  requestCsBinding: (accountId: string, label: string) => requestInner("/api/cs-device-bindings", {method:"POST",body:JSON.stringify({accountId,label})}),
+  changeCsBinding: (accountId: string, action: "activate" | "approve" | "unbind", bindingId?: string) =>
+    requestInner<{user?:User;csrfToken?:string}>(`/api/cs-device-bindings/${encodeURIComponent(accountId)}/${action}`, {method:"POST",body:JSON.stringify({bindingId})}),
+  supervisorFollowups: () => requestInner<{records: SupervisorFollowup[]}>("/api/supervisor/order-followups"),
+  saveSupervisorFollowup: (input: Pick<SupervisorFollowup,"orderId"|"note"|"nextContactOn"|"version">) =>
+    requestInner<{record:SupervisorFollowup}>("/api/supervisor/order-followups",{method:"POST",body:JSON.stringify(input)}),
   createCsLogin: (payload: { username: string; displayName: string; password: string; teamId?: string; teamIds?: string[] }) => requestInner<{ user: { id: string; username: string; displayName: string; mustChangePassword: boolean } }>("/api/cs-logins", { method: "POST", body: JSON.stringify(payload) }),
   updateCsLoginTeams: (id: string, payload: { teamIds: string[]; effectiveDate?: string }) => requestInner<{ ok: boolean }>(`/api/cs-logins/${encodeURIComponent(id)}/teams`, { method: "PATCH", body: JSON.stringify(payload) }),
   assessmentFoundation: () => requestInner<AssessmentFoundation>("/api/assessment/foundation"),
@@ -293,6 +300,9 @@ export type EditorReport = {
   inventorySnapshot: number;
   inventoryAdjusted: boolean;
 };
+
+export type CsBinding = {id:string; accountId:string; employeeName:string; label:string; state:"pending"|"approved"|"active"};
+export type SupervisorFollowup = {orderId:string;note:string;nextContactOn:string;version:number;updatedBy:string;updatedAt:string};
 
 export type Order = {
   cancelled?:boolean;

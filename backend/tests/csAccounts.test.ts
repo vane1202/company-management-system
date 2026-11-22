@@ -260,6 +260,47 @@ describe("客服微信登记与数据归属（独立 PostgreSQL 库）", () => {
     expect(await register(next, "Fixture_Renamed_A", registrationCode)).toBe(ids.wxA);
     expect((await next.agent.get("/api/orders").expect(200)).body.orders[0]).toMatchObject({ userId: ids.wxA, amount: "20.00", wechatId: "Fixture_Renamed_A" });
   });
+  it("主管批准后旧手机保持可用，只有申请手机能启用，解绑后历史订单保留", async () => {
+    const accountId = ids.wxA;
+    const oldPhone = await anonymous();
+    await register(oldPhone, "Fixture_Renamed_A", await code({ accountId }));
+    const supervisor = await login("supervisor");
+    const outsider = await login("unassigned");
+    const newPhone = await login("legacy");
+    const otherBrowser = await login("legacy");
+    const path = "/api/cs-device-bindings";
+    const action = (name: string) => path + "/" + accountId + "/" + name;
+    await write(newPhone, "post", path, { accountId: ids.wxB, label: "outside-team" }).expect(403);
+    await write(newPhone, "post", path, { accountId, label: "new-phone" }).expect(201);
+    const [{ id: bindingId }] = (await supervisor.agent.get(path).expect(200)).body.bindings;
+    expect((await outsider.agent.get(path).expect(200)).body.bindings).toEqual([]);
+    await write(outsider, "post", action("approve"), { bindingId }).expect(403);
+    await write(newPhone, "post", action("activate"), { bindingId }).expect(409);
+    await write(supervisor, "post", action("approve"), { bindingId }).expect(200);
+    await oldPhone.agent.get("/api/auth/me").expect(200);
+    await write(otherBrowser, "post", action("activate"), { bindingId }).expect(403);
+    const activated = await write(newPhone, "post", action("activate"), { bindingId }).expect(200);
+    expect(activated.body.user.id).toBe(accountId);
+    await oldPhone.agent.get("/api/auth/me").expect(401);
+    expect((await newPhone.agent.get("/api/orders").expect(200)).body.orders[0].userId).toBe(accountId);
+    await write(supervisor, "post", "/api/cs-accounts/registration-codes", { accountId }).expect(409);
+    await write(supervisor, "post", action("unbind"), {}).expect(200);
+    await newPhone.agent.get("/api/auth/me").expect(401);
+    expect((await supervisor.agent.get("/api/orders").expect(200)).body.orders[0].userId).toBe(accountId);
+  });
+  it("正式订单跟进按历史小组授权，备注不会改变订单金额或付款状态", async () => {
+    const supervisor = await login("supervisor");
+    const outsider = await login("unassigned");
+    const [order] = (await supervisor.agent.get("/api/orders").expect(200)).body.orders;
+    const path = "/api/supervisor/order-followups";
+    const input = { orderId: order.id, note: "Follow-up note", nextContactOn: today, version: 0 };
+    await write(outsider, "post", path, input).expect(404);
+    await write(supervisor, "post", path, input).expect(200);
+    expect((await supervisor.agent.get(path).expect(200)).body.records[0]).toMatchObject({ orderId: order.id, note: input.note, nextContactOn: today, version: 1 });
+    expect((await outsider.agent.get(path).expect(200)).body.records).toEqual([]);
+    await write(supervisor, "post", path, input).expect(409);
+    expect((await supervisor.agent.get("/api/orders").expect(200)).body.orders[0]).toMatchObject({ id: order.id, amount: order.amount, status: order.status });
+  });
   it("系统保留最后一个管理员，避免权限调整后无人可维护", async () => {
     await write(admin, "patch", `/api/admin/users/${ids.admin}`, { isActive: false }).expect(400);
     await write(admin, "patch", `/api/admin/users/${ids.admin}`, { role: "boss" }).expect(400);

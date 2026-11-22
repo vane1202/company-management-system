@@ -9,6 +9,7 @@ import { labelOrderStatus } from "./labels";
 import { LeadWorkspace } from "./LeadWorkspace";
 import { Field, OrderWorkspace } from "./OrderWorkspace";
 import { PeriodToolbar, type StandardPreset } from "./PeriodToolbar";
+import { RequestCsBinding } from "./CsBindingControls";
 import "./demo/customer-fill.css";
 import "./demo/role-workbenches.css";
 
@@ -42,6 +43,7 @@ export function CsWorkbench({
   canChangePassword,
   onOpenPassword,
   onLogout,
+  onDeviceActivated,
   passwordCard
 }: {
   today: string;
@@ -49,6 +51,7 @@ export function CsWorkbench({
   canChangePassword: boolean;
   onOpenPassword: () => void;
   onLogout: () => void;
+  onDeviceActivated: (user: User) => void | Promise<void>;
   passwordCard?: ReactNode;
 }) {
   const [page, setPage] = useState<FillPage>(resolvePage);
@@ -60,8 +63,11 @@ export function CsWorkbench({
 
   useEffect(() => {
     let active = true;
-    setLoadingAccounts(true);
-    api
+    setLoadingAccounts(canChangePassword);
+    setAccounts([]);
+    setAccountId("");
+    setAccountError("");
+    if (canChangePassword) api
       .csAccounts()
       .then(data => {
         if (!active) return;
@@ -83,7 +89,7 @@ export function CsWorkbench({
       active = false;
       window.removeEventListener("popstate", onPop);
     };
-  }, [today]);
+  }, [today, user.id, canChangePassword]);
 
   const selectedAccount = accounts.find(item => item.id === accountId) ?? null;
 
@@ -142,17 +148,17 @@ export function CsWorkbench({
               <span className="fill-identity-text">
                 <strong>{user.displayName}</strong>
                 <span>
-                  已登录客服账号
-                  {selectedAccount
+                  {canChangePassword ? "已登录客服账号" : "已绑定接待账号"}
+                  {canChangePassword && (selectedAccount
                     ? ` · ${selectedAccount.wechatId}`
                     : accounts.length
                       ? ` · 本组可用接待账号 ${accounts.length} 个`
-                      : " · 暂未绑定接待账号"}
+                      : " · 暂未绑定接待账号")}
                 </span>
               </span>
             </div>
           </div>
-          <Field label="接待账号">
+          {canChangePassword && <Field label="接待账号">
             <select
               aria-label="选择接待账号"
               value={accountId}
@@ -173,8 +179,10 @@ export function CsWorkbench({
                 </option>
               ))}
             </select>
-          </Field>
+          </Field>}
         </div>
+        {page === "home" && canChangePassword && selectedAccount &&
+          <RequestCsBinding key={selectedAccount.id} accountId={selectedAccount.id} onActivate={onDeviceActivated} />}
         {accountError && (
           <p className="error" role="alert">
             {accountError}
