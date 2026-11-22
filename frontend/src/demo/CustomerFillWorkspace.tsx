@@ -15,9 +15,9 @@ import "./customer-fill.css";
 import "./role-workbenches.css";
 
 const modules = [
-  { id: "leads", title: "新增客资登记", detail: "登记客户 · 更新沟通", icon: "fans" },
-  { id: "library", title: "现有客资库", detail: "查找客户 · 开单与售后", icon: "orders" },
-  { id: "performance", title: "个人业绩", detail: "直播间业绩 · 私推业绩", icon: "summary" }
+  { id: "leads", title: "新增客资登记", detail: "加粉详情·需求记录", icon: "fans" },
+  { id: "library", title: "开单与售后", detail: "客户开单/售后记录", icon: "orders" },
+  { id: "performance", title: "个人业绩查询", detail: "直播间业绩 · 私推业绩", icon: "summary" }
 ] as const;
 type ModuleId = typeof modules[number]["id"];
 type FillPage = "home" | ModuleId;
@@ -28,7 +28,7 @@ const pathPage = (): FillPage => {
   if (key === "performance") return "performance";
   return "home";
 };
-const titles: Record<FillPage, string> = { home: "客服工作台", leads: "新增客资登记", library: "现有客资库", performance: "个人业绩" };
+const titles: Record<FillPage, string> = { home: "客服工作台", leads: "新增客资登记", library: "开单与售后", performance: "个人业绩查询" };
 
 export default function CustomerFillWorkspace({ today }: { today: string }) {
   const crm = useCustomerCrm(today);
@@ -114,7 +114,7 @@ function CustomerLibrary({ people, state, onOpen }: { people: CrmCustomer[]; sta
       && (!addedTo || customer.createdOn <= addedTo)
       && (customer.name + customer.need + (customer.adAccountId || "")).toLowerCase().includes(query.trim().toLowerCase());
   }).sort((a, b) => b.createdOn.localeCompare(a.createdOn) || a.name.localeCompare(b.name, "zh"));
-  return <section className="card" aria-label="现有客资库"><h2>现有客资库</h2><p className="notice">开单和售后进客户档案。带“演练样本”的记录只供本次浏览器演练，不是正式业绩。当前 {rows.length} 位。</p><div className="grid two fill-filter-grid"><label className="row fill-search">搜索<input aria-label="搜索客户" type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="客户名、需求或广告户" /></label><Field label="标签"><select aria-label="客户标签筛选" value={status} onChange={event => setStatus(event.target.value)}><option value="">全部标签</option>{["有效", "已成交", "无效", "待复核", "复购"].map(tag => <option key={tag}>{tag}</option>)}</select></Field><Field label="消费档位"><select aria-label="消费档位筛选" value={tier} onChange={event => setTier(event.target.value)}><option value="">全部档位</option>{["A档", "B档", "C档"].map(tag => <option key={tag}>{tag}</option>)}<option value="未分档">未分档</option></select></Field><Field label="添加开始"><input aria-label="添加开始日期" type="date" max={addedTo || undefined} value={addedFrom} onChange={event => setAddedFrom(event.target.value)} /></Field><Field label="添加结束"><input aria-label="添加结束日期" type="date" min={addedFrom || undefined} value={addedTo} onChange={event => setAddedTo(event.target.value)} /></Field></div>{rows.length ? <div className="crm-list">{rows.map(customer => <button type="button" key={customer.id} onClick={() => onOpen(customer.id)}><span><strong>{customer.name}</strong><small>{customer.createdOn} · 下粉广告户 {customer.adAccountId || "来源待补"} · {customer.need || "未填写需求"}</small></span><span className="crm-tags">{customerTags(state, customer).map(tag => <em key={tag} className={tag === "无效" ? "is-invalid" : tag === "待复核" ? "is-pending" : ""}>{tag}</em>)}{customer.sample && <em>演练样本</em>}</span></button>)}</div> : <p className="empty-state">没有符合条件的客户。可先做新增客资登记。</p>}</section>;
+  return <section className="card" aria-label="开单与售后"><h2>开单与售后</h2><p className="notice">开单和售后进客户档案。带“演练样本”的记录只供本次浏览器演练，不是正式业绩。当前 {rows.length} 位。</p><div className="grid two fill-filter-grid"><label className="row fill-search">搜索<input aria-label="搜索客户" type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="客户名、需求或广告户" /></label><Field label="标签"><select aria-label="客户标签筛选" value={status} onChange={event => setStatus(event.target.value)}><option value="">全部标签</option>{["有效", "已成交", "无效", "待复核", "尝试沟通", "复购"].map(tag => <option key={tag}>{tag}</option>)}</select></Field><Field label="消费档位"><select aria-label="消费档位筛选" value={tier} onChange={event => setTier(event.target.value)}><option value="">全部档位</option>{["A档", "B档", "C档"].map(tag => <option key={tag}>{tag}</option>)}<option value="未分档">未分档</option></select></Field><Field label="添加开始"><input aria-label="添加开始日期" type="date" max={addedTo || undefined} value={addedFrom} onChange={event => setAddedFrom(event.target.value)} /></Field><Field label="添加结束"><input aria-label="添加结束日期" type="date" min={addedFrom || undefined} value={addedTo} onChange={event => setAddedTo(event.target.value)} /></Field></div>{rows.length ? <div className="crm-list">{rows.map(customer => <button type="button" key={customer.id} onClick={() => onOpen(customer.id)}><span><strong>{customer.name}</strong><small>{customer.createdOn} · 下粉广告户 {customer.adAccountId || "来源待补"} · {customer.need || "未填写需求"}</small></span><span className="crm-tags">{customerTags(state, customer).map(tag => <em key={tag} className={tag === "无效" ? "is-invalid" : tag === "待复核" ? "is-pending" : ""}>{tag}</em>)}{customer.sample && <em>演练样本</em>}</span></button>)}</div> : <p className="empty-state">没有符合条件的客户。可先做新增客资登记。</p>}</section>;
 }
 
 function CustomerDetail({ today, customer, actor, crm, account, onMessage }: { today: string; customer: CrmCustomer; actor: CrmActor; crm: ReturnType<typeof useCustomerCrm>; account?: FillAccount; onMessage: (value: string) => void }) {

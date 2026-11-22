@@ -43,9 +43,10 @@ export function createOrderRecordsRouter(db: Pool, config: AppConfig) {
     const o=(await c.query(`INSERT INTO orders(user_id,business_date,order_ref,customer_label,amount,status,is_custom,note,last_submitted_by,material_cost_cny,material_lot_no) VALUES($1,$2,$3,$4,$5,'placed',FALSE,$6,$1,$7,$8) RETURNING id`,[body.owner,body.businessDate,body.orderRef,body.customerLabel,total,body.note,body.materialCostCny,body.materialLotNo])).rows[0];
     await c.query(`INSERT INTO order_details(order_id,persona_name,operator_name,source,customer_currency,customer_due,request_key,payload_hash,deal_channel,project_line) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,[o.id,body.personaName,body.operatorName,body.source,cur,body.customerDue,key,hash,body.dealChannel,body.projectLine]);
     await c.query("UPDATE order_details SET persona_code=$2,live_room_code=$3,host_name=$4,customer_code=$5 WHERE order_id=$1",[o.id,body.personaCode,body.liveRoomCode,body.hostName,body.customerCode]);
-    for(const i of items)await c.query("INSERT INTO order_items(order_id,label,material_ref,kind,price_cny,buying_fee_cny,sourcing_no_settle) VALUES($1,$2,$3,$4,$5,$6,$7)",[o.id,i.label,i.materialRef,i.kind,i.priceCny,i.buyingFeeCny,i.sourcingNoSettle]);
+    const itemIds:string[]=[];
+    for(const i of items){const ins=(await c.query("INSERT INTO order_items(order_id,label,material_ref,kind,price_cny,buying_fee_cny,sourcing_no_settle) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id",[o.id,i.label,i.materialRef,i.kind,i.priceCny,i.buyingFeeCny,i.sourcingNoSettle])).rows[0];itemIds.push(ins.id);}
     await audit(c,req,"order_record_create",o.id,body);
-    return {id:o.id};
+    return {id:o.id,itemIds};
   }));
   router.get("/:id", (req, res, next) => {
     // Repeatable read keeps the balance and its receipt list in the same snapshot.
@@ -105,11 +106,12 @@ export function createOrderRecordsRouter(db: Pool, config: AppConfig) {
     const beforeItems=(await c.query("SELECT id,label,material_ref,kind,price_cny,buying_fee_cny,sourcing_no_settle FROM order_items WHERE order_id=$1 ORDER BY id",[id])).rows;
     // Removed item links retain the original order-level photo; never delete originals.
     await c.query("UPDATE order_attachments SET item_id=NULL WHERE order_id=$1",[id]);await c.query("DELETE FROM order_items WHERE order_id=$1",[id]);
-    for(const i of items)await c.query("INSERT INTO order_items(order_id,label,material_ref,kind,price_cny,buying_fee_cny,sourcing_no_settle) VALUES($1,$2,$3,$4,$5,$6,$7)",[id,i.label,i.materialRef,i.kind,i.priceCny,i.buyingFeeCny,i.sourcingNoSettle]);
+    const itemIds:string[]=[];
+    for(const i of items){const ins=(await c.query("INSERT INTO order_items(order_id,label,material_ref,kind,price_cny,buying_fee_cny,sourcing_no_settle) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id",[id,i.label,i.materialRef,i.kind,i.priceCny,i.buyingFeeCny,i.sourcingNoSettle])).rows[0];itemIds.push(ins.id);}
     await c.query("UPDATE orders SET business_date=$2,order_ref=$3,customer_label=$4,amount=$5,note=$6,material_cost_cny=$7,material_lot_no=$8 WHERE id=$1",[id,body.businessDate,body.orderRef,body.customerLabel,total,body.note,body.materialCostCny,body.materialLotNo]);
     await c.query("UPDATE order_details SET persona_name=$2,operator_name=$3,source=$4,customer_currency=$5,customer_due=$6,deal_channel=$7,project_line=$8 WHERE order_id=$1",[id,body.personaName,body.operatorName,body.source,cur,body.customerDue,body.dealChannel,body.projectLine]);await touch(c,id);
     await c.query("UPDATE order_details SET persona_code=$2,live_room_code=$3,host_name=$4,customer_code=$5 WHERE order_id=$1",[id,body.personaCode,body.liveRoomCode,body.hostName,body.customerCode]);
-    await writeAudit(c,{actorId:req.actor!.id,action:"order_record_correct",entityType:"order",entityId:id,before:{order,details,items:beforeItems},after:body,ip:req.ip});return {id};
+    await writeAudit(c,{actorId:req.actor!.id,action:"order_record_correct",entityType:"order",entityId:id,before:{order,details,items:beforeItems},after:body,ip:req.ip});return {id,itemIds};
   }));
   router.post("/:id/payments",mutate(async(c,req)=>{
     const b=req.body??{},id=uuid(req.params.id),{details,order}=await writeOrder(c,req.actor!,id);
@@ -143,10 +145,10 @@ export function createOrderRecordsRouter(db: Pool, config: AppConfig) {
   const syncCosts=async(c:PoolClient,id:string)=>{await c.query(`UPDATE orders SET custom_product_cost=(SELECT COALESCE(sum(amount_cny) FILTER(WHERE category IN ('goods','sourcing','accessory','certificate','box','other')),0) FROM order_expenses WHERE order_id=$1 AND voided_at IS NULL),labor_cost=(SELECT COALESCE(sum(amount_cny) FILTER(WHERE category IN ('labor','design')),0) FROM order_expenses WHERE order_id=$1 AND voided_at IS NULL),shipping_cost=(SELECT COALESCE(sum(amount_cny) FILTER(WHERE category='shipping'),0) FROM order_expenses WHERE order_id=$1 AND voided_at IS NULL) WHERE id=$1`,[id]);await touch(c,id);};
   router.post("/:id/items/:itemId/sourcing-status",mutate(async(c,req)=>{
     const id=uuid(req.params.id),itemId=uuid(req.params.itemId),{order}=await writeOrder(c,req.actor!,id);
-    if(order.cancelled)throw new HttpError(409,"已登记跑单，不能修改配货不结款标记");
+    if(order.cancelled)throw new HttpError(409,"已登记跑单，不能修改接待（PH）标记");
     const item=(await c.query("SELECT id,label,material_ref,kind,sourcing_no_settle FROM order_items WHERE id=$1 AND order_id=$2 FOR UPDATE",[itemId,id])).rows[0];
     if(!item)throw new HttpError(404,"商品明细不存在");
-    if(item.kind==="service")throw new HttpError(400,"纯工费/服务项无需设置原石不结款标记");
+    if(item.kind==="service")throw new HttpError(400,"纯工费/服务项无需设置接待（PH）标记");
     const nextStatus=Boolean(req.body?.sourcingNoSettle);
     const reason=textField(req.body?.reason??"","说明",500,false);
     await c.query("UPDATE order_items SET sourcing_no_settle=$2 WHERE id=$1",[item.id,nextStatus]);
@@ -162,7 +164,7 @@ export function createOrderRecordsRouter(db: Pool, config: AppConfig) {
     if(body.itemId){
       const linkedItem=(await c.query("SELECT id,sourcing_no_settle FROM order_items WHERE id=$1 AND order_id=$2",[body.itemId,id])).rows[0];
       if(!linkedItem)throw new HttpError(400,"费用对应商品不属于此单");
-      if(linkedItem.sourcing_no_settle&&body.category==="goods")throw new HttpError(409,"该件料子已标记为配货（接待费）未售出，不用跟供应商结料款；请按「市场配货采购款」登记接待/配货费用，或先恢复正常结款状态");
+      if(linkedItem.sourcing_no_settle&&body.category==="goods")throw new HttpError(409,"该件料子已标记为接待（PH）未售出，不用跟供应商结料款；请按「市场配货采购款」登记接待费用，或先取消接待（PH）标记");
     }
     const hash=hashPayload(body),old=await replay(c,"order_expenses",uuid(b.requestKey),hash,id);if(old)return {id:old.id,replayed:true};
     const row=(await c.query("INSERT INTO order_expenses(order_id,business_date,category,label,amount_cny,created_by,request_key,payload_hash,counterparty,item_id,note,payment_tracking_started) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,TRUE) RETURNING id",[id,body.businessDate,body.category,body.label,body.amountCny,req.actor!.id,b.requestKey,hash,body.counterparty,body.itemId,body.note])).rows[0];

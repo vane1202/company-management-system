@@ -14,9 +14,9 @@ import "./demo/customer-fill.css";
 import "./demo/role-workbenches.css";
 
 const modules = [
-  { id: "leads", title: "新增客资登记", detail: "登记客户 · 更新沟通", icon: "fans" },
-  { id: "library", title: "现有客资库", detail: "查找客户 · 开单与售后", icon: "orders" },
-  { id: "performance", title: "个人业绩", detail: "直播间业绩 · 私推业绩", icon: "summary" }
+  { id: "leads", title: "新增客资登记", detail: "加粉详情·需求记录", icon: "fans" },
+  { id: "library", title: "开单与售后", detail: "客户开单/售后记录", icon: "orders" },
+  { id: "performance", title: "个人业绩查询", detail: "直播间业绩 · 私推业绩", icon: "summary" }
 ] as const;
 
 type ModuleId = (typeof modules)[number]["id"];
@@ -25,8 +25,8 @@ type FillPage = "home" | ModuleId;
 const titles: Record<FillPage, string> = {
   home: "客服工作台",
   leads: "新增客资登记",
-  library: "现有客资库",
-  performance: "个人业绩"
+  library: "开单与售后",
+  performance: "个人业绩查询"
 };
 
 function resolvePage(): FillPage {
@@ -329,7 +329,7 @@ function CsPersonalPerformance({
         {!loading && !orders.length && (
           <div className="empty-state">
             <strong>当前区间暂无订单</strong>
-            <p>可切换日期区间，或返回「现有客资库」登记成交。</p>
+            <p>可切换日期区间，或返回「开单与售后」登记成交。</p>
           </div>
         )}
         {orders.map(o => (
@@ -344,7 +344,7 @@ function CsPersonalPerformance({
               <small>
                 {o.orderRef} · {o.businessDate}
                 {o.projectLine ? ` · ${o.projectLine}` : ""}
-                {o.hasSourcingNoSettle ? " · 含配货不结料款" : ""}
+                {o.hasSourcingNoSettle ? " · 含接待（PH）" : ""}
               </small>
               <small>
                 {o.dealChannel === "private" ? "客服私推" : "直播间开单"} ·{" "}

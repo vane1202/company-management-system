@@ -91,8 +91,8 @@ export async function loadCsrf(): Promise<void> {
 export const api = {
   orderRecord: (id: string) => requestInner<OrderRecord>(`/api/order-records/${encodeURIComponent(id)}`),
   paidPerformance:()=>requestInner<{records:PaidPerformanceRecord[]}>('/api/finance/live-performance'),
-  createOrderRecord: (payload: Record<string, unknown>) => requestInner<{id:string}>("/api/order-records", {method:"POST",body:JSON.stringify(payload)}),
-  correctOrderRecord: (id: string, payload: Record<string, unknown>) => requestInner<{id:string}>(`/api/order-records/${encodeURIComponent(id)}`, {method:"PATCH",body:JSON.stringify(payload)}),
+  createOrderRecord: (payload: Record<string, unknown>) => requestInner<{id:string;itemIds?:string[]}>("/api/order-records", {method:"POST",body:JSON.stringify(payload)}),
+  correctOrderRecord: (id: string, payload: Record<string, unknown>) => requestInner<{id:string;itemIds?:string[]}>(`/api/order-records/${encodeURIComponent(id)}`, {method:"PATCH",body:JSON.stringify(payload)}),
   orderAction: (id: string, action: string, payload: Record<string, unknown>) => requestInner<{id:string}>(`/api/order-records/${encodeURIComponent(id)}/${action}`, {method:"POST",body:JSON.stringify(payload)}),
   uploadOrderPhoto: async (id: string, file: File, itemId: string) => {
     const mime = await resolveImageMime(file);
