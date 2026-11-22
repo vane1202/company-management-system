@@ -11,7 +11,19 @@ export function amount(value: string): bigint {
 }
 export const money = (value: bigint) => `${value / 100n}.${String(value % 100n).padStart(2, "0")}`;
 export const operatorOf = (s: Source) => s.record.details?.operatorName.trim() || s.identity.operatorName?.trim() || UNKNOWN;
+const TEAM_ORDER = ["客服一组", "客服二组", "客服三组", "志伟组"];
+export function sortTeamNames(names: string[]): string[] {
+  const list = [...new Set(names.filter(Boolean))];
+  if ((list.includes("客服一组") || list.includes("客服二组")) && !list.includes("志伟组")) list.push("志伟组");
+  return list.sort((a, b) => {
+    const ia = TEAM_ORDER.indexOf(a), ib = TEAM_ORDER.indexOf(b);
+    if (ia !== -1 || ib !== -1) return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+    return a.localeCompare(b, "zh-CN");
+  });
+}
 export function teamOf(s: Source, accounts: CsAccount[] = []): string {
+  const proj = (s.record.details?.projectLine ?? s.identity.projectLine ?? "").trim();
+  if (proj === "志伟线" || proj === "志伟组") return "志伟组";
   const direct = s.identity.teamName?.trim();
   if (direct) return direct;
   const op = operatorOf(s);

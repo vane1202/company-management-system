@@ -9,7 +9,7 @@ import { InfoTip } from "../InfoTip";
 import { dashboardPresetRange } from "../dates";
 import { PeriodToolbar, type StandardPreset } from "../PeriodToolbar";
 import { customerStatus, customerTags, useCustomerCrm } from "./customerCrm";
-import { aggregate, money, teamOf, type Source } from "./supervisorPerformanceData";
+import { aggregate, money, sortTeamNames, teamOf, type Source } from "./supervisorPerformanceData";
 import type { AssessmentFoundation } from "./assessmentFoundation";
 import { customerDesk, openingSnapshot, supervisorTeamIds, type DeskCustomer } from "./supervisorHomeModel";
 
@@ -67,11 +67,11 @@ export function SupervisorWorkbench({ today, onNavigate }: { today: string; onNa
   const missing = teams?.reduce((sum, team) => sum + team.missingCount, 0);
   const teamIds = import.meta.env.MODE === "demo" ? supervisorTeamIds : [...new Set((foundation?.employees ?? []).map((employee) => employee.teamId))];
   const opening = foundation ? openingSnapshot(foundation.leads ?? [], foundation.employees ?? [], period, teamIds) : null;
-  const perfTeams = [...new Set([
+  const perfTeams = sortTeamNames([
     ...(teams ?? []).map((t) => t.teamName),
     ...(accounts ?? []).map((a) => a.teamName || ""),
     ...(sources ?? []).map((s) => teamOf(s, accounts ?? []))
-  ].filter(Boolean))].sort((a, b) => a.localeCompare(b, "zh-CN"));
+  ]);
   const activeTeam = selectedTeam && perfTeams.includes(selectedTeam) ? selectedTeam : "";
   const stats = sources && accounts ? aggregate(sources, { from: period.from, to: period.to, operator: "", account: "", persona: "", room: "", team: activeTeam }, accounts) : null;
   const customers: DeskCustomer[] = crm.state.customers.filter((customer) => teamIds.includes(customer.teamId)).map((customer) => ({

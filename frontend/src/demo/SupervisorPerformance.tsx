@@ -5,7 +5,7 @@ import { OrderWorkspace, Field } from "../OrderWorkspace";
 import { InfoTip } from "../InfoTip";
 import { toErrorMessage } from "../errors";
 import { labelOrderStatus } from "../labels";
-import { aggregate, amount, channelOf, convert, money, operatorOf, paymentRows, shiftDay, teamOf, teamShare, UNKNOWN, type Selection, type Source } from "./supervisorPerformanceData";
+import { aggregate, amount, channelOf, convert, money, operatorOf, paymentRows, shiftDay, sortTeamNames, teamOf, teamShare, UNKNOWN, type Selection, type Source } from "./supervisorPerformanceData";
 import type { CustomerPaymentFx } from "./adExchangeRates";
 import "./supervisor-performance.css";
 import { useReferenceQuotes } from "./useReferenceQuotes";
@@ -47,10 +47,10 @@ export default function SupervisorPerformance({today,user,selectedId,onSelectOrd
     return()=>{active=false;};
   },[stats,days,revision]);
   const options=(get:(s:Source)=>string)=>[...new Set(data?.sources.map(get).filter(Boolean)||[])].sort();
-  const teamOptions=useMemo(()=>[...new Set([
+  const teamOptions=useMemo(()=>sortTeamNames([
     ...(data?.accounts.map(a=>a.teamName||"")||[]),
     ...(data?.sources.map(s=>teamOf(s,data?.accounts||[]))||[])
-  ].filter(Boolean))].sort((a,b)=>a.localeCompare(b,"zh-CN")),[data]);
+  ]),[data]);
   const change=(key:keyof Selection,value:string)=>setF(current=>({...current,[key]:value}));
   const people=stats?.contributions.slice().sort((a,b)=>{
     if(sort==="paid") {const av=fx?.people[a.name]?.cny,bv=fx?.people[b.name]?.cny;if(av==null)return bv==null?a.name.localeCompare(b.name):1;if(bv==null)return -1;return Number(amount(bv)-amount(av));}
