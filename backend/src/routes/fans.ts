@@ -249,6 +249,32 @@ export function createFanRouter(db: Pool, config: AppConfig): Router {
     }
   });
 
+  router.get("/period-summary", async (req, res, next) => {
+    try {
+      const actor = req.actor!;
+      if (actor.role !== "cs_supervisor") throw new HttpError(403, "仅客服主管可查看本组加粉汇总");
+      const from = String(req.query.from ?? "");
+      const to = String(req.query.to ?? "");
+      const today = businessToday(new Date(), config.businessTimezone);
+      if (!isIsoDate(from) || !isIsoDate(to) || from > to || to > today || diffDays(from, to) > 366) {
+        throw new HttpError(400, "请选择有效业务日期，最多367天");
+      }
+      const scope = await managedTeamIds(db, actor);
+      const totals = await queryOne<{ total_added: string | null }>(db,
+        `SELECT sum(CASE WHEN f.ms_today IS NULL AND f.ws_today IS NULL THEN f.added_count
+                         ELSE COALESCE(f.ms_today,0) + COALESCE(f.ws_today,0) END)::text AS total_added
+           FROM fan_reports f
+          WHERE f.business_date BETWEEN $1::date AND $2::date
+            AND (f.team_id = ANY($3::uuid[]) OR (f.team_id IS NULL AND EXISTS (
+              SELECT 1 FROM team_memberships m
+               WHERE m.user_id=f.user_id AND m.team_id=ANY($3::uuid[])
+                 AND m.start_date<=f.business_date AND (m.end_date IS NULL OR m.end_date>=f.business_date)
+            )))`, [from, to, scope]);
+      const totalAdded = totals?.total_added == null ? null : Number(totals.total_added);
+      res.set("Cache-Control", "private, no-store").json({ from, to, totalAdded });
+    } catch (error) { next(error); }
+  });
+
   router.get("/export", async (req, res, next) => {
     try {
       const actor = req.actor!;

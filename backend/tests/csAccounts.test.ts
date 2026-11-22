@@ -322,6 +322,25 @@ describe("客服微信登记与数据归属（独立 PostgreSQL 库）", () => {
     await boss.agent.get(path).expect(403);
     await supervisor.agent.get("/api/supervisor/consultation-cost?from=2026-02-30&to=2026-03-01").expect(400);
   });
+  it("本组区间进粉按日报原始小组，兼容只有总数的导入记录且区分缺报和零", async () => {
+    const supervisor = await login("supervisor");
+    const day = (await db.query("SELECT ($1::date - 1)::text AS d", [today])).rows[0].d;
+    const blankDay = (await db.query("SELECT ($1::date - 2)::text AS d", [today])).rows[0].d;
+    await db.query(`INSERT INTO fan_reports
+      (user_id,team_id,business_date,page_name,added_count,valid_today,comm_invalid,ms_today,ws_today)
+      VALUES ($1,$2,$4,'import',7,4,3,NULL,NULL),
+        ($1,$3,$4,'other-team',50,50,0,NULL,NULL),
+        ($1,$2,$4,'channels',0,2,0,1,2),
+        ($1,$2,$5,'reported-zero',99,0,0,0,0)`, [ids.legacy, ids.teamA, ids.teamB, day, blankDay]);
+    const get = (from: string, to: string) => supervisor.agent.get("/api/fan-reports/period-summary").query({ from, to });
+    expect((await get(day, day).expect(200)).body.totalAdded).toBe(10);
+    expect((await get(blankDay, blankDay).expect(200)).body.totalAdded).toBe(0);
+    expect((await get(blankDay, day).expect(200)).body.totalAdded).toBe(10);
+    const emptyDay = (await db.query("SELECT ($1::date - 3)::text AS d", [today])).rows[0].d;
+    expect((await get(emptyDay, emptyDay).expect(200)).body.totalAdded).toBeNull();
+    await get(day, blankDay).expect(400);
+    await (await login("legacy")).agent.get("/api/fan-reports/period-summary").query({ from: day, to: day }).expect(403);
+  });
   it("系统保留最后一个管理员，避免权限调整后无人可维护", async () => {
     await write(admin, "patch", `/api/admin/users/${ids.admin}`, { isActive: false }).expect(400);
     await write(admin, "patch", `/api/admin/users/${ids.admin}`, { role: "boss" }).expect(400);

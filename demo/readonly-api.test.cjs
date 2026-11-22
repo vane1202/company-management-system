@@ -144,6 +144,17 @@ test('拍剪本人历史可读改，拒绝修改其他老师记录及通用管�
  assert.equal(e.network(),0);
 });
 
+test('本组区间进粉随日期切换，缺报返回空值', async () => {
+  const supervisor = environment('cs_supervisor');
+  const date = (await supervisor.json('/api/auth/me')).body.today;
+  const previous = new Date(Date.parse(date) - 86400000).toISOString().slice(0, 10);
+  const path = '/api/fan-reports/period-summary';
+  const daily = (await supervisor.json('/api/fan-reports/summary?date=' + date)).body.teams[0].totalAdded;
+  assert.equal((await supervisor.json(path + '?from=' + date + '&to=' + date)).body.totalAdded, daily);
+  assert.ok((await supervisor.json(path + '?from=' + previous + '&to=' + date)).body.totalAdded > daily);
+  assert.equal((await supervisor.json(path + '?from=2020-01-01&to=2020-01-01')).body.totalAdded, null);
+  assert.equal((await environment('cs').json(path + '?from=' + date + '&to=' + date)).status, 403);
+});
 test('主管咨询成本只读且限本组，未关联不回退公司总数，已关联与运营口径一致',async()=>{
  const path='/api/demo/supervisor-consultation-cost';
  const missing=await environment('cs_supervisor').json(path);

@@ -27,6 +27,8 @@ export function SupervisorWorkbench({ today, onNavigate }: { today: string; onNa
   const [preset, setPreset] = useState<StandardPreset>("day");
   const [customRange, setCustomRange] = useState<{ from: string; to: string } | null>(null);
   const period = customRange ?? dashboardPresetRange(today, preset);
+  const [fanPeriod, setFanPeriod] = useState<Awaited<ReturnType<typeof api.fanPeriodSummary>> | null>(null);
+  const [fanError, setFanError] = useState("");
   const [view, setView] = useState<"home" | "customers">("home");
   const [personId, setPersonId] = useState("");
   const [selectedTeam, setSelectedTeam] = useState("");
@@ -61,12 +63,26 @@ export function SupervisorWorkbench({ today, onNavigate }: { today: string; onNa
     });
     return () => { live = false; };
   }, [today, tick]);
+  useEffect(() => {
+    let live = true;
+    setFanPeriod(null);
+    setFanError("");
+    api.fanPeriodSummary(period.from, period.to).then(result => {
+      if (live) setFanPeriod(result);
+    }).catch(error => {
+      if (live) setFanError(toErrorMessage(error));
+    });
+    return () => { live = false; };
+  }, [period.from, period.to, tick]);
+
   const teams = loaded(home?.fans)?.teams;
   const noScope = teams?.length === 0;
-  const added = teams?.reduce((sum, team) => sum + team.totalAdded, 0);
-  const missing = teams?.reduce((sum, team) => sum + team.missingCount, 0);
+  const currentFanPeriod = fanPeriod?.from === period.from && fanPeriod?.to === period.to ? fanPeriod : null;
+  const added = currentFanPeriod?.totalAdded;
+  const missing = new Set(teams?.flatMap(team => team.missing.map(row => row.userId))).size;
+  const fanLabel = customRange ? "区间进粉" : preset === "month" ? "本月进粉" : preset === "week" ? "本周进粉" : "今日进粉";
   const teamIds = import.meta.env.MODE === "demo" ? supervisorTeamIds : [...new Set((foundation?.employees ?? []).map((employee) => employee.teamId))];
-  const opening = foundation ? openingSnapshot(foundation.leads ?? [], foundation.employees ?? [], period, teamIds) : null;
+  const opening = foundation ? openingSnapshot(foundation.leads ?? [], foundation.employees ?? [], period, import.meta.env.MODE === "demo" ? teamIds : undefined) : null;
   const perfTeams = sortTeamNames([
     ...(teams ?? []).map((t) => t.teamName),
     ...(accounts ?? []).map((a) => a.teamName || ""),
@@ -93,6 +109,7 @@ export function SupervisorWorkbench({ today, onNavigate }: { today: string; onNa
       custom={customRange}
       onPreset={(next) => { setPreset(next); setCustomRange(null); }}
       onCustom={(next) => setCustomRange(next)}
+      maxDays={367}
       caption={`${period.from} 至 ${period.to} · 本组`}
       actions={<button type="button" className="secondary" disabled={loading} onClick={() => setTick((value) => value + 1)}>刷新</button>}
       ariaLabel="客服主管日期筛选"
@@ -114,11 +131,12 @@ export function SupervisorWorkbench({ today, onNavigate }: { today: string; onNa
     </section> : <>
       <div className="supervisor-boards">
         <section className="supervisor-board" aria-label="本组加粉情况">
-          <header><button type="button" className="supervisor-card-link" onClick={() => onNavigate("summary")}><h2>本组加粉情况</h2><span aria-hidden="true">›</span></button><InfoTip label="加粉统计口径" text="开口转化率＝已明确需求 ÷ 正常沟通，按今日客户明细和客服本人统计。" /></header>
-          <div className="supervisor-figures"><Figure label="今日进粉" value={added ?? (loading ? "…" : "—")} /><Figure label="正常沟通" value={opening ? opening.replied + " 人" : loading ? "…" : "—"} /><Figure label="开口转化率" value={opening?.replied ? opening.rate : loading ? "…" : "—"} /></div>
-          {opening?.replied === 0 && <p className="supervisor-note">暂无正常沟通</p>}
+          <header><button type="button" className="supervisor-card-link" onClick={() => onNavigate("summary")}><h2>本组加粉情况</h2><span aria-hidden="true">›</span></button><InfoTip label="加粉统计口径" text="进粉按所选日期的加粉日报汇总。正常沟通与开口转化率只按所选日期已登记的客资明细计算，开口转化率＝已明确需求 ÷ 正常沟通。" /></header>
+          <div className="supervisor-figures"><Figure label={fanLabel} value={added?.toLocaleString("zh-CN") ?? (fanError ? "—" : currentFanPeriod ? "未报" : "…")} /><Figure label="正常沟通" value={opening?.leadCount ? opening.replied + " 人" : loading ? "…" : "—"} /><Figure label="开口转化率" value={opening?.replied ? opening.rate : loading ? "…" : "—"} /></div>
+          {fanError && <p className="error" role="alert">{fanError}</p>}
+          {opening && <p className="supervisor-note">{opening.leadCount ? `正常沟通与开口转化仅按 ${opening.leadCount} 条客资明细统计` : "所选日期暂无客资明细"}</p>}
           <SupervisorConsultationCost from={period.from} to={period.to} refresh={tick}/>
-          <footer className="supervisor-card-actions"><button type="button" onClick={() => onNavigate("summary")}>加粉明细</button><button type="button" onClick={() => onNavigate("reportHistory")}>填报历史</button>{!!missing && <button type="button" className="supervisor-attention" onClick={() => onNavigate("summary")}>未报粉 {missing}</button>}</footer>
+          <footer className="supervisor-card-actions"><button type="button" onClick={() => onNavigate("summary")}>加粉明细</button><button type="button" onClick={() => onNavigate("reportHistory")}>填报历史</button>{!!missing && <button type="button" className="supervisor-attention" onClick={() => onNavigate("summary")}>{today.slice(5)} 未报粉 {missing}</button>}</footer>
         </section>
         <section className="supervisor-board" aria-label="本组业绩数据">
           <header><button type="button" className="supervisor-card-link" onClick={() => onNavigate("orders")}><h2>本组业绩数据</h2><span aria-hidden="true">›</span></button><InfoTip label="首页业绩口径" text="按所选日期统计开单。直播间是料价加代购费，私推只计料价。贡献按开单时的经办客服，换账号不改旧单。" /></header>

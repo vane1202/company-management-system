@@ -2,14 +2,14 @@ import { shareLabel, type AssessmentLead, type EmployeeRecord } from "./assessme
 
 export const supervisorTeamIds = ["demo-team-a", "registered-team-qiuju"];
 
-export function openingSnapshot(leads: AssessmentLead[], employees: EmployeeRecord[], period: string | { from: string; to: string }, teamIds: readonly string[]) {
-  const ids = new Set(employees.filter((employee) => teamIds.includes(employee.teamId)).map((employee) => employee.id));
+export function openingSnapshot(leads: AssessmentLead[], employees: EmployeeRecord[], period: string | { from: string; to: string }, teamIds?: readonly string[]) {
+  const ids = new Set(employees.filter((employee) => teamIds?.includes(employee.teamId)).map((employee) => employee.id));
   const from = typeof period === "string" ? period : period.from;
   const to = typeof period === "string" ? period : period.to;
-  const rows = leads.filter((lead) => lead.businessDate >= from && lead.businessDate <= to && ids.has(lead.employeeId));
+  const rows = leads.filter((lead) => lead.businessDate >= from && lead.businessDate <= to && (!teamIds || ids.has(lead.employeeId)));
   const replied = rows.filter((lead) => lead.contact === "replied");
   const qualified = replied.filter((lead) => lead.qualified).length;
-  return { replied: replied.length, qualified, rate: replied.length === 0 ? "正常沟通为0" : shareLabel(qualified, replied.length) };
+  return { leadCount: rows.length, replied: replied.length, qualified, rate: replied.length === 0 ? "正常沟通为0" : shareLabel(qualified, replied.length) };
 }
 
 export type DeskCustomer = {

@@ -19,7 +19,7 @@ export function enforceRoleBoundary(req: Request, _res: Response, next: NextFunc
     if (/^\/api\/admin(\/|$)/.test(req.path)) return next(new HttpError(403, "账号和小组由后台管理员维护"));
   } else if (role === "cs_supervisor") {
     const metadata = req.path === "/api/modules" && read;
-    const fans = (/^\/api\/fan-reports\/(summary|export)$/.test(req.path) || /^\/api\/fan-leads(\/|$)/.test(req.path)) && read;
+    const fans = (/^\/api\/fan-reports\/(summary|period-summary|export)$/.test(req.path) || /^\/api\/fan-leads(\/|$)/.test(req.path)) && read;
     const orders = (/^\/api\/orders(\/export)?\/?$/.test(req.path) || /^\/api\/order-records(\/|$)/.test(req.path)) && read;
     const accounts = /^\/api\/cs-accounts(\/|$)/.test(req.path);
     // 唯一写入例外：登记／撤销本组订单的跑单。路由内再按业务日历史小组范围校验。

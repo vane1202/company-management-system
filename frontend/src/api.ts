@@ -167,6 +167,10 @@ export const api = {
     requestInner<{ date: string; teams: FanSummary[] }>(
       `/api/fan-reports/summary?date=${encodeURIComponent(date)}${teamId ? `&teamId=${encodeURIComponent(teamId)}` : ""}${accountId ? `&accountId=${encodeURIComponent(accountId)}` : ""}`
     ),
+  fanPeriodSummary: (from: string, to: string) =>
+    requestInner<{ from: string; to: string; totalAdded: number | null }>(
+      "/api/fan-reports/period-summary?" + new URLSearchParams({ from, to })
+    ),
   fanExportUrl: (date: string, accountId?: string) => `/api/fan-reports/export?date=${encodeURIComponent(date)}${accountId ? `&accountId=${encodeURIComponent(accountId)}` : ""}`,
   opsReports: () => requestInner<{ reports: OpsReport[] }>("/api/ops-reports"),
   saveOps: (payload: Record<string, unknown>) =>

@@ -809,6 +809,14 @@
     if(path==="/api/cs-accounts/teams")return json({teams:window.CmsServiceDirectory&&['cs','cs_supervisor','admin'].includes(role)?[{id:window.CmsServiceDirectory.team.id,name:window.CmsServiceDirectory.team.name}]:visibleTeams()});
     if(path==='/api/fan-leads'&&['boss','cs_supervisor'].includes(role))return json(leadDemo(q));
     if(/^\/api\/fan-leads\/[^/]+\/history$/.test(path)&&['boss','cs_supervisor'].includes(role)){const id=path.split('/')[3],l=leadFixtures.find(l=>l.id===id&&visibleAccounts().some(a=>a.id===l.accountId));return l?json({history:[{created_at:l.receivedOn+'T02:00:00Z',actor_name:l.operatorName,action:'fan_lead_create',after_data:{qualified_on:l.qualifiedOn,need_summary:l.needSummary}}]}):json({error:'线索不在演示可见范围'},403);}
+    if(path==="/api/fan-reports/period-summary"){
+      if(role!=="cs_supervisor"||!["GET","HEAD"].includes(method))return json({error:"仅客服主管可查看本组加粉汇总"},403);
+      const from=q.get("from"),to=q.get("to"),span=(Date.parse(to)-Date.parse(from))/86400000;
+      if(!Number.isInteger(span)||span<0||span>366||to>today||shift(from,0)!==from||shift(to,0)!==to)return json({error:"日期范围无效"},400);
+      const accountIds=new Set(visibleAccounts().map(account=>account.id));
+      const rows=fans.filter(row=>accountIds.has(row.userId)&&row.businessDate>=from&&row.businessDate<=to);
+      return json({from,to,totalAdded:rows.length?sum(rows,"addedCount"):null});
+    }
     if(path==="/api/fan-reports/summary"&&role!=="admin")return json(fanSummary(q));
     if(path==="/api/fan-reports/export"&&role!=="admin")return new Response("\uFEFF"+[csv(["业务日","小组","客服接待账号","加粉数","状态"]),...fanSummary(q).teams.flatMap((team)=>team.details.map((d)=>csv([q.get("date")||today,team.teamName,d.wechatId,d.addedCount,d.status])))].join("\n"),{headers:{"Content-Type":"text/csv;charset=utf-8"}});
     if(q.has("reviewStatus"))return json({error:"审核筛选已停用"},400);
