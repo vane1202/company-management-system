@@ -11,6 +11,7 @@ type Issued = { username: string; displayName: string; password: string };
 export function CsLoginSetup() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [users, setUsers] = useState<Staff[]>([]);
+  const [formOpen, setFormOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
@@ -36,16 +37,22 @@ export function CsLoginSetup() {
     refresh().catch((err) => setError(toErrorMessage(err)));
   }, []);
 
+  const ready = users.filter((user) => user.isActive && !user.mustChangePassword).length;
+  const needsPassword = users.filter((user) => user.isActive && user.mustChangePassword).length;
   return (
-    <section className="card cs-login-setup">
-      <h2>新增客服账号</h2>
-      <ol className="notice">
+    <section className="cs-management cs-login-setup">
+      <header className="cs-management-heading">
+        <h1>客服登录账号管理</h1>
+        <button type="button" disabled={pending || !teams.length} aria-expanded={formOpen} aria-controls="cs-login-create" onClick={() => { setError(""); setFormOpen((current) => !current); }}>{formOpen ? "收起新增表单" : "+ 新增客服账号"}</button>
+      </header>
+      <details className="cs-guide-details"><summary>账号开通操作指南</summary><ol className="notice">
         <li>填写这位客服的姓名、登录名和初始密码，小组选她所在的组。</li>
         <li>用另一个窗口，用初始密码登录这个账号。</li>
         <li>系统会要求修改密码。请改成只有你知道、并要长期保管的密码。</li>
         <li>改完后退出，把登录名和新密码交给客服本人。</li>
         <li>以后忘记了，由后台管理员重置。重置后仍由你登录，再改成新密码。</li>
-      </ol>
+      </ol></details>
+      {error && !formOpen && <p className="error" role="alert">{error}</p>}
       {issued && (
         <div className="review-card" role="status">
           <h3>已开通 {issued.displayName}</h3>
@@ -57,8 +64,8 @@ export function CsLoginSetup() {
       )}
       {!loaded && !error && <p role="status">正在读取本组客服…</p>}
       {loaded && !teams.length && <div className="empty-state"><strong>还没有负责小组</strong><p>请让后台管理员先把你的负责小组设置好，再新增客服账号。</p></div>}
-      {!!teams.length && (
-        <form className="cs-login-form" onSubmit={async (event) => {
+      {formOpen && !!teams.length && (
+        <form id="cs-login-create" className="card cs-login-form" onSubmit={async (event) => {
           event.preventDefault();
           if (pending) return;
           if (!form.teamIds.length) {
@@ -70,6 +77,7 @@ export function CsLoginSetup() {
           setError("");
           try {
             await api.createCsLogin(next);
+            setFormOpen(false);
             setIssued({ username: next.username, displayName: next.displayName, password: next.password });
             setForm({ username: "", displayName: "", password: "", teamIds: form.teamIds });
             toast.success("已开通 " + next.displayName + "，请登录一次并修改密码");
@@ -112,15 +120,22 @@ export function CsLoginSetup() {
       )}
       {loaded && (
         <div className="cs-staff-section">
-          <h3>本组客服</h3>
+          <dl className="cs-management-summary" aria-label="本组客服汇总">
+            <div><dt>本组客服</dt><dd>{users.length}</dd></div>
+            <div><dt>已设置密码</dt><dd className="cs-jade">{ready}</dd></div>
+            <div><dt>待主管改密</dt><dd className="cs-gold">{needsPassword}</dd></div>
+            <div><dt>已停用</dt><dd>{users.length - ready - needsPassword}</dd></div>
+          </dl>
+          <h2>本组客服</h2>
           {!users.length && <p className="notice">还没有客服登录账号。</p>}
           {!!users.length && (
             <ul className="cs-staff-grid">
               {users.map((user) => (
-                <li className="cs-staff-card" key={user.id}>
+                <li className={"cs-staff-card" + (user.isActive && user.mustChangePassword ? " is-pending" : "")} key={user.id}>
                   <div className="cs-staff-heading"><strong>{user.displayName}</strong>
-                    <small>{!user.isActive ? "已停用" : user.mustChangePassword ? "待主管改密" : "已设置密码"}</small></div>
-                  <span>{user.username} · {user.teamName}</span>
+                    <span className={"cs-tag" + (!user.isActive ? "" : user.mustChangePassword ? " is-gold" : " is-jade")}>{!user.isActive ? "已停用" : user.mustChangePassword ? "待主管改密" : "已设置密码"}</span></div>
+                  <span className="cs-account-id">{user.username}</span>
+                  <div className="cs-tags">{[...new Set((user.teamName || "未分组").split(/[、，,]/).map((name) => name.trim()).filter(Boolean))].map((name) => <span className="cs-tag" key={name}>{name}</span>)}</div>
                   {teams.length > 1 && editingUser?.id !== user.id && (
                     <div className="admin-team-actions">
                       <button

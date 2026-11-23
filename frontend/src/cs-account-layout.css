@@ -8,3 +8,54 @@
 .cs-binding-panel .actions { flex-wrap: wrap; }
 @media (max-width: 1100px) { .cs-staff-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 799px) { .cs-staff-grid { grid-template-columns: minmax(0, 1fr); } }
+.cs-management { display:grid; gap:14px; min-width:0; }
+.cs-management-heading, .cs-card-heading {
+  display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:8px 12px;
+}
+.cs-management-heading > div:first-child { display:flex; align-items:center; flex-wrap:wrap; gap:4px 8px; }
+.cs-management-heading :is(h1,h2) { margin:0; }
+.cs-management :is(.actions,.cs-tags,.cs-pills) { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.cs-management-tabs { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); padding:4px; gap:4px; border-radius:10px; background:var(--line); }
+.cs-management .cs-management-tabs button.secondary { background:transparent; border-color:transparent; border-radius:7px; box-shadow:none; padding-inline:6px; }
+.cs-management .cs-management-tabs button.secondary[aria-pressed="true"],
+.cs-management button.secondary.cs-pill[aria-pressed="true"] { background:var(--jade-dark); border-color:var(--jade-dark); color:var(--card); }
+.cs-management-summary { display:flex; flex-wrap:wrap; gap:12px 24px; margin:0; padding:14px 16px; border:1px solid var(--line); border-radius:14px; background:var(--card); }
+.cs-management-summary > div { flex:1 1 90px; }
+.cs-management :is(.cs-management-summary,.cs-account-facts) dt { font-size:12px; color:var(--muted); }
+.cs-management-summary dd { margin:3px 0 0; font-size:22px; font-weight:700; font-variant-numeric:tabular-nums; }
+.cs-management .cs-jade { color:var(--jade); }
+.cs-management .cs-gold { color:var(--gold); }
+.cs-management-filters { display:flex; align-items:end; justify-content:space-between; flex-wrap:wrap; gap:10px 16px; }
+.cs-management-filters label { display:grid; flex:0 1 290px; min-width:0; gap:4px; color:var(--muted); font-size:12px; }
+.cs-management-filters input { min-width:0; width:100%; margin:0; }
+.cs-management button.secondary.cs-pill { min-height:38px; border-radius:999px; padding:5px 12px; }
+.cs-account-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.cs-management :is(.cs-account-card,.cs-staff-card) { min-width:0; display:grid; gap:10px; align-content:start; padding:15px; border:1px solid var(--line); border-radius:14px; background:var(--card); overflow-wrap:anywhere; }
+.cs-management .cs-account-card.is-inactive { opacity:.78; }
+.cs-management .cs-account-id { margin:0; font-family:ui-monospace,Consolas,monospace; font-size:16px; font-weight:700; overflow-wrap:anywhere; }
+.cs-account-facts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px 12px; margin:0; padding:10px 12px; border-radius:10px; background:var(--bg); }
+.cs-account-facts dd { margin:3px 0 0; overflow-wrap:anywhere; }
+.cs-tag { display:inline-flex; padding:3px 8px; border-radius:999px; background:var(--bg); color:var(--muted); font-size:12px; }
+.cs-tag.is-jade { background:#e7f4ee; color:#195c4d; }
+.cs-tag.is-gold { background:#fff2db; color:#805519; }
+.cs-management .cs-staff-card.is-pending { box-shadow:inset 4px 0 0 var(--gold); overflow:hidden; }
+.cs-management .cs-staff-section { display:grid; gap:12px; padding:0; margin:0; border:0; }
+.cs-staff-section h2 { margin:0; }
+.cs-management .cs-staff-grid { margin:0; }
+.cs-guide-details { padding:0 14px; border:1px solid var(--line); border-radius:12px; background:var(--card); }
+.cs-guide-details summary { min-height:44px; align-content:center; cursor:pointer; color:var(--jade); }
+.cs-guide-details ol { padding-left:22px; }
+.cs-drawer-panel { position:fixed; inset:0 0 0 auto; width:min(100%, 520px); max-width:100%; height:100%; max-height:100%; margin:0; padding:18px; border:0; border-left:1px solid var(--line); background:var(--card); color:var(--ink); overflow:auto; box-sizing:border-box; }
+.cs-drawer-backdrop::backdrop { background:rgba(14,44,39,.36); }
+.cs-drawer-panel[open] { animation:cs-drawer-in .18s ease-out; }
+.cs-drawer-form { margin-top:14px; }
+.cs-drawer-form .grid.two { grid-template-columns:minmax(0,1fr); }
+@keyframes cs-drawer-in { from { transform:translateX(100%); } to { transform:translateX(0); } }
+@media (prefers-reduced-motion:reduce) { .cs-drawer-panel[open] { animation:none; } }
+@media (max-width:799px) {
+  .cs-account-grid { grid-template-columns:minmax(0,1fr); }
+  .cs-management-summary { gap:8px 12px; }
+  .cs-management-summary > div { flex-basis:85px; }
+  .cs-management-filters label { flex:1 1 100%; }
+  .cs-drawer-panel { width:100%; border:0; }
+}
