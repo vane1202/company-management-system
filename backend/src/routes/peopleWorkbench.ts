@@ -51,7 +51,10 @@ export function createPeopleWorkbenchRouter(db: Pool, _config: AppConfig): Route
       const leads = (await query<Record<string, string | null>>(db,
         `SELECT l.id::text, l.user_id::text AS account_id, l.received_on::text AS business_date, l.user_id::text AS employee_id,
                 l.page_name, l.channel, l.contact_status, l.qualified_on::text AS qualified_on, l.invalid_reason,
-                l.invalid_reason_code, l.invalid_review_status, l.attempt_contact
+                l.invalid_reason_code, l.invalid_review_status, l.attempt_contact,
+                l.customer_label, l.operator_name, l.need_summary,
+                EXISTS(SELECT 1 FROM orders o WHERE o.user_id = l.user_id AND o.customer_label = l.customer_label AND o.status <> 'refunded'
+                   AND NOT EXISTS(SELECT 1 FROM order_cancellations x WHERE x.order_id = o.id AND x.voided_at IS NULL)) AS dealt
            FROM fan_leads l
           WHERE l.voided_at IS NULL AND ($1::boolean OR l.team_id = ANY($2::uuid[]) OR ($3::boolean AND l.user_id = $4::uuid))`,
         [visible.all, visible.teams, visible.self, actor.id])).map(row => {
@@ -64,7 +67,13 @@ export function createPeopleWorkbenchRouter(db: Pool, _config: AppConfig): Route
           pageName: row.page_name || "", channel: row.channel === "ws" ? "ws" : "ms",
           contact: confirmedInvalid ? "invalid" : (["replied", "read_no_reply", "unread"].includes(String(row.contact_status)) ? row.contact_status : "unread"),
           qualified: confirmedInvalid ? false : !!row.qualified_on,
-          invalidReason: confirmedInvalid ? reasonCode : ""
+          invalidReason: confirmedInvalid ? reasonCode : "",
+          customerLabel: row.customer_label || "",
+          operatorName: row.operator_name || "",
+          needSummary: row.need_summary || "",
+          pendingReview: !confirmedInvalid && Boolean(row.invalid_reason) && row.invalid_review_status !== "approved",
+          attemptContact: String(row.attempt_contact) === "true",
+          dealt: String(row.dealt) === "true"
         };});
       const attendance = (await query<Record<string, string | number | null>>(db,
         `SELECT f.id::text, f.user_id::text AS account_id, f.business_date::text, f.user_id::text AS employee_id,

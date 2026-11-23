@@ -40,6 +40,7 @@ export type CrmOrder = {
   materialCents: number;
   feeCents: number;
   cancelled: boolean;
+  sourcingNoSettle?: boolean;
   customerCurrency?: 'CNY'|'TWD'|'USD'|'SGD'|'HKD';
   customerDueMinor?: number;
   materialRef?: string;
@@ -202,6 +203,9 @@ export function reduceCrm(state: CrmState, action: CrmAction, today: string): Cr
   if (action.type === "setTier") return setTier(state, action);
   if (action.type === "recordReceipt") return recordReceipt(state,action,today);
   if (action.type === "transferOrder") return transferOrder(state,action,today);
+  if (action.type === "toggleSourcingNoSettle") {
+    return { ...state, orders: state.orders.map(order => order.id === action.orderId ? { ...order, sourcingNoSettle: !order.sourcingNoSettle } : order) };
+  }
   return addOrder(state, action, today);
 }
 
@@ -212,7 +216,8 @@ export type CrmAction =
   | { type: "setTier"; actor: CrmActor; customerId: string; tier: SpendTier }
   | ({ type: "addOrder"; actor: CrmActor; customerId: string } & CrmOrderDraft)
   | { type:'recordReceipt'; actor:CrmActor; orderId:string; date:string; amount:string; purpose:'deposit'|'balance'; channel:string; reference:string }
-  | { type:'transferOrder'; actor:CrmActor; orderId:string; draft:CrmOrderDraft; reason:string };
+  | { type:'transferOrder'; actor:CrmActor; orderId:string; draft:CrmOrderDraft; reason:string }
+  | { type:'toggleSourcingNoSettle'; actor:CrmActor; orderId:string };
 
 function registerLeads(state: CrmState, leads: NewLead[], today: string): CrmState {
   if (!leads.length || leads.length > 100) throw Error("一次最多登记 100 位客户");

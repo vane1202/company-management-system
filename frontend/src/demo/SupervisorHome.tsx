@@ -90,11 +90,26 @@ export function SupervisorWorkbench({ today, onNavigate }: { today: string; onNa
   ]);
   const activeTeam = selectedTeam && perfTeams.includes(selectedTeam) ? selectedTeam : "";
   const stats = sources && accounts ? aggregate(sources, { from: period.from, to: period.to, operator: "", account: "", persona: "", room: "", team: activeTeam }, accounts) : null;
-  const customers: DeskCustomer[] = crm.state.customers.filter((customer) => teamIds.includes(customer.teamId)).map((customer) => ({
-    id: customer.id, name: customer.name, employeeId: customer.employeeId, employeeName: customer.employeeName, spendTier: customer.spendTier,
-    status: customerStatus(crm.state, customer), pending: crm.state.reviews.some((review) => review.customerId === customer.id && review.status === "pending"),
-    sample: customer.sample, createdOn: customer.createdOn, need: customer.need
-  }));
+  const employeeNames = new Map((foundation?.employees ?? []).map((employee) => [employee.id, employee.name]));
+  const customers: DeskCustomer[] = import.meta.env.MODE === "demo"
+    ? crm.state.customers.filter((customer) => teamIds.includes(customer.teamId)).map((customer) => ({
+        id: customer.id, name: customer.name, employeeId: customer.employeeId, employeeName: customer.employeeName, spendTier: customer.spendTier,
+        status: customerStatus(crm.state, customer), pending: crm.state.reviews.some((review) => review.customerId === customer.id && review.status === "pending"),
+        sample: customer.sample, createdOn: customer.createdOn, need: customer.need
+      }))
+    : (foundation?.leads ?? []).map((lead) => ({
+        id: lead.id,
+        name: lead.customerLabel || "未命名客户",
+        employeeId: lead.employeeId,
+        employeeName: lead.operatorName || employeeNames.get(lead.employeeId) || "未分配客服",
+        spendTier: "",
+        status: lead.contact === "invalid" ? "invalid" : lead.dealt ? "dealt" : "valid",
+        pending: Boolean(lead.pendingReview),
+        sample: false,
+        createdOn: lead.businessDate,
+        need: lead.needSummary || "",
+        attemptContact: Boolean(lead.attemptContact)
+      }));
   const holders = (accounts ?? []).filter((account) => account.isActive && account.teamId && teamIds.includes(account.teamId) && account.holderName?.trim()).map((account) => ({ id: account.registeredHolderId || account.holderName!.trim(), name: account.holderName!.trim() }));
   const desk = customerDesk(customers, holders);
   const person = desk.people.find((item) => item.id === personId);
@@ -119,8 +134,11 @@ export function SupervisorWorkbench({ today, onNavigate }: { today: string; onNa
       {person ? <>
         <p className="notice">在跟 {person.following} 人，其中已成交 {person.dealt} 人。待复核 {person.pending} 人。换人后旧客资留在原客服名下。</p>
         {personCustomers.length ? personCustomers.map((customer) => {
-          const source = crm.state.customers.find((item) => item.id === customer.id)!;
-          return <div key={customer.id}><article className="supervisor-customer"><div><strong>{customer.name}</strong><small>{customer.createdOn} · {customer.need || "未填写需求"}{customer.sample ? " · 演练样本" : ""}</small></div><span>{customerTags(crm.state, source).join(" · ")}</span></article><details><summary>查看开单与换料记录</summary><CrmOrderHistory state={crm.state} customerId={customer.id} today={today}/></details></div>;
+          const source = import.meta.env.MODE === "demo" ? crm.state.customers.find((item) => item.id === customer.id) : undefined;
+          const tags = source
+            ? customerTags(crm.state, source)
+            : [customer.status === "dealt" ? "已成交" : "有效", ...(customer.pending ? ["待复核"] : []), ...(customer.attemptContact ? ["尝试沟通"] : [])];
+          return <div key={customer.id}><article className="supervisor-customer"><div><strong>{customer.name}</strong><small>{customer.createdOn} · {customer.need || "未填写需求"}{customer.sample ? " · 演练样本" : ""}</small></div><span>{tags.join(" · ")}</span></article>{source && <details><summary>查看开单与换料记录</summary><CrmOrderHistory state={crm.state} customerId={customer.id} today={today}/></details>}</div>;
         }) : <p className="empty-state">这位客服名下没有仍在跟进的客户。</p>}
         {person.pending > 0 && <button type="button" onClick={() => onNavigate("customerReview")}>去复核无效客资</button>}
       </> : <>

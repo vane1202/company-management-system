@@ -11,9 +11,11 @@ export default function CrmOrderHistory({state,customerId,today,actor,dispatch,r
   return <div className="crm-order-history">
     {!orders.length&&<p className="notice">还没有开单。售后费用不增加订单笔数。</p>}
     {orders.map(order=>{const funds=orderFunds(order);return <details className="crm-order-row" key={order.id}>
-      <summary><span><strong>{order.id}</strong><small>{order.businessDate} · {order.channel==='private'?'私推':'直播间'} · {order.employeeName}{order.materialRef?' · 料号 '+order.materialRef:''}</small></span><span><b>¥{centsToYuan(effectiveOrderCents(order))}</b><small>{order.replacedById?'换料取消':order.cancelled?'已跑单':funds.balance===0?'客户已付清':'待付款'}</small></span></summary>
+      <summary><span><strong>{order.id}</strong><small>{order.businessDate} · {order.channel==='private'?'私推':'直播间'} · {order.employeeName}{order.materialRef?' · 料号 '+order.materialRef:''}{order.sourcingNoSettle?' · 接待（PH）':''}</small></span><span><b>¥{centsToYuan(effectiveOrderCents(order))}</b><small>{order.replacedById?'换料取消':order.cancelled?'已跑单':funds.balance===0?'客户已付清':'待付款'}</small></span></summary>
       <div className="crm-order-body">
         <p>原开单价 ¥{centsToYuan(order.materialCents)} · 代购费 ¥{centsToYuan(order.feeCents)}</p>
+        {order.sourcingNoSettle&&<p className="notice">此单已标「接待（PH）」，原石未售出、不结供应商料款；实际接待费用在售后费用中按「市场配货采购款」登记。</p>}
+        {actor&&dispatch&&!order.cancelled&&!order.replacedById&&<p><button type="button" className="secondary" onClick={()=>{dispatch({type:'toggleSourcingNoSettle',actor,orderId:order.id});onMessage?.(order.sourcingNoSettle?'已取消该订单的「接待（PH）」标记（演练）。':'已将该订单标为「接待（PH）」，原石不结供应商料款（演练）。');}}>{order.sourcingNoSettle?'取消接待（PH）':'标为接待（PH）'}</button></p>}
         {!!order.items?.length&&<ul>{order.items.map((item,i)=><li key={i}>{item.kind==='material'?'翡翠原石':'翡翠成品'} · {item.materialRef||'未填料号'} · ¥{item.priceCny} + 代购费 ¥{item.buyingFeeCny}</li>)}</ul>}
         {order.replacedById?<p className="notice">换料取消 · 有效成交金额 ¥0.00。原定金已转入 {order.replacedById}，不再催收本单尾款。<br/>{order.transferredOn} · {order.transferredBy} · {order.transferReason}</p>:<p>约定应收 {centsToYuan(funds.due)} {funds.currency} · 已抵扣 {centsToYuan(funds.allocated)} · 剩余 {centsToYuan(funds.balance)} {funds.currency}</p>}
         {order.replacesId&&<p className="notice">承接原订单 {order.replacesId} 定金 {centsToYuan(funds.carried)} {funds.currency}。转入抵扣不计新增收款。</p>}

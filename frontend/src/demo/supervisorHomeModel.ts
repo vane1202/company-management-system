@@ -23,6 +23,7 @@ export type DeskCustomer = {
   sample: boolean;
   createdOn: string;
   need: string;
+  attemptContact?: boolean;
 };
 
 export type DeskPerson = {
