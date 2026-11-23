@@ -1,5 +1,6 @@
 import {useEffect,useState} from 'react';
 import {requestInner, type CompanyExpense} from '../api';
+import {newRequestKey} from '../commerceUi';
 import {InfoTip} from '../InfoTip';
 import {toErrorMessage} from '../errors';
 import './warehouse-workspace.css';
@@ -17,7 +18,7 @@ async function request(body?:object):Promise<Data>{
  const r=await fetch(reimbursementUrl,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{cache:'no-store'});const data=await r.json();if(!r.ok)throw Error(data.error||'报销数据读取失败');return data;}
 
 export default function ReimbursementWorkspace({today,onBack}:{today:string;onBack?:()=>void}){
- const blank=()=>({claimant:'',department:'',category:'temporary',purpose:'',amount:'',expenseDate:today,claimDate:today,expenseId:'',receiptRef:'',note:'',requestKey:crypto.randomUUID()});
+ const blank=()=>({claimant:'',department:'',category:'temporary',purpose:'',amount:'',expenseDate:today,claimDate:today,expenseId:'',receiptRef:'',note:'',requestKey:newRequestKey()});
  const [data,setData]=useState<Data|null>(null),[form,setForm]=useState(blank),[creating,setCreating]=useState(false);
  const [error,setError]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false),[selected,setSelected]=useState<Claim|null>(null),[reason,setReason]=useState('');
  const [payment,setPayment]=useState({amount:'',date:today,payee:'',account:'',reference:''});

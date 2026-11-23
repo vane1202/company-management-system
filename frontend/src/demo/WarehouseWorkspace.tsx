@@ -1,5 +1,6 @@
 import {useEffect,useRef,useState} from 'react';
 import {requestInner, type CompanyExpense} from '../api';
+import {newRequestKey} from '../commerceUi';
 import {toErrorMessage} from '../errors';
 import {createRequestGate} from '../requestGate';
 import {demoOrderRooms} from './orderIdentity';
@@ -24,14 +25,14 @@ export default function WarehouseWorkspace({today,finance=false,onBack,userId}:{
  const [view,setView]=useState<'ledger'|'create'>('ledger'),[query,setQuery]=useState(''),[status,setStatus]=useState('');
  const requests=useRef(new Map<string,string>()),[revision,setRevision]=useState<Bill|null>(null);
  const gate=useRef(createRequestGate());
- const blank=()=>({orderId:'',expenseId:'',afterSaleChargeId:'',category:'goods',label:'',counterparty:'',amount:'',date:today,materialRef:'',proof:'',note:'',requestKey:crypto.randomUUID()});
+ const blank=()=>({orderId:'',expenseId:'',afterSaleChargeId:'',category:'goods',label:'',counterparty:'',amount:'',date:today,materialRef:'',proof:'',note:'',requestKey:newRequestKey()});
  const [form,setForm]=useState(blank),[selected,setSelected]=useState<Bill|null>(null),[review,setReview]=useState('');
  const [withdraw,setWithdraw]=useState(false);
  useEffect(()=>{if(selected)document.querySelector('.warehouse-workspace > form.warehouse-form')?.scrollIntoView({block:'start'});},[selected,withdraw]);
  const [payment,setPayment]=useState({amount:'',date:today,payee:'',account:'',reference:''});
  async function refresh(){const ticket=gate.current.next();setError('');try{const next=await call(finance);if(ticket.isCurrent())setData(next);}catch(e){if(ticket.isCurrent())setError(toErrorMessage(e));}}
  useEffect(()=>{void refresh();return()=>{gate.current.next();};},[finance]);
- async function act(input:object,success:string){if(busy)return;setBusy(true);setError('');setMessage('');const signature=JSON.stringify(input);const key=requests.current.get(signature)||crypto.randomUUID();requests.current.set(signature,key);try{setData(await call(finance,{...input,requestKey:key}));requests.current.delete(signature);setSelected(null);setMessage(success);return true;}catch(e){setError(toErrorMessage(e));return false;}finally{setBusy(false);}}
+ async function act(input:object,success:string){if(busy)return;setBusy(true);setError('');setMessage('');const signature=JSON.stringify(input);const key=requests.current.get(signature)||newRequestKey();requests.current.set(signature,key);try{setData(await call(finance,{...input,requestKey:key}));requests.current.delete(signature);setSelected(null);setMessage(success);return true;}catch(e){setError(toErrorMessage(e));return false;}finally{setBusy(false);}}
  const paid=(b:Bill)=>(data?.state.payments||[]).filter(p=>p.billId===b.id).reduce((n,p)=>n+c(p.amount),0n);
  const remaining=(b:Bill)=>c(b.amount)-paid(b);
  const state=(b:Bill)=>b.status==='approved'?(remaining(b)===0n?'已结清':paid(b)>0n?'部分付款':'待付款'):labels[b.status];
