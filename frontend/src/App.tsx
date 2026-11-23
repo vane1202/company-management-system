@@ -669,6 +669,8 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
   const [issuedTempPassword, setIssuedTempPassword] = useState<{ displayName: string; username: string; temporaryPassword: string } | null>(null);
   const [scopeIds, setScopeIds] = useState<string[]>([]);
   const [savingUser, setSavingUser] = useState("");
+  const [roleFilter, setRoleFilter] = useState("");
+  const visibleUsers = roleFilter ? users.filter((item) => item.role === roleFilter) : users;
   const userPanelRef = useRef<HTMLFormElement>(null);
   const [form, setForm] = useState({
     username: "",
@@ -1002,11 +1004,22 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
           <p className="notice">请通过受信任渠道发给员工本人，首次登录后系统将强制修改密码。</p>
           <button type="button" className="secondary" onClick={() => setIssuedTempPassword(null)}>我已记录</button>
         </div>}
+        <div className="commerce-line" style={{ marginTop: 18, marginBottom: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+          <Field label="角色筛选">
+            <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}>
+              <option value="">全部角色</option>
+              {Object.entries(roleLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </Field>
+          <span className="notice" role="status" style={{ margin: 0 }}>共 {visibleUsers.length} 个账号</span>
+        </div>
         <div className="table-wrap">
           <table>
             <thead><tr><th>姓名</th><th>登录名</th><th>角色</th><th>小组 / 管理范围</th><th>状态</th><th>操作</th></tr></thead>
             <tbody>
-              {users.map((item) => (
+              {visibleUsers.length === 0 ? (
+                <tr><td colSpan={6} className="notice">{roleFilter ? "该角色暂无账号" : "暂无账号"}</td></tr>
+              ) : visibleUsers.map((item) => (
                 <tr key={item.id}>
                   <td data-label="姓名">{item.displayName}</td>
                   <td data-label="登录名">{item.username}</td>
