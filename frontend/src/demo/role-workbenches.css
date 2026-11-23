@@ -38,3 +38,295 @@
 @media(max-width:799px){.supervisor-boards{gap:10px}.supervisor-board{gap:10px;padding:10px 14px 12px}.supervisor-board .supervisor-figures{gap:6px}.supervisor-board .supervisor-figures strong{font-size:clamp(14px,4.25vw,18px);white-space:nowrap;overflow-wrap:normal;letter-spacing:-.025em}.supervisor-board .supervisor-figures span{font-size:12px}.commission-collapsed>.commission-toggle{padding:12px 14px;min-height:60px}.commission-collapsed .supervisor-figures{grid-template-columns:repeat(2,minmax(0,1fr))}}
 
 .supervisor-consultation-cost{border-top:1px solid var(--line);padding-top:10px;margin-top:2px}.supervisor-consultation-cost>div{display:flex;align-items:center;justify-content:space-between;gap:10px}.supervisor-consultation-cost>div>span{display:flex;align-items:center;gap:4px;color:var(--muted);font-size:12px}.supervisor-consultation-cost strong{font-size:16px;white-space:nowrap;font-variant-numeric:tabular-nums}.supervisor-consultation-cost>small{display:block;margin-top:4px;color:var(--muted);font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+
+.supervisor-desk .supervisor-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.supervisor-desk .supervisor-demo-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 4px 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--muted);
+  font-size: 12px;
+}
+.supervisor-desk .supervisor-todo-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 0 0 14px;
+  padding: 8px 12px;
+  border: 1px solid #c6ded3;
+  border-radius: 14px;
+  background: #edf7f2;
+  color: var(--jade);
+}
+.supervisor-desk .supervisor-todo-bar.is-pending {
+  background: #fffdf8;
+  border-color: #e4cfa3;
+  color: var(--desk-warn);
+}
+.supervisor-desk .supervisor-todo-bar > strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.supervisor-desk .supervisor-todo-bar > strong::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: var(--jade);
+}
+.supervisor-desk .supervisor-todo-bar.is-pending > strong::before { background: var(--gold); }
+.supervisor-desk .supervisor-todo-actions,
+.supervisor-desk .supervisor-hero-pills,
+.supervisor-desk .supervisor-tier-pills,
+.supervisor-desk .supervisor-customer-tags {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.supervisor-desk button.secondary.supervisor-attention {
+  min-height: 36px;
+  padding: 5px 10px;
+  border: 1px solid #e4cfa3;
+  border-radius: 999px;
+  background: var(--desk-warn-bg);
+  color: var(--desk-warn);
+  font-size: 12px;
+}
+.supervisor-desk button.secondary.supervisor-attention:hover { background: #f8ecd6; }
+
+.supervisor-desk .supervisor-boards {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: stretch;
+}
+.supervisor-desk .supervisor-board {
+  gap: 11px;
+  padding: clamp(13px, 1.35vw, 20px);
+}
+.supervisor-desk .supervisor-board-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0 5px;
+}
+.supervisor-desk .supervisor-board-heading > div {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+.supervisor-desk .supervisor-board-heading h2 { margin: 0; }
+.supervisor-desk button.supervisor-card-link {
+  display: inline-flex;
+  width: auto;
+  flex: 0 0 auto;
+  min-height: 38px;
+  margin-left: auto;
+  padding: 5px 0 5px 4px;
+  color: var(--jade);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.supervisor-desk button.supervisor-card-link:hover { text-decoration: underline; }
+.supervisor-desk .supervisor-primary-figure > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.supervisor-desk .supervisor-primary-figure > div,
+.supervisor-desk .supervisor-primary-figure small,
+.supervisor-desk .supervisor-inset > small { color: var(--muted); font-size: 12px; }
+.supervisor-desk .supervisor-primary-figure > strong {
+  display: block;
+  margin: 3px 0;
+  font-size: clamp(26px, 2.15vw, 30px);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.supervisor-desk .supervisor-board .supervisor-figures {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.supervisor-desk .supervisor-board .supervisor-figures strong {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.supervisor-desk .supervisor-figures strong.is-jade,
+.supervisor-desk .supervisor-reported { color: var(--jade); }
+.supervisor-desk .supervisor-figures strong.is-gold { color: var(--gold); }
+.supervisor-desk .supervisor-reported { font-size: 12px; }
+.supervisor-desk .supervisor-inset {
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--bg);
+  font-size: 13px;
+}
+.supervisor-desk .supervisor-inset p { margin: 0 0 5px; }
+.supervisor-desk .supervisor-inset .supervisor-consultation-cost {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.supervisor-desk .supervisor-inset .supervisor-consultation-cost > div { flex-wrap: wrap; }
+.supervisor-desk .supervisor-card-actions { justify-content: space-between; }
+.supervisor-desk .supervisor-card-actions button { min-height: 44px; }
+
+.supervisor-desk .supervisor-board.is-hero {
+  background: linear-gradient(155deg, var(--jade-dark), #143f37);
+  border-color: transparent;
+  color: #fff;
+}
+.supervisor-desk .is-hero .supervisor-primary-figure > div,
+.supervisor-desk .is-hero .supervisor-primary-figure small,
+.supervisor-desk .is-hero .supervisor-figures span,
+.supervisor-desk .is-hero .supervisor-inset > small { color: #c4ddd4; }
+.supervisor-desk .is-hero button.supervisor-card-link,
+.supervisor-desk .is-hero .info-tip-button { color: var(--glow); }
+.supervisor-desk .is-hero button.supervisor-card-link:hover { background: transparent; }
+.supervisor-desk .is-hero button:focus-visible { outline-color: var(--glow); }
+.supervisor-desk .supervisor-hero-pills button.secondary,
+.supervisor-desk .is-hero button.secondary.supervisor-hero-link {
+  border: 1px solid rgba(255,255,255,.26);
+  background: rgba(255,255,255,.08);
+  color: #fff;
+  box-shadow: none;
+}
+.supervisor-desk .supervisor-hero-pills button.secondary {
+  min-height: 36px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+.supervisor-desk .supervisor-hero-pills button.secondary:hover,
+.supervisor-desk .is-hero button.secondary.supervisor-hero-link:hover { background: rgba(255,255,255,.18); }
+.supervisor-desk .supervisor-hero-pills button.secondary[aria-pressed="true"] {
+  background: var(--glow);
+  border-color: var(--glow);
+  color: var(--jade-dark);
+}
+.supervisor-desk .is-hero .supervisor-inset { background: rgba(255,255,255,.08); }
+.supervisor-desk .is-hero .supervisor-card-actions { border-top-color: rgba(255,255,255,.2); }
+.supervisor-desk .is-hero button.supervisor-hero-link { width: 100%; }
+
+.supervisor-desk .supervisor-customer-view {
+  display: grid;
+  gap: 12px;
+  justify-items: stretch;
+}
+.supervisor-desk .supervisor-customer-view > button { justify-self: start; }
+.supervisor-desk .supervisor-receipts-card,
+.supervisor-desk .supervisor-customer,
+.supervisor-desk .supervisor-people button.supervisor-person {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+}
+.supervisor-desk .supervisor-receipts-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  padding: 14px 16px;
+}
+.supervisor-desk .supervisor-receipts-card .supervisor-figures {
+  flex: 1 1 330px;
+  min-width: 0;
+  max-width: 530px;
+}
+.supervisor-desk .supervisor-tier-pills > span,
+.supervisor-desk .supervisor-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.supervisor-desk .supervisor-tier-pills > span {
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--muted);
+}
+.supervisor-desk .supervisor-tier-pills b { color: var(--ink); }
+.supervisor-desk .supervisor-badge { background: var(--bg); color: var(--muted); }
+.supervisor-desk .supervisor-badge.is-jade { background: #e7f4ec; color: var(--jade); }
+.supervisor-desk .supervisor-badge.is-gold { background: var(--desk-warn-bg); color: var(--desk-warn); }
+.supervisor-desk .supervisor-people,
+.supervisor-desk .supervisor-customer-list { display: grid; gap: 9px; }
+.supervisor-desk .supervisor-people button.supervisor-person {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  gap: 6px 12px;
+  justify-content: initial;
+  padding: 11px 14px;
+  box-shadow: none;
+}
+.supervisor-desk .supervisor-people button.supervisor-person:hover { background: var(--bg); }
+.supervisor-desk .supervisor-person > span:first-child { overflow-wrap: anywhere; }
+.supervisor-desk .supervisor-person-link {
+  grid-column: -2 / -1;
+  grid-row: 1;
+  justify-self: end;
+  color: var(--jade);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.supervisor-desk .supervisor-person > .supervisor-badge { grid-column: 3; justify-self: end; }
+.supervisor-desk .supervisor-people button.supervisor-person.is-pending,
+.supervisor-desk .supervisor-customer.is-pending {
+  box-shadow: inset 4px 0 0 var(--gold);
+  overflow: hidden;
+}
+.supervisor-desk .supervisor-customer {
+  display: grid;
+  gap: 9px;
+  padding: 12px 14px;
+}
+.supervisor-desk .supervisor-customer-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  overflow-wrap: anywhere;
+}
+.supervisor-desk .supervisor-customer-header > div { min-width: 0; }
+.supervisor-desk .supervisor-customer-header small { font-size: 12px; }
+.supervisor-desk .supervisor-order-history {
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  min-width: 0;
+  overflow: auto;
+}
+.supervisor-desk .supervisor-order-history summary { color: var(--jade); font-size: 13px; }
+
+@media (width < 860px) {
+  .supervisor-desk .supervisor-boards { grid-template-columns: minmax(0, 1fr); }
+  .supervisor-desk .supervisor-board { padding: 14px; }
+  .supervisor-desk .supervisor-people button.supervisor-person { grid-template-columns: minmax(0, 1fr) auto; }
+  .supervisor-desk .supervisor-person > .supervisor-tier-pills { grid-column: 1; }
+  .supervisor-desk .supervisor-person > .supervisor-badge { grid-column: 2; }
+}
