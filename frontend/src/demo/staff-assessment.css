@@ -43,3 +43,28 @@
  .sa-coverage{padding:8px 10px;font-size:12px;align-items:flex-start}
  .staff-assessment .oa-group-row{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
+
+.staff-assessment .sa-title { display:flex; align-items:center; flex-wrap:wrap; gap:6px 12px; }
+.staff-assessment .sa-status-pill { border:1px solid var(--line); border-radius:999px; padding:4px 9px; background:var(--card); color:var(--muted); font-size:12px; }
+.staff-assessment .oa-kpis { grid-template-columns:minmax(0,1.25fr) repeat(2,minmax(0,1fr)); }
+.staff-assessment .oa-kpis > article { min-width:0; overflow-wrap:anywhere; }
+.staff-assessment .oa-kpis > .sa-kpi-hero { background:linear-gradient(135deg,var(--jade-dark),#143f37); color:#fff; border-color:transparent; }
+.staff-assessment .sa-kpi-hero :is(h2,strong,small,.sa-rate-basis,.info-tip-button) { color:#fff; }
+.staff-assessment .sa-kpi-hero .oa-benchmark { color:#e3f4ee; border-color:transparent; background:rgba(255,255,255,.13); border-radius:999px; }
+.staff-assessment .sa-kpi-hero .oa-benchmark b { color:inherit; }
+.staff-assessment .sa-main-grid, .staff-assessment .sa-bottom-grid { display:grid; gap:14px; align-items:start; }
+.staff-assessment .sa-main-grid { grid-template-columns:minmax(0,1.15fr) minmax(0,1fr); }
+.staff-assessment .sa-bottom-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.staff-assessment :is(.sa-main-grid,.sa-bottom-grid) > .oa-panel { min-width:0; margin:0; }
+.staff-assessment :is(.oa-panel-heading,.analysis-toolbar) { flex-wrap:wrap; }
+.staff-assessment .sa-ranking-settings { display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin:0; }
+.staff-assessment .sa-ranking-settings label { display:flex; align-items:center; gap:5px; }
+.staff-assessment .sa-ranking-settings input { width:4.8rem; }
+.staff-assessment .sa-ranking-settings :is(input,button):focus-visible { outline:2px solid var(--jade); outline-offset:2px; }
+.staff-assessment .sa-ranking-settings + .error { margin:8px 0; }
+@media (width < 960px) {
+  .staff-assessment .sa-main-grid, .staff-assessment .sa-bottom-grid { grid-template-columns:minmax(0,1fr); }
+}
+@media (max-width:799px) {
+  .staff-assessment .oa-kpis { grid-template-columns:minmax(0,1fr); }
+}

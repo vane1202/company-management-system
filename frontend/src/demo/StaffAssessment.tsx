@@ -31,7 +31,7 @@ function prior(from: string, to: string) {
 
 export default function StaffAssessment({ today, scope }: { today: string; scope: string }) {
   const [preset, setPreset] = useState<StandardPreset>("week");
-  const [kind, setKind] = useState<Kind>("opening");
+  const kind: Kind = "opening";
   const [person, setPerson] = useState("");
   const [team, setTeam] = useState("");
   const [customRange, setCustomRange] = useState<{from:string;to:string}|null>(null);
@@ -92,7 +92,7 @@ export default function StaffAssessment({ today, scope }: { today: string; scope
   }
   if (!loading && data && data.view !== "review") return <section className="ops-analysis staff-assessment" aria-label="客服考核"><h1>客服考核</h1><p className="notice">{data.note}</p></section>;
   return <section className="ops-analysis staff-assessment" aria-label="客服考核" aria-busy={loading}>
-    <header className="oa-heading"><div><span className="oa-eyebrow">{scope} · 按使用人</span><h1>客服考核</h1></div></header>
+    <header className="oa-heading"><div><span className="oa-eyebrow">{scope} · 按使用人</span><div className="sa-title"><h1>客服考核</h1><span className="sa-status-pill">开单率暂停统计（入场登记已取消）</span></div></div></header>
     <PeriodToolbar
       today={today}
       preset={preset}
@@ -112,24 +112,36 @@ export default function StaffAssessment({ today, scope }: { today: string; scope
     {error && <div className="overview-error" role="alert"><strong>{error}</strong><button type="button" onClick={() => setTick((value) => value + 1)}>重试</button></div>}
     {rangeError && <p className="error" role="alert">{rangeError}</p>}
     <div className="oa-kpis">
-      <article aria-label="开口转化率"><h2>开口转化率 <InfoTip label="开口转化率口径" text="已明确具体需求的人数 ÷ 已正常沟通的人数。按所选范围的人数合计，不平均每天或每个客服的百分比。已读不回、未读、无效粉不进分母。正常沟通为 0 时不计算。与加粉概况按全部承接人数计算的承接需求转化率不同。"/></h2><strong>{loading ? <Skeleton width="3em" height=".8em" /> : openingTotal.percent}<small>{loading ? "—" : openingTotal.fraction}</small></strong><span className="sa-rate-basis">明确需求 / 正常沟通</span><span className="oa-benchmark"><span>上期</span><b>{openingBaseline}</b></span></article>
-      <article aria-label="开单率"><h2>开单率</h2><strong>暂停统计</strong><span className="sa-rate-basis">直播间后台暂不能准确统计入场人数</span></article>
+      <article className="sa-kpi-hero" aria-label="开口转化率"><h2>开口转化率 <InfoTip label="开口转化率口径" text="已明确具体需求的人数 ÷ 已正常沟通的人数。按所选范围的人数合计，不平均每天或每个客服的百分比。已读不回、未读、无效粉不进分母。正常沟通为 0 时不计算。与加粉概况按全部承接人数计算的承接需求转化率不同。"/></h2><strong>{loading ? <Skeleton width="3em" height=".8em" /> : openingTotal.percent}<small>{loading ? "—" : openingTotal.fraction}</small></strong><span className="sa-rate-basis">明确需求 ÷ 正常沟通</span><span className="oa-benchmark"><span>上期</span><b>{openingBaseline}</b></span></article>
+      <article><h2>客服私推（不计入开单率）</h2><strong>{loading ? "…" : "¥" + privateAmount}<small>{loading ? "—" : privateSales.length + " 笔"}</small></strong><span className="sa-rate-basis">只计料价，不收代购费</span></article>
+      <article><h2>入榜样本情况</h2><strong>{loading ? "…" : comparison.ranked.length + " 位达标"}</strong><span className="sa-rate-basis">{loading ? "—" : comparison.observing.length} 位观察中 · 门槛 ≥ {minimumSample} 人</span></article>
     </div>
-    <p className="notice">入场登记已取消。开单率暂停展示，不把缺少的入场人数当成零。开口转化率仍按已明确需求的人数除以正常沟通人数计算。</p>
-    <section className="oa-panel" aria-label="客服私推"><div className="oa-panel-heading"><h2>客服私推</h2><span>不计入开单率</span></div><p className="oa-muted">{loading ? "正在读取私推业绩…" : `本期 ¥${privateAmount} · ${privateSales.length} 笔。只计料价，不收代购费，不改变开口转化率。开单率现已暂停。记在经办客服名下，主管提成尚未计算。`}</p>{!loading && privatePeople.map(([name, row]) => <article className="oa-group-row" key={name}><div className="oa-group-name"><strong>{name || "待确认归属"}</strong></div><div><span>私推营业额</span><b>¥{(row.cents / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b></div><div><span>笔数</span><b>{row.count}</b></div></article>)}</section>
-    <section className="oa-panel oa-trend"><div className="analysis-toolbar"><h2>{kind === "opening" ? "开口转化率" : "开单率"} <InfoTip label="考核趋势口径" text="每个点是当天的人数合计。没有记录的日期断开，不补 0。今日未结束。"/></h2><ChartStyleControl style={style} onChange={setStyle} /></div>
-      <nav className="analysis-tabs oa-trend-tabs" aria-label="考核指标">{([["opening", "开口转化率"]] as const).map(([key, label]) => <button type="button" key={key} aria-pressed={kind === key} onClick={() => setKind(key)}>{label}</button>)}</nav>
+    <div className="sa-main-grid">
+    <section className="oa-panel oa-trend"><div className="analysis-toolbar"><h2>开口转化率趋势 <InfoTip label="考核趋势口径" text="每个点是当天的人数合计。没有记录的日期断开，不补 0。今日未结束。"/></h2><ChartStyleControl style={style} onChange={setStyle} /></div>
       {chart.length > 0 && <AnalysisPlot series={chart} style={style} today={today} selected={selected} onSelect={setSelected} label={kind === "opening" ? "开口转化率" : "开单率"} unit="rate" />}
     </section>
-    <section className="oa-panel sa-comparison" aria-label="客服排名"><div className="oa-panel-heading"><h2>{employment === "active" ? "在职客服排名" : "历史人员排名"}</h2>{person && <button type="button" className="secondary" onClick={() => setPerson("")}>查看全部</button>}</div>
-      <details className="sa-ranking-settings"><summary>排名设置 · 样本至少 {minimumSample} 人</summary><form onSubmit={event => { event.preventDefault(); applyMinimum(); }}><label>入榜样本至少<input aria-label="入榜最小样本人数" type="number" min="1" max="1000" step="1" required value={sampleDraft} onChange={event => setSampleDraft(event.target.value)}/>人</label><button className="secondary" type="button" onClick={applyMinimum}>应用门槛</button></form><p className="oa-muted">按所选指标的分母人数判断；待关联数据进入观察中。</p>{sampleError && <p className="error" role="alert">{sampleError}</p>}</details>
+    <section className="oa-panel sa-comparison" aria-label="客服排名"><div className="oa-panel-heading"><h2>{employment === "active" ? "在职客服排名" : "历史人员排名"}</h2>{person && <button type="button" className="secondary" onClick={() => setPerson("")}>查看全部</button>}
+        <form className="sa-ranking-settings" noValidate onSubmit={event => { event.preventDefault(); applyMinimum(); }}>
+          <label>门槛 ≥ <input aria-label="入榜最小样本人数" type="number" min="1" max="1000" step="1" value={sampleDraft} onChange={event => setSampleDraft(event.target.value)} /> 人</label>
+          <button className="secondary" type="button" onClick={applyMinimum}>应用</button>
+        </form>
+      </div>
+      {sampleError && <p className="error" role="alert">{sampleError}</p>}
       {comparison.ranked.length > 0 && <Ranking label="客服考核排名" rows={comparison.ranked.map((row) => ({ key: row.employeeId, label: labelOf(nameOf(row.employeeId), row.employeeId), value: Number(row.value), display: row.percent, note: row.fraction }))} onOpen={setPerson} />}
       {!comparison.ranked.length && <p className="oa-muted">尚无达到入榜条件的客服。</p>}
       {comparison.observing.length > 0 && <section className="sa-observing" aria-label="考核观察中"><h3>观察中 · 不参与排名</h3>{comparison.observing.map(row => <button type="button" className="sa-observation-row" key={row.employeeId} onClick={() => setPerson(row.employeeId)}><span><strong>{labelOf(nameOf(row.employeeId), row.employeeId)}</strong><small>{row.fraction} · {row.unlinked > 0 ? `另有 ${row.unlinked} 人待关联` : row.whole < minimumSample ? `样本未满 ${minimumSample} 人` : "数据待补"}</small></span><b>{row.percent}</b></button>)}</section>}
     </section>
-    {selectedDay && <section className="oa-panel" aria-label="所选日期"><div className="oa-panel-heading"><h2>{selectedDay.date}</h2><span>{selectedDay.value === null ? selectedDay.reason : selectedDay.part + "/" + selectedDay.whole + "人"}</span></div>
+    </div>
+    <div className="sa-bottom-grid">
+    {selectedDay ? <section className="oa-panel" aria-label="所选日期"><div className="oa-panel-heading"><h2>{selectedDay.date}</h2><span>{selectedDay.value === null ? selectedDay.reason : selectedDay.part + "/" + selectedDay.whole + "人"}</span></div>
       {dayPeople.map((row) => <article className="oa-group-row" key={row.employeeId}><div className="oa-group-name"><strong>{labelOf(nameOf(row.employeeId), row.employeeId)}</strong></div><div><span>{kind === "opening" ? "开口转化率" : "开单率"}</span><b>{row.percent}</b></div><div><span>人数</span><b>{row.fraction}</b></div></article>)}
       {!dayPeople.length && <p className="oa-muted">{selectedDay.reason || "这一天没有可考核的记录。"}</p>}
-    </section>}
+    </section> : <section className="oa-panel" aria-label="所选日期"><h2>单日明细</h2><p className="oa-muted">暂无可查看的日期。</p></section>}
+    <section className="oa-panel" aria-label="客服私推明细">
+      <div className="oa-panel-heading"><h2>客服私推明细</h2><span>{loading ? "正在读取…" : "共 " + privateSales.length + " 笔 · ¥" + privateAmount}</span></div>
+      {!loading && !privatePeople.length && <p className="oa-muted">当前范围暂无私推订单。</p>}
+      {!loading && privatePeople.map(([name, row]) => <article className="oa-group-row" key={name}><div className="oa-group-name"><strong>{name || "待确认归属"}</strong></div><div><span>私推营业额</span><b>¥{(row.cents / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b></div><div><span>笔数</span><b>{row.count}</b></div></article>)}
+    </section>
+    </div>
   </section>;
 }
