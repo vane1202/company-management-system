@@ -30,7 +30,7 @@ export type AssessmentFoundation = {
   invalid?: InvalidFact[];
   sourceAds?: SourceAdSummary[];
   holderCheck?: { accountId: string; matched: boolean }[];
-  privateSales?: { id: string; businessDate: string; operatorName: string; customerLabel: string; amount: string; cancelled: boolean }[];
+  privateSales?: { id: string; businessDate: string; operatorName: string; customerLabel: string; amount: string; cancelled: boolean; teamName?: string | null }[];
   note: string;
 };
 

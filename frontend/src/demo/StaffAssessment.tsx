@@ -73,7 +73,11 @@ export default function StaffAssessment({ today, scope }: { today: string; scope
   const comparison = assessmentComparison(people, minimumSample);
   let openingBaseline = "—";
   let orderBaseline = "—";
-  const privateSales = (data?.privateSales ?? []).filter(row => !row.cancelled && days.includes(row.businessDate) && (!person || nameOf(person)?.name === row.operatorName));
+  const selectedTeamName = teams.find(item => item.id === team)?.name;
+  const privateSales = (data?.privateSales ?? []).filter(row => !row.cancelled
+    && days.includes(row.businessDate)
+    && (!selectedTeamName || row.teamName === undefined || row.teamName === selectedTeamName)
+    && (!person || nameOf(person)?.name === row.operatorName));
   const privateCents = privateSales.reduce((sum, row) => sum + Math.round(Number(row.amount) * 100), 0);
   const privateAmount = (privateCents / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const privatePeople = [...privateSales.reduce((map, row) => { const current = map.get(row.operatorName) ?? { count: 0, cents: 0 }; current.count += 1; current.cents += Math.round(Number(row.amount) * 100); map.set(row.operatorName, current); return map; }, new Map<string, { count: number; cents: number }>())];

@@ -92,22 +92,39 @@ export function createPeopleWorkbenchRouter(db: Pool, _config: AppConfig): Route
         }));
       const orders = (await query<Record<string, string | boolean>>(db,
         `SELECT o.id::text, o.user_id::text AS account_id, o.business_date::text, COALESCE(o.customer_label, '') AS customer_label,
-                o.user_id::text AS employee_id,
+                o.user_id::text AS employee_id, d.deal_channel,
+                COALESCE(NULLIF(TRIM(d.operator_name), ''), '待确认归属') AS operator_name,
+                CASE WHEN TRIM(d.project_line) IN ('志伟线', '志伟组') THEN '志伟组' ELSE t.name END AS team_name,
+                CASE WHEN d.deal_channel = 'private' THEN
+                  COALESCE((SELECT SUM(i.price_cny + i.buying_fee_cny) FROM order_items i WHERE i.order_id = o.id), o.amount)::numeric(14,2)::text
+                END AS booking_amount,
                 (o.status <> 'refunded' AND NOT EXISTS(SELECT 1 FROM order_cancellations x WHERE x.order_id = o.id AND x.voided_at IS NULL)) AS counts
            FROM orders o
+           LEFT JOIN order_details d ON d.order_id = o.id
            LEFT JOIN LATERAL (
              SELECT team_id FROM team_memberships
               WHERE user_id = o.user_id AND start_date <= o.business_date AND (end_date IS NULL OR end_date >= o.business_date)
               ORDER BY start_date DESC LIMIT 1
            ) m ON TRUE
-          WHERE ($1::boolean OR m.team_id = ANY($2::uuid[]) OR ($3::boolean AND o.user_id = $4::uuid))`,
-        [visible.all, visible.teams, visible.self, actor.id])).map(row => ({
+           LEFT JOIN teams t ON t.id = m.team_id
+          WHERE ($1::boolean OR EXISTS (
+            SELECT 1 FROM team_memberships tm
+             WHERE tm.user_id = o.user_id AND tm.team_id = ANY($2::uuid[])
+               AND tm.start_date <= o.business_date AND (tm.end_date IS NULL OR tm.end_date >= o.business_date)
+          ) OR ($3::boolean AND o.user_id = $4::uuid))`,
+        [visible.all, visible.teams, visible.self, actor.id]));
+      const assessmentOrders = orders.map(row => ({
           id: row.id, accountId: row.account_id, businessDate: row.business_date, customerLabel: row.customer_label,
           employeeId: row.employee_id, countsAsOrder: row.counts === true || String(row.counts) === "true"
         }));
+      const privateSales = orders.filter(row => row.deal_channel === "private").map(row => ({
+        id: row.id, businessDate: row.business_date, operatorName: row.operator_name,
+        customerLabel: row.customer_label, teamName: row.team_name, amount: row.booking_amount,
+        cancelled: row.counts !== true && String(row.counts) !== "true"
+      }));
       const view = actor.role === "cs" ? "capture" : "review";
       res.set("Cache-Control", "private, no-store").json({
-        version: "assessment-foundation/v1", demo: false, today, view, employees, teams, leads, attendance, orders,
+        version: "assessment-foundation/v1", demo: false, today, view, employees, teams, leads, attendance, orders: assessmentOrders, privateSales,
         tenures: [], holderCheck: [], invalid: [], sourceAds: [], note: "正式数据：客资来自客户线索，加粉来自日报，订单来自开单记录。没有登记的日期不按 0 计算。"
       });
     } catch (error) { next(error); }
