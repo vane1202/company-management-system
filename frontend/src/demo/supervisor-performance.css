@@ -21,7 +21,12 @@
 .sp-dates { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
 .sp-presets { display: flex; flex-wrap: wrap; gap: 6px; }
 .sp-presets button { padding: 6px 12px; border-radius: 999px; font-size: 13px; min-height: 32px; }
-.sp-presets [aria-pressed="true"] { background: var(--jade-dark); border-color: var(--jade-dark); color: var(--card); }
+.sp-presets button[aria-pressed="true"],
+.sp-presets button.secondary[aria-pressed="true"] {
+  background: var(--jade-dark) !important;
+  border-color: var(--jade-dark) !important;
+  color: var(--card) !important;
+}
 .sp-divider-v { width: 1px; height: 20px; background: var(--line); margin: 0 2px; }
 .sp-range-caption { margin-left: auto; font-size: 12px; }
 .sp-custom-dates summary, .sp-filters summary, .sp-notes summary { cursor: pointer; min-height: 32px; padding: 6px 0; font-size: 13px; }
@@ -215,7 +220,8 @@
   transition: border-color .15s ease, box-shadow .15s ease;
 }
 .sp-order-card:hover { border-color: var(--jade) !important; box-shadow: 0 2px 10px rgba(14, 44, 39, 0.06); }
-.sp-order-card.is-open { border-left: 4px solid var(--gold) !important; }
+.sp-order-card.is-open { box-shadow: inset 4px 0 0 var(--gold); }
+.sp-order-card.is-open:hover { box-shadow: inset 4px 0 0 var(--gold), 0 2px 10px rgba(14, 44, 39, 0.06); }
 .sp-order-card.is-cancelled { background: #f9fbfa !important; opacity: .82; }
 
 .sp-order-top {
