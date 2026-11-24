@@ -58,8 +58,8 @@ export default function BossEstimateBoard({ today, onError, onOpen, onDrill }: {
   const period = custom || dashboardPresetRange(today, preset);
   const cash = useMemo(() => finance ? buildCashBoard(finance, period) : null, [finance, period.from, period.to]);
   const pendingCash = useBossCashPending(period.to, cashOrders, cash?.pending);
-  const receivedAmount = cashLoading ? "…" : !cash ? "—" : cash.customerPaidCny === null ? "待核对" : `¥${formatCashValue(cash.customerPaidCny)}`;
-  const unconfirmedAmount = !cashLoading && cash && cash.unconfirmedThirdPartyCny !== "0.00" ? `¥${formatCashValue(cash.unconfirmedThirdPartyCny)}` : null;
+  const receivedAmount = cashLoading ? "…" : !cash ? "—" : cash.totalCny === null ? "待核对" : `¥${formatCashValue(cash.totalCny)}`;
+  const unconfirmedAmount = cashLoading ? "…" : !cash ? "—" : `¥${formatCashValue(cash.unconfirmedThirdPartyCny)}`;
   const outstandingAmount = loading || cashLoading || pendingCash.loading ? "…" : formatPendingCash(pendingCash.value?.total);
   function drill(kind: "income" | "expenses" | "ads") {
     if (kind === "ads") onDrill?.({ page: "ops", ops: { ...period } });
@@ -142,28 +142,28 @@ export default function BossEstimateBoard({ today, onError, onOpen, onDrill }: {
       actions={<button type="button" className="secondary" onClick={() => load()}>刷新</button>}
       ariaLabel="经营总览日期筛选"
     />
-    <BossPriority from={period.from} to={period.to} tick={trendTick} onSalary={()=>onOpen?.("salaries")} receipts={
-      <button type="button" className="payment-inline-button"
-        aria-label={`实收金额 ${receivedAmount}${unconfirmedAmount ? `（含待财务确认 ${unconfirmedAmount}）` : ""}，待收金额 ${outstandingAmount}，查看收款与到账`}
-        onClick={()=>onOpen?.("finance",{...period,metric:"receipts",scope:"company"})}>
-        <span className="payment-inline-metrics">
-          <span><span>实收金额</span><InlinePaymentAmount value={receivedAmount}/></span>
-          {unconfirmedAmount && <span className="payment-inline-subnote">含待财务确认 {unconfirmedAmount}</span>}
-          <span><span>待收金额</span><InlinePaymentAmount value={outstandingAmount}/></span>
-        </span>
-        <span aria-hidden="true">›</span>
-      </button>
-    }/>
-    <div className="be-kpis">
-      <article aria-label="广告消耗">
-        <header><h2>投流数据</h2><InfoTip scrollable label="广告消耗口径" text={spendTip} /></header>
-        <button type="button" className="be-main-value" aria-label="查看广告消耗明细" disabled={loading || !view} onClick={() => drill("ads")}>{loading?'…':fxLoading?<span className="fx-pending">折算中…</span>:adFx?.cny!=null?`约 ${yuan(adFx.cny)}`:'待折算'}</button>
+    {live&&(pendingOrders>0||uncertainOrders>0||live.legacyCost.count>0)&&<section className="bh-attention" aria-label="经营待关注"><strong>经营待关注</strong>{pendingOrders>0&&<button type="button" onClick={()=>onDrill?.({page:"orders",live:{...defaultLiveView(),preset,range:{...period}}})}>待收款 <b>{pendingOrders}</b>笔 ›</button>}{uncertainOrders>0&&<button type="button" onClick={()=>onDrill?.({page:"orders",live:{...defaultLiveView(),preset,range:{...period}}})}>付款待核对 <b>{uncertainOrders}</b>笔 ›</button>}{live.legacyCost.count>0&&<button type="button" onClick={()=>drill("expenses")}>费用待核对 <b>{live.legacyCost.count}</b>笔 ›</button>}</section>}
+    <BossPriority from={period.from} to={period.to} tick={trendTick} onSalary={()=>onOpen?.("salaries")}
+      ads={total => (
+      <article className="bp-ads" aria-label="投流消耗">
+        <header><h2>投流消耗</h2><InfoTip scrollable label="广告消耗口径" text={spendTip} /><span className="bp-chip">费比 {adFx?.cny != null && !adFx.missingDates.length && !loading && !fxLoading && Number(total)>0 ? (Number(adFx.cny)/Number(total)*100).toFixed(2)+"%" : "—"}</span></header>
+        <strong className="bp-main-number">{loading?'…':fxLoading?<span className="fx-pending">折算中…</span>:adFx?.cny!=null?`约 ${yuan(adFx.cny)}`:'待折算'}</strong>
         <small>原币 {loading?'…':view?.adUsd??'—'} USD{adFx?.stale?' · 行情延迟':''}</small>
         {benchmark("ads")}
+        <button type="button" className="bp-link" onClick={()=>drill("ads")}>进入投流数据分析 →</button>
       </article>
-    </div>
+      )}
+      receipts={<div className="bp-cash">
+        {[
+          ["实收已到账", receivedAmount],
+          ["待财务确认", unconfirmedAmount],
+          ["待收款", outstandingAmount],
+        ].map(([label,value])=><button key={label} type="button" onClick={()=>onOpen?.("finance",{...period,metric:"receipts",scope:"company"})}>
+          <span>{label}</span><InlinePaymentAmount value={value}/>
+        </button>)}
+      </div>}
+    />
     {liveFailed && <p className="notice">开单、收款和售后费用暂不可用。</p>}
     <BossHomeTrend today={today} from={period.from} to={period.to} tick={trendTick} live={live}/>
-    {live&&(pendingOrders>0||uncertainOrders>0||live.legacyCost.count>0)&&<section className="bh-attention" aria-label="经营待关注"><span>待关注</span>{pendingOrders>0&&<button type="button" onClick={()=>onDrill?.({page:"orders",live:{...defaultLiveView(),preset,range:{...period}}})}>待收款 <b>{pendingOrders}</b>笔 ›</button>}{uncertainOrders>0&&<button type="button" onClick={()=>onDrill?.({page:"orders",live:{...defaultLiveView(),preset,range:{...period}}})}>付款待核对 <b>{uncertainOrders}</b>笔 ›</button>}{live.legacyCost.count>0&&<button type="button" onClick={()=>drill("expenses")}>费用待核对 <b>{live.legacyCost.count}</b>笔 ›</button>}</section>}
   </section>;
 }

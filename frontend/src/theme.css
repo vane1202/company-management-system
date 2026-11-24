@@ -368,3 +368,11 @@ small { font-size: var(--fs-xs); }
   :root .oa-kpis > article > strong { font-size: var(--fs-xl); }
   :root .wh-kpis b, :root .supervisor-board .supervisor-figures strong { font-size: var(--fs-lg); }
 }
+
+:root {
+  --font-sans: "Inter", "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+html, body { font-family:var(--font-sans); -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; }
+.tabular, .sp-kpis strong, .sp-person-values dd, .sp-order-amt-wrap b, .supervisor-figures strong, .oa-kpis strong, .bp-main-number, .cb-kpis strong, .bp-cash strong, .bp-members dd, code { font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
+.sp-kpis strong, .oa-kpis strong, .bp-main-number, .cb-kpis strong { letter-spacing:-0.025em; }
