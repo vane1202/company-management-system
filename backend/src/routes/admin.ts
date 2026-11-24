@@ -397,14 +397,22 @@ export function createAdminRouter(db: Pool): Router {
       if (!UUID_RE.test(id)) throw new HttpError(400, "员工标识无效");
       if (id === actor.id) throw new HttpError(400, "不能删除当前登录账号");
       await withTransaction(db, async (client) => {
+        await client.query("SELECT pg_advisory_xact_lock(250025)");
         const user = await queryOne<{ username: string; role: UserRole; is_active: boolean }>(
           client,
           "SELECT username, role, is_active FROM users WHERE id = $1 AND account_kind = 'employee' AND employee_removed_at IS NULL FOR UPDATE",
           [id]
         );
         if (!user) throw new HttpError(404, "员工账号不存在");
-        if (user.role === "boss" || user.role === "admin") {
-          throw new HttpError(403, "不能删除后台管理员或 BOSS 账号");
+        if (user.role === "admin") {
+          throw new HttpError(403, "不能删除后台管理员账号");
+        }
+        if (user.role === "boss" && user.is_active) {
+          const other = await queryOne(client,
+            "SELECT id FROM users WHERE role = 'boss' AND is_active AND id <> $1 LIMIT 1",
+            [id]
+          );
+          if (!other) throw new HttpError(409, "不能删除最后一个启用的 BOSS 账号");
         }
         await client.query(
           "UPDATE users SET is_active = FALSE, employee_removed_at = now(), updated_at = now() WHERE id = $1",

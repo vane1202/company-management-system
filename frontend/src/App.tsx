@@ -1050,7 +1050,7 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
                         }
                       } })}>强制下线</button>
                     </>}
-                    {item.id !== currentUserId && item.role !== "admin" && item.role !== "boss" && (
+                    {item.id !== currentUserId && item.role !== "admin" && (
                       <button type="button" className="danger" disabled={!!savingUser} onClick={() => setConfirmation({
                         message: `删除 ${item.displayName}（${item.username}）后，账号将从员工列表移除，所有会话会退出。历史业务数据会保留。`,
                         run: async () => {
