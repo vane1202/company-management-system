@@ -130,6 +130,8 @@ export const api = {
       `/api/admin/users/${encodeURIComponent(id)}/reset-password`,
       { method: "POST", body: JSON.stringify(payload) }
     ),
+  deleteEmployeeAccount: (id: string) =>
+    requestInner<{ ok: boolean }>(`/api/admin/users/${id}`, { method: "DELETE" }),
   revokeUserSessions: (id: string) =>
     requestInner<{ ok: boolean }>(`/api/admin/users/${encodeURIComponent(id)}/revoke-sessions`, {
       method: "POST",

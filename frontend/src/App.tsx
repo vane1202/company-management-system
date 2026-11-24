@@ -1050,6 +1050,26 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
                         }
                       } })}>强制下线</button>
                     </>}
+                    {item.id !== currentUserId && item.role !== "admin" && item.role !== "boss" && (
+                      <button type="button" className="danger" disabled={!!savingUser} onClick={() => setConfirmation({
+                        message: `删除 ${item.displayName}（${item.username}）后，账号将从员工列表移除，所有会话会退出。历史业务数据会保留。`,
+                        run: async () => {
+                          if (savingUser) return;
+                          setSavingUser(item.id);
+                          try {
+                            await api.deleteEmployeeAccount(item.id);
+                            setUsers(current => current.filter(user => user.id !== item.id));
+                            onError("");
+                            toast.success(`已删除员工账号：${item.displayName}`);
+                            await refreshAfterSave();
+                          } catch (error) {
+                            fail("删除员工账号失败", error);
+                          } finally {
+                            setSavingUser("");
+                          }
+                        }
+                      })}>删除账号</button>
+                    )}
                   </div></td>
                 </tr>
               ))}

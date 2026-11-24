@@ -186,7 +186,7 @@ export function createAdminRouter(db: Pool): Router {
                     JOIN teams t ON t.id = m.team_id
                 ) AS current_teams
            FROM users u
-          WHERE u.account_kind = 'employee'
+          WHERE u.account_kind = 'employee' AND u.employee_removed_at IS NULL
           ORDER BY u.display_name`
       );
       const scopes = await query<{ supervisor_id: string; team_id: string }>(db, "SELECT supervisor_id,team_id FROM supervisor_scopes");
@@ -385,6 +385,43 @@ export function createAdminRouter(db: Pool): Router {
       });
       res.setHeader("Cache-Control", "no-store");
       res.json({ ok: true, mustChangePassword: true, ...result });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.delete("/users/:id", async (req, res, next) => {
+    try {
+      const id = String(req.params.id ?? "");
+      const actor = req.actor!;
+      if (!UUID_RE.test(id)) throw new HttpError(400, "员工标识无效");
+      if (id === actor.id) throw new HttpError(400, "不能删除当前登录账号");
+      await withTransaction(db, async (client) => {
+        const user = await queryOne<{ username: string; role: UserRole; is_active: boolean }>(
+          client,
+          "SELECT username, role, is_active FROM users WHERE id = $1 AND account_kind = 'employee' AND employee_removed_at IS NULL FOR UPDATE",
+          [id]
+        );
+        if (!user) throw new HttpError(404, "员工账号不存在");
+        if (user.role === "boss" || user.role === "admin") {
+          throw new HttpError(403, "不能删除后台管理员或 BOSS 账号");
+        }
+        await client.query(
+          "UPDATE users SET is_active = FALSE, employee_removed_at = now(), updated_at = now() WHERE id = $1",
+          [id]
+        );
+        await revokeEmployeeSessions(client, id);
+        await writeAudit(client, {
+          actorId: actor.id,
+          action: "employee_account_removed",
+          entityType: "user",
+          entityId: id,
+          before: { username: user.username, role: user.role, isActive: user.is_active },
+          after: { removed: true, sessionsRevoked: true },
+          ip: req.ip
+        });
+      });
+      res.json({ ok: true });
     } catch (error) {
       next(error);
     }
