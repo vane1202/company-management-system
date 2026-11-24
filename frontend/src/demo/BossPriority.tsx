@@ -31,13 +31,13 @@ export default function BossPriority({from,to,tick,onSalary,receipts,ads}:{from:
    {receipts}
    <button type="button" className="bp-link" disabled={!data} onClick={()=>open('rooms')}>按直播间与客服拆解业绩 →</button>
  </article>
+ {ads?.(data?.performance.total)}
  <article>
    <header><h2>运营成本</h2><InfoTip label="运营成本口径" text={data?.definitions.expenses || '按已登记费用汇总。'}/><span className="bp-chip bp-gold">工资待核算</span></header>
    <strong className="bp-main-number">{!data ? '—' : data.expenses.registered === null ? '待补齐' : yuan(data.expenses.registered)}</strong>
    <small>{data?.expenses.registered != null ? '已登记费用小计' : '费用资料待补'}</small>
    <button type="button" className="bp-link" disabled={!data} onClick={()=>open('expenses')}>查看运营费用明细 →</button>
  </article>
- {ads?.(data?.performance.total)}
  </div>:<>
  <div className="bp-backbar"><button type="button" className="secondary" onClick={()=>room?setRoomId(""):open('home')}>← {room?'返回直播间':'返回经营总览'}</button>{room&&<button type="button" className="text-action" onClick={()=>open('home')}>经营总览</button>}</div>
  <header className="bp-detail-heading">

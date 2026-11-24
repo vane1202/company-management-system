@@ -1,3 +1,52 @@
 .editor-overview{display:grid;gap:14px;min-width:0;font-variant-numeric:tabular-nums}.editor-overview h1{margin:0;font-size:24px}.editor-overview h1:focus{outline:none}.editor-overview>.analysis-caption{margin:0}.eo-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.eo-kpis article{min-width:0;display:grid;gap:8px;border:1px solid var(--line);border-radius:14px;background:var(--card);padding:16px}.eo-kpis span,.eo-kpis small{font-size:12px;color:var(--muted)}.eo-kpis strong{font-size:24px}.eo-main-layout{display:grid;grid-template-columns:minmax(260px,1fr) minmax(0,1.5fr);gap:14px;align-items:start}.eo-main-layout label{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--muted)}.eo-main-layout label select{width:140px;margin:0}.eo-metrics{margin:14px 0 4px}.eo-custom,.eo-filters{font-size:12px;color:var(--muted)}.eo-custom summary,.eo-filters summary{min-height:44px;align-content:center;cursor:pointer}.eo-custom form{display:grid;gap:10px}.eo-custom label{display:flex;gap:8px;align-items:center}.eo-record-entry{justify-self:start;min-height:44px}.eo-record{padding:10px 16px;border:1px solid var(--line);border-radius:14px;margin:10px 0;background:var(--card);font-size:13px}.eo-record summary{display:flex;gap:12px;justify-content:space-between;align-items:center;flex-wrap:wrap}.eo-record summary span{font-size:12px;color:var(--muted)}.eo-record p{line-height:1.7;font-size:13px}.eo-filters .row{font-size:12px}.eo-filters[open]{background:var(--card);padding:0 14px 10px;border:1px solid var(--line);border-radius:14px}
 @media(max-width:799px){.editor-overview{gap:10px}.editor-overview h1{font-size:20px}.eo-kpis{grid-template-columns:1fr 1fr;gap:8px}.eo-kpis article{padding:12px;gap:6px}.eo-kpis strong{font-size:24px}.eo-main-layout{grid-template-columns:minmax(0,1fr)}.eo-main-layout .analysis-toolbar h2{font-size:16px}.eo-main-layout label select{width:132px;font-size:12px}.eo-kpis small{font-size:12px}}
 .editor-overview>.analysis-toolbar:has(.eo-custom)>.analysis-tabs{flex:1;min-width:200px}.editor-overview>.analysis-toolbar:has(.eo-custom)>.analysis-tabs button{white-space:nowrap}.eo-custom{margin-left:auto}.eo-custom>summary{white-space:nowrap}
+
+.editor-overview .eo-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:10px; padding:12px; background:var(--card); border:1px solid var(--line); border-radius:12px; }
+.editor-overview .eo-toolbar .analysis-caption { margin:0; }
+.editor-overview .eo-filter-fields { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.editor-overview .eo-filter-fields label { display:flex; align-items:center; gap:6px; margin:0; }
+.editor-overview .eo-filter-fields select { width:auto; margin:0; max-width:200px; }
+.editor-overview .eo-kpis article header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:6px; }
+.editor-overview .eo-kpis .eo-hero { background:linear-gradient(145deg,var(--jade-dark),#143f37); color:white; }
+.editor-overview .eo-kpis .eo-hero :is(span,strong,small) { color:inherit; }
+.editor-overview .eo-chip { padding:4px 7px; background:var(--bg); border-radius:99px; }
+.editor-overview .eo-hero .eo-chip { background:#ffffff24; }
+.editor-overview :is(.eo-kpis strong,.eo-table td) { font-family:var(--font-mono,monospace); font-variant-numeric:tabular-nums; }
+.editor-overview .eo-main-layout { grid-template-columns:minmax(0,1.05fr) minmax(0,1.15fr); }
+.editor-overview .eo-main-layout > section { min-width:0; }
+.editor-overview .eo-table-scroll { overflow:auto; }
+.editor-overview .eo-table { width:100%; border-collapse:collapse; font-size:13px; }
+.editor-overview .eo-table :is(th,td) { padding:8px; border-bottom:1px solid var(--line); text-align:right; }
+.editor-overview .eo-table th:first-child { text-align:left; }
+.editor-overview .eo-table :is(td,thead th) { white-space:nowrap; }
+.editor-overview .eo-table .eo-delivery { color:var(--jade); font-weight:700; }
+.editor-overview .eo-drawer { position:fixed; inset:0 0 0 auto; margin:0; padding:0; border:0; width:min(100%,540px); height:100dvh; max-height:none; max-width:none; background:var(--card); color:var(--ink); }
+.editor-overview .eo-drawer::backdrop { background:#0d28266b; }
+.editor-overview .eo-drawer-body { padding:18px; }
+@media(max-width:959px) { .editor-overview .eo-main-layout { grid-template-columns:minmax(0,1fr); } }
+
+.editor-overview .eo-toolbar { justify-content:space-between; }
+.editor-overview .eo-period,.editor-overview .eo-trend-controls { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.editor-overview .eo-period .analysis-caption { order:-1; }
+.editor-overview :is(.eo-period .analysis-tabs,.eo-trend-controls .analysis-tabs,.eo-trend-controls .chart-style-control) {
+  display:flex; flex-wrap:wrap; width:auto; gap:4px; padding:0; margin:0; background:transparent; border:0;
+}
+.editor-overview :is(.eo-period,.eo-trend-controls) button[aria-pressed] {
+  flex:0 0 auto; min-height:32px; height:32px; padding:0 12px; border-radius:999px;
+}
+.editor-overview :is(.eo-period,.eo-trend-controls) button[aria-pressed="true"] {
+  background:var(--jade-dark) !important; color:#ffffff !important; border-color:var(--jade-dark) !important;
+}
+.editor-overview .eo-table :is(th,td),
+.editor-overview .eo-table :is(th,td):first-child { background:transparent; }
+.editor-overview .eo-table thead th { border-bottom:1px solid var(--line-strong); }
+.editor-overview .eo-table tbody tr:hover { background:#f8fbfa; }
+.editor-overview .eo-kpis strong { font-family:var(--font-mono); font-size:26px; font-weight:700; }
+.editor-overview .eo-kpis .eo-unit { font-family:var(--font-sans); font-size:13px; font-weight:600; }
+.editor-overview .eo-kpis .eo-kpi-note { margin-top:auto; }
+.editor-overview .eo-main-layout .analysis-toolbar { flex-wrap:wrap; }
+.editor-overview .eo-main-layout .eo-record-entry { min-height:32px; padding:5px 9px; font-size:12px; }
+.editor-overview .analysis-plot svg g > :is(circle,rect[fill]:not(.ac-hit)) { fill:var(--jade); }
+.editor-overview .analysis-plot svg g > :is(line[stroke-width="2"],rect[stroke]) { stroke:var(--jade); }
+.editor-overview .analysis-plot .ac-legend i { background:var(--jade) !important; }
