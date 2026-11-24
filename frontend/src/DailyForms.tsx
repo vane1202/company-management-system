@@ -1,3 +1,4 @@
+import EditorHistoryWorkspace from "./demo/EditorHistoryWorkspace";
 import "./demo/editor-history.css";
 import './demo/ops-analysis.css';
 import { useEffect, useRef, useState } from "react";
@@ -106,6 +107,7 @@ export function DailyForm({ kind, today, onError, readOnly = false, servicePlatf
     setForm({businessDate:today,[nameKey]:String(previous?.[nameKey]??""),note:"",adAccountRef:String(previous?.adAccountRef??""),platform:String(previous?.platform??"")});
     opsDrawer.current?.showModal();
   }
+  if(editorWorkbench)return <EditorHistoryWorkspace today={today} production editorName={editorName}/>;
   return <section className={opsMode?"card ops-daily":"card"}>
     <h2>{kind === "fan_report" ? "客服主页日报" : kind === "ops_report" ? "运营投放日报" : readOnly?"视频素材明细":"拍剪日报"}{kind==="editor_report"&&<InfoTip label="库存与统计口径" text={editorNote+" 历史未归类记录保留原归属，需原填报人员明确归类。"}/>}</h2>
     {kind!=="editor_report"&&<p className="notice">{kind === "fan_report" ? fanNote : opsNote}</p>}

@@ -27,3 +27,17 @@
 .ed-drawer { position:fixed; inset:0 0 0 auto; margin:0; width:min(100%,650px); height:100dvh; max-width:none; max-height:none; border:0; padding:18px; color:var(--ink); background:var(--card); }
 .ed-drawer::backdrop { background:#0e2c3966; }
 @media(max-width:700px) { .ed-numbers { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+
+.ed-workspace { max-width:1120px; width:100%; margin:0 auto; }
+.ed-workspace .ed-toolbar-actions,.ed-workspace .ed-submit-actions {
+  display:flex; flex:0 1 auto; flex-wrap:nowrap; align-items:center; justify-content:flex-end; gap:8px;
+}
+.ed-workspace :is(.ed-toolbar-actions,.ed-submit-actions) button {
+  width:auto; flex:0 0 auto; min-height:36px; white-space:nowrap;
+}
+.ed-workspace .ed-submit-actions label { margin:0; }
+.ed-workspace .ed-submit-actions input[type="checkbox"] { width:auto; min-height:0; margin:0; }
+.ed-workspace .submit-bar > span { flex:1 1 auto; }
+@media(max-width:700px) {
+  .ed-workspace :is(.ed-toolbar-actions,.ed-submit-actions) { flex-wrap:wrap; justify-content:flex-start; }
+}
