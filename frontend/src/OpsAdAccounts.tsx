@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, requestInner, type AdAccount } from "./api";
 import { toErrorMessage } from "./errors";
 
@@ -6,6 +6,9 @@ const demo = import.meta.env.MODE === "demo";
 
 export function OpsAdAccounts({ today }: { today: string }) {
   const blank = () => ({ code: "", name: "", openedOn: today, openingUsd: "0.00" });
+  const drawer=useRef<HTMLDialogElement>(null);
+  const [query,setQuery]=useState("");
+  const low=(account:AdAccount)=>account.balance_usd!=null&&Number(account.balance_usd)<20;
   const [rows, setRows] = useState<AdAccount[] | null>(null);
   const [form, setForm] = useState(blank);
   const [mode, setMode] = useState<"create" | "rename" | null>(null);
@@ -26,6 +29,7 @@ export function OpsAdAccounts({ today }: { today: string }) {
     setMode(account ? "rename" : "create");
     setError("");
     setMessage("");
+    drawer.current?.showModal();
   }
 
   async function save(event: FormEvent<HTMLFormElement>) {
@@ -41,7 +45,7 @@ export function OpsAdAccounts({ today }: { today: string }) {
       } else {
         await api.adAction(mode === "rename" ? "rename" : "", fields);
       }
-      setMode(null);
+      drawer.current?.close();
       setMessage(mode === "rename" ? "广告户名称已更新" : "广告户已新增");
       await refresh();
       window.dispatchEvent(new Event("cms:ad-accounts-updated"));
@@ -49,7 +53,7 @@ export function OpsAdAccounts({ today }: { today: string }) {
     finally { setBusy(false); }
   }
 
-  return <div className="commerce-workspace">
+  return <div className="commerce-workspace ops-ad-accounts">
     <header className="commerce-heading">
       <h1>广告户管理</h1>
       <button type="button" disabled={busy} onClick={() => open()}>＋ 新增广告户</button>
@@ -57,8 +61,9 @@ export function OpsAdAccounts({ today }: { today: string }) {
     {demo && <p className="notice">演示改动仅保留在当前浏览器会话。</p>}
     {error && <p className="error" role="alert">{error}</p>}
     {message && <p className="ok" role="status">{message}</p>}
+    <dialog className="ops-workflow-drawer" ref={drawer} aria-label="编辑广告户" onClose={()=>setMode(null)} onCancel={event=>{if(busy)event.preventDefault();}}>
     {mode && <form className="card ops-ad-account-form" onSubmit={save}>
-      <h2>{mode === "rename" ? "修改广告户名称" : "新增广告户"}</h2>
+      <h2>{mode === "rename" ? "修改广告户名称" : "新增广告户"}</h2>{error&&<p className="error" role="alert">{error}</p>}
       <div className="grid two">
         <label className="row">账户编号<input required readOnly={mode === "rename"} maxLength={64} value={form.code} onChange={event => setForm({ ...form, code: event.target.value })} /></label>
         <label className="row">账户名称<input required maxLength={128} value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} /></label>
@@ -69,17 +74,18 @@ export function OpsAdAccounts({ today }: { today: string }) {
       </div>
       <div className="actions">
         <button type="submit" disabled={busy}>{busy ? "保存中…" : "保存广告户"}</button>
-        <button type="button" className="secondary" disabled={busy} onClick={() => setMode(null)}>取消</button>
+        <button type="button" className="secondary" disabled={busy} onClick={() => drawer.current?.close()}>取消</button>
       </div>
-    </form>}
+    </form>}</dialog>
     <section className="card" aria-label="广告户列表">
       <header className="commerce-line"><h2>广告户列表</h2><button type="button" className="secondary" disabled={busy} onClick={() => void refresh()}>刷新列表</button></header>
-      {!rows ? !error && <p role="status">正在读取广告户…</p> : !rows.length ? <p>尚无广告户。</p> : rows.map(account => (
-        <article className="commerce-record" key={account.code}>
-          <span style={{ overflowWrap: "anywhere" }}><strong>{account.name}</strong><small>{account.code} · 期初 {account.opened_on} · 余额 {account.balance_usd} USD</small></span>
+      <div className="acct-summary"><span>已登记 <strong>{rows?.length??"—"}</strong> 户</span><span>低余额 <strong>{rows?.filter(low).length??"—"}</strong> 户</span><label>搜索账户<input type="search" value={query} placeholder="账户编号或名称" onChange={event=>setQuery(event.target.value)}/></label></div>
+      {!rows ? !error && <p role="status">正在读取广告户…</p> : !rows.length ? <p>尚无广告户。</p> : <div className="acct-grid">{rows.filter(account=>`${account.code} ${account.name}`.toLowerCase().includes(query.trim().toLowerCase())).map(account => (
+        <article className="acct-card" data-low={low(account)} key={account.code}>
+          <span style={{ overflowWrap: "anywhere" }}><strong>{account.name}</strong><small><code>{account.code}</code></small><small>期初 {account.opened_on} · {account.opening_usd} USD</small>{account.balance_usd!=null&&<small>当前余额 {account.balance_usd} USD {low(account)&&<b className="oa-low-balance">低余额</b>}</small>}</span>
           <button type="button" className="secondary" disabled={busy} aria-label={`修改 ${account.name}`} onClick={() => open(account)}>修改名称</button>
         </article>
-      ))}
+      ))}</div>}
     </section>
   </div>;
 }

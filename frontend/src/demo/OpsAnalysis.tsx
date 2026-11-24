@@ -44,7 +44,7 @@ export default function OpsAnalysis({today,onOpenReports,onOpenFeedback,context}
   const [filters,setFilters]=useState<Filters>({...initial.filters,operator:''}),[dimension,setDimension]=useState<Dimension>(onOpenReports?'persona':'operator'),[sort,setSort]=useState('spend'),[tick,setTick]=useState(0);
   const [rawData,setData]=useState<Data|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState('');
   useEffect(()=>{if(!scopeKey)return;try{sessionStorage.setItem(scopeKey,JSON.stringify({filters,preset,range}));}catch{/* The dashboard remains usable without storage. */}},[scopeKey,filters,preset,range?.from,range?.to]);
-  function changeScope(next:OpsScope){setFilters({...next,operator:''});setData(null);setLoading(true);setDetailsOpen(false);}
+  function changeScope(next:OpsScope){setFilters({...next,operator:''});setData(null);setLoading(true);}
   const revision=useReferenceQuotes();
   const [style,setStyle]=useChartStyle(),[trendMetric,setTrendMetric]=useState<'spendCny'|'consultCount'|'consultationCostCny'>('spendCny'),[selectedDay,setSelectedDay]=useState(today);
   const [priced,setPriced]=useState<{key:string;view:Awaited<ReturnType<typeof buildOpsReference>>|null}|null>(null);
@@ -54,13 +54,12 @@ export default function OpsAnalysis({today,onOpenReports,onOpenFeedback,context}
   const pricingPending=!!rawData&&priced?.key!==pricingKey;
   const blank=(t:Totals):Totals=>({...t,spendCny:null,consultationCostCny:null});
   const data:Data|null=rawData?{...rawData,summary:pricing?.summary??blank(rawData.summary),groups:pricing?.groups??rawData.groups.map(g=>({...g,...blank(g)})),comparison:{...rawData.comparison,totals:pricing?.comparison??blank(rawData.comparison.totals)},trend:{...rawData.trend,days:rawData.trend.days.map(d=>({...d,...pricing?.days.find(p=>p.date===d.date)??blank(d)}))}}:null;
-  const [detailKey,setDetailKey]=useState<string|null>(null),[expanded,setExpanded]=useState<string[]>([]),[detailsOpen,setDetailsOpen]=useState(false);
-  const [detailTab,setDetailTab]=useState<'groups'|'balances'|'records'>('groups');
+  const [detailKey,setDetailKey]=useState<string|null>(null);
+  const [detailTab,setDetailTab]=useState<'trend'|'groups'|'balances'|'records'>(onOpenReports?'trend':'groups');
   const [selectedRecord,setSelectedRecord]=useState<RecordRow|null>(null);
   const recordDialog=useRef<HTMLDialogElement>(null);
-  const detailsRef=useRef<HTMLElement>(null),groupsRef=useRef<HTMLElement>(null);
-  useEffect(()=>{if(!context||context.to>today)return;setRange({...context});setFilters(zeroFilters());setDetailsOpen(false);setSelectedDay(context.to);},[context,today]);
-  useEffect(()=>{const controller=new AbortController();setLoading(true);setError('');setData(null);setDetailKey(null);setExpanded([]);
+  useEffect(()=>{if(!context||context.to>today)return;setRange({...context});setFilters(zeroFilters());setSelectedDay(context.to);},[context,today]);
+  useEffect(()=>{const controller=new AbortController();setLoading(true);setError('');setData(null);setDetailKey(null);
     const q=new URLSearchParams({preset,...(range??dashboardPresetRange(today,preset)),dimension,...filters,...(!onOpenReports?{trendScope:'period'}:{})});
     fetch(opsAnalysisApi+'?'+q,{signal:controller.signal,cache:'no-store',credentials:'include'}).then(async response=>{
       const d=await response.json();if(!response.ok)throw Error(d.error||'投放数据暂不可用');
@@ -80,7 +79,7 @@ export default function OpsAnalysis({today,onOpenReports,onOpenFeedback,context}
   const filteredName=data?.groups.find(g=>g.key===detailKey)?.name;
   const displayed=(value:string|null|undefined)=>loading?<Skeleton width="3em" height=".8em"/>:amount(value);
   const rateText=pricing?.quotes.map(r=>`${r.date}：1 USD = ${Number(r.rate)} CNY；行情时间 ${clockTime(r.updatedAt)}${r.sourceDate!==r.date?`；沿用 ${r.sourceDate} 已发布汇率`:''}`).join('；')||'参考汇率待补';
-  function showRecords(key:string|null){setDetailKey(key);if(!onOpenReports){setDetailTab('records');return;}setDetailsOpen(true);setExpanded([]);requestAnimationFrame(()=>detailsRef.current?.scrollIntoView({behavior:'smooth',block:'start'}));}
+  function showRecords(key:string|null){setDetailKey(key);setDetailTab('records');}
   const tip=(key:string,label:string)=> <InfoTip label={`${label}口径`} text={key==='spend'?'以日报美元消耗为准，人民币按发生日参考汇率折算。':key==='cost'?'综合咨询成本＝同币种消耗总额÷总咨询量；零咨询或字段不全不计算。':data?.definitions[key]??'来源：运营投放日报'}/>;
   const cny=(value:string|null|undefined)=>loading?'…':pricingPending?<span className="fx-pending">折算中…</span>:data?.summary.recordCount===0?'—':value==null?'待核对':<><span className="oa-approx">约</span><span>¥{amount(value)}</span></>;
   function baselineWord(label?:string){const text=label||'上期';if(text.includes('昨日'))return '昨日';if(text.includes('上周'))return '上周';if(text.includes('上月'))return '上月';return '上期';}
@@ -89,12 +88,17 @@ export default function OpsAnalysis({today,onOpenReports,onOpenFeedback,context}
   const reference=(value:string|null|undefined)=>value!=null?<small className="oa-secondary-value">{cnyReference(value)}</small>:null;
   function costNote(t?:Totals){if(!t||t.costStatus==='ready')return null;const text=t.costStatus==='no_consultation'?'有消耗无咨询':t.costStatus==='no_spend'?'零咨询':t.costStatus==='incomplete'?'字段待补':t.costStatus==='empty'?'尚无日报':'';return text?<span className="oa-secondary-value">{text}</span>:null;}
   function coverage(t:Totals){return t.missingSpendCount+t.missingConsultCount+t.missingClickCount>0?'字段待补':t.costStatus==='no_consultation'?'有消耗无咨询':t.costStatus==='no_spend'?'零消耗／零咨询':'';}
-  return <section className={onOpenReports ? "ops-analysis oa-home" : "ops-analysis oa-boss"} aria-label="运营投放分析" aria-busy={loading}>
-    {isDemoMode && onOpenReports && <OpsIdentity />}
+  return <section className={onOpenReports ? "ops-analysis oa-home oa-operator" : "ops-analysis oa-boss"} aria-label="运营投放分析" aria-busy={loading}>
     <header className="oa-heading">
       <div><span className="oa-eyebrow">{onOpenReports?"运营 · 本人投放日报":"BOSS · 运营投入与咨询"}</span><h1>{onOpenReports?"运营工作台":"投流数据"}</h1></div>
-      {onOpenReports && <OpsBalanceStrip compact key={filters.account+":"+filters.persona+":"+selectedRange.to} account={filters.account} rows={data?.balances.accounts||[]} loading={loading} error={error} endDate={selectedRange.to}/>}
-    </header>
+
+    {onOpenReports&&<div className="actions"><a className="oa-account-link" href={`?${new URLSearchParams({...Object.fromEntries(new URLSearchParams(window.location.search)),page:"opsAccounts"})}`}>广告户管理</a><button type="button" onClick={onOpenReports}>＋ 填报今日投放</button></div>}</header>
+    {onOpenReports&&<div className="oa-identity-bar">
+      {import.meta.env.MODE==="demo"&&<OpsIdentity/>}
+      {<OpsBalanceStrip compact key={filters.account+":"+filters.persona+":"+selectedRange.to} account={filters.account} rows={data?.balances.accounts||[]} loading={loading} error={error} endDate={selectedRange.to}/>}
+      {data?.balances.accounts.filter(row=>row.status==="ready"&&row.amountUsd!==null&&Number(row.amountUsd)<20&&(!filters.account||row.account===filters.account)).map(row=><span key={row.account} className="oa-low-balance">{row.account} · {row.amountUsd} USD</span>)}
+    </div>}
+
     <PeriodToolbar
       today={today}
       preset={preset}
@@ -113,59 +117,52 @@ export default function OpsAnalysis({today,onOpenReports,onOpenFeedback,context}
     {!onOpenReports&&activeFilters&&<div className="oa-filter-chips">{Object.entries(filters).filter(([,value])=>value).map(([key,value])=><button type="button" className="secondary" key={key} aria-label={`清除${labels[key as Dimension]}筛选`} onClick={()=>setFilters({...filters,[key]:''})}>{value==='__unassigned__'?'未关联':value} ×</button>)}</div>}
     {error?<div className="overview-error" role="alert"><strong>{error}</strong><button type="button" onClick={()=>setTick(n=>n+1)}>重试</button></div>:<>
       <div className="oa-kpis">
-        <article aria-label="广告消耗"><h2>广告消耗 {tip('spend','广告消耗')}</h2><strong>{usdFirst?primaryUsd(s?.spendUsd):cny(s?.spendCny)}</strong>{usdFirst?reference(s?.spendCny):<span className="oa-secondary-value">{usd(s?.spendUsd)}</span>}{benchmark(usdFirst?base?.spendUsd:base?.spendCny,true)}</article>
-        <article aria-label="咨询量"><h2>咨询量 {tip('consultations','咨询量')}</h2><strong>{loading?<Skeleton width="2em" height=".8em"/>:count(s?.consultCount)}</strong>{s?.missingConsultCount?<span className="oa-secondary-value">{`${s.missingConsultCount} 条缺咨询量`}</span>:null}{benchmark(base?.consultCount,false)}</article>
+        <article aria-label="广告消耗"><h2>{usdFirst?"广告消耗（USD）":"广告消耗"} {tip('spend','广告消耗')}</h2><strong>{usdFirst?primaryUsd(s?.spendUsd):cny(s?.spendCny)}</strong>{usdFirst?reference(s?.spendCny):<span className="oa-secondary-value">{usd(s?.spendUsd)}</span>}{benchmark(usdFirst?base?.spendUsd:base?.spendCny,true)}</article>
+        <article aria-label="咨询量"><h2>{usdFirst?"总咨询量":"咨询量"} {tip('consultations','咨询量')}</h2><strong>{loading?<Skeleton width="2em" height=".8em"/>:count(s?.consultCount)}</strong>{s?.missingConsultCount?<span className="oa-secondary-value">{`${s.missingConsultCount} 条缺咨询量`}</span>:null}{benchmark(base?.consultCount,false)}</article>
         <article aria-label="综合咨询成本"><h2>综合咨询成本 {tip('cost','综合咨询成本')}</h2><strong>{usdFirst?primaryUsd(s?.consultationCostUsd):s?.costStatus==='ready'?cny(s?.consultationCostCny):displayed(null)}</strong>{usdFirst&&reference(s?.consultationCostCny)}{costNote(s)}{benchmark(usdFirst?base?.consultationCostUsd:base?.consultationCostCny,true,['no_consultation','no_spend'].includes(base?.costStatus??'')?'零咨询':'未报')}</article>
         <article aria-label="点击量"><h2>点击量 {tip('clicks','点击量')}</h2><strong>{loading?<Skeleton width="2em" height=".8em"/>:count(s?.clickCount)}</strong>{s?.missingClickCount?<span className="oa-secondary-value">{`${s.missingClickCount} 条缺点击量`}</span>:null}{benchmark(base?.clickCount,false)}</article>
       </div>
       <div className="oa-source-line"><span>{data?.summary.recordCount??'—'} 条日报 · {data?.summary.reportedDays??'—'} 个已报日期 {tip('comparison','历史比较')}</span><span>{pricingPending?'正在读取参考汇率':!pricing||pricing.missing.length?'人民币参考汇率待补':pricing.stale?'人民币参考行情 · 更新延迟':'人民币按发生日参考折算'}{usdFirst && !!pricing?.quotes.length && <> · <a href="https://exchangerate.dev" target="_blank" rel="noreferrer">Rates by Exchangerate.dev</a></>}</span></div>
       {!loading&&data&&!data.records.length&&<div className="oa-empty"><strong>该范围暂无日报</strong><p>调整日期或清除筛选；没有填报不计为零消耗。</p></div>}
-      {onOpenReports && data ? <OpsAccountTrends key={filters.account+":"+filters.persona} rows={data.trend.records || []} dates={data.trend.days.map(day=>day.date)} accounts={(data.scopeAccounts||data.options.account).filter(account=>account!=="__unassigned__")} today={today} onFeedback={onOpenFeedback}/> : <section className="oa-panel oa-trend"><div className="analysis-toolbar"><h2>{onOpenReports?"近7天投放走势":"所选周期投放走势"} <InfoTip label="投放趋势口径" text="跟随所选周期查看，筛选条件一致。人民币消耗、咨询量、咨询成本分别查看；未报日断开，明确填0显示0，今天未结束。零咨询日不计算成本。"/></h2><ChartStyleControl style={style} onChange={setStyle}/></div>
+      {<div className="oa-detail-tabs" role="group" aria-label="投流明细">
+        {(onOpenReports?([['trend','账户消耗趋势'],['groups','分类对比表'],['records','原始日报表']] as const):([['groups','分类对比表'],['balances','广告账户余额'],['records','原始投流日报表']] as const)).map(([key,label])=><button type="button" key={key} aria-pressed={detailTab===key} onClick={()=>setDetailTab(key)}>{label}</button>)}
+      </div>}
+      {onOpenReports ? (detailTab==='trend'&&data&&<OpsAccountTrends key={filters.account+":"+filters.persona} rows={data.trend.records || []} dates={data.trend.days.map(day=>day.date)} accounts={(data.scopeAccounts||data.options.account).filter(account=>account!=="__unassigned__")} today={today} onFeedback={onOpenFeedback}/>) : <section className="oa-panel oa-trend"><div className="analysis-toolbar"><h2>{onOpenReports?"近7天投放走势":"所选周期投放走势"} <InfoTip label="投放趋势口径" text="跟随所选周期查看，筛选条件一致。人民币消耗、咨询量、咨询成本分别查看；未报日断开，明确填0显示0，今天未结束。零咨询日不计算成本。"/></h2><ChartStyleControl style={style} onChange={setStyle}/></div>
       <nav className="analysis-tabs oa-trend-tabs" aria-label="投放趋势指标">{([['spendCny','广告消耗'],['consultCount','咨询量'],['consultationCostCny','咨询成本']] as const).map(([key,label])=><button type="button" key={key} aria-pressed={trendMetric===key} onClick={()=>setTrendMetric(key)}>{label}</button>)}</nav>
       <p className="analysis-caption">{data?.trend.from} 至 {data?.trend.to} · {trendMetric==='consultCount'?'咨询次数':trendMetric==='spendCny'?'人民币参考消耗':'人民币／咨询'}</p>
       {data&&<AnalysisPlot series={[{key:trendMetric,label:trendMetric==='spendCny'?'广告消耗':trendMetric==='consultCount'?'咨询量':'综合咨询成本',points:data.trend.days.map(d=>({date:d.date,value:d[trendMetric]==null?null:String(d[trendMetric]),reason:d.recordCount===0?'未报':trendMetric==='consultationCostCny'&&d.consultCount===0?'零咨询，未计算':'汇率或字段待补',count:d.recordCount,native:'',estimated:trendMetric!=='consultCount'}))} satisfies TrendSeries]} style={style} today={today} unit={trendMetric==='consultCount'?'count':'money'} selected={selectedDay} onSelect={setSelectedDay} label="运营投放"/>}</section>}
 
-      {!onOpenReports && <div className="oa-detail-tabs" role="group" aria-label="投流明细">
-        {([['groups','分类对比表'],['balances','广告账户余额'],['records','原始投流日报表']] as const).map(([key,label])=><button type="button" key={key} aria-pressed={detailTab===key} onClick={()=>setDetailTab(key)}>{label}</button>)}
-      </div>}
-      {(onOpenReports || detailTab==='groups') && <section className="oa-panel" aria-label="投放分类对比" ref={groupsRef}><div className="oa-panel-heading"><h2>分类对比 <InfoTip label="投放分类对比口径" text="按选定日报的人设/主页、平台或广告账户分组；每条日报只属于当前维度的一个分类，各分类相加等于汇总。同一账户可承接多个人设。咨询成本用分类总消耗÷分类总咨询量。点击查看日报可核对原始字段。"/></h2><label className="oa-sort">排序<select aria-label="投放对比排序" value={sort} onChange={e=>setSort(e.target.value)}><option value="spend">消耗从高到低</option><option value="consult">咨询量从高到低</option><option value="cost">咨询成本从低到高</option></select></label></div><div className="oa-dimensions" role="group" aria-label="投放分类维度">{(onOpenReports?(['persona','platform','account'] as const):(['operator','persona','platform','account'] as const)).map(key=><button type="button" key={key} aria-pressed={dimension===key} className={dimension===key?'selected':''} onClick={()=>{setDimension(key);setDetailKey(null);}}>{labels[key]}</button>)}</div>
-        {onOpenReports ? <>
-        <div className="oa-table-head" aria-hidden="true"><span>{labels[dimension]}</span><span>{usdFirst?'消耗 · USD':'消耗 · 人民币'}</span><span>咨询量</span><span>{usdFirst?'咨询成本 · USD':'咨询成本 · 人民币'}</span><span>点击量</span><span/></div>
-        <div className="oa-comparison-rows">{rows.map(g=><article className="oa-group-row" key={g.key}><div className="oa-group-name"><strong>{g.name}</strong>{coverage(g)&&<small className={g.costStatus==='no_consultation'?'oa-attention':''}>{coverage(g)}</small>}</div><div><span>{usdFirst?'消耗':'消耗 · 人民币'}</span><div className="oa-amount-pair"><b>{usdFirst?usd(g.spendUsd):amount(g.spendCny)}</b>{usdFirst&&reference(g.spendCny)}</div></div><div><span>咨询量</span><b>{count(g.consultCount)}</b></div><div><span>{usdFirst?'咨询成本':'咨询成本 · 人民币'}</span><div className="oa-amount-pair"><b>{usdFirst?usd(g.consultationCostUsd):amount(g.consultationCostCny)}</b>{usdFirst&&reference(g.consultationCostCny)}</div></div><div><span>点击量</span><b>{count(g.clickCount)}</b></div><button type="button" className="text-action" aria-label={`查看${g.name}的日报`} onClick={()=>showRecords(g.key)}>查看日报 →</button></article>)}</div>
-        </>:<div className="oa-native-scroll"><table className="oa-native" aria-label="投放分类对比">
-          <thead><tr>{[labels[dimension],'消耗 · 人民币','咨询量','咨询成本 · 元','点击量','操作'].map(label=><th scope="col" key={label}>{label}</th>)}</tr></thead>
+      {detailTab==='groups' && <section className="oa-panel" aria-label="投放分类对比" ><div className="oa-panel-heading"><h2>分类对比 <InfoTip label="投放分类对比口径" text="按选定日报的人设/主页、平台或广告账户分组；每条日报只属于当前维度的一个分类，各分类相加等于汇总。同一账户可承接多个人设。咨询成本用分类总消耗÷分类总咨询量。点击查看日报可核对原始字段。"/></h2><label className="oa-sort">排序<select aria-label="投放对比排序" value={sort} onChange={e=>setSort(e.target.value)}><option value="spend">消耗从高到低</option><option value="consult">咨询量从高到低</option><option value="cost">咨询成本从低到高</option></select></label></div><div className="oa-dimensions" role="group" aria-label="投放分类维度">{(onOpenReports?(['persona','platform','account'] as const):(['operator','persona','platform','account'] as const)).map(key=><button type="button" key={key} aria-pressed={dimension===key} className={dimension===key?'selected':''} onClick={()=>{setDimension(key);setDetailKey(null);}}>{labels[key]}</button>)}</div>
+        <div className="oa-native-scroll"><table className="oa-native" aria-label="投放分类对比">
+          <thead><tr>{[labels[dimension],usdFirst?'消耗 · USD':'消耗 · 人民币','咨询量',usdFirst?'咨询成本 · USD':'咨询成本 · 元','点击量','操作'].map(label=><th scope="col" key={label}>{label}</th>)}</tr></thead>
           <tbody>{rows.map(g=><tr key={g.key}><th scope="row">{g.name} {coverage(g)&&<small className="oa-state" data-warning={g.costStatus==='no_consultation'||g.costStatus==='incomplete'}>{coverage(g)}</small>}</th>
-            <td>{amount(g.spendCny)}</td><td>{count(g.consultCount)}</td><td>{amount(g.consultationCostCny)}</td><td>{count(g.clickCount)}</td>
+            <td>{usdFirst?<>{usd(g.spendUsd)}{reference(g.spendCny)}</>:amount(g.spendCny)}</td><td>{count(g.consultCount)}</td><td>{usdFirst?<>{usd(g.consultationCostUsd)}{reference(g.consultationCostCny)}</>:amount(g.consultationCostCny)}</td><td>{count(g.clickCount)}</td>
             <td><button type="button" className="text-action" onClick={()=>showRecords(g.key)}>查看日报 →</button></td></tr>)}</tbody>
-        </table></div>}
+        </table></div>
         {!loading&&!rows.length&&<p className="oa-muted">该范围没有可分类的日报。</p>}
       </section>}
       {!onOpenReports && detailTab==='balances' && <section className="oa-panel" aria-label="相关广告账户余额"><div className="oa-panel-heading"><h2>相关账户余额 {tip('balance','账户余额')}</h2><span>账户快照 · USD</span></div><div className="oa-balances">{data?.balances.accounts.map(a=><article key={a.account} data-warning={a.status==='conflict'||(a.status==='ready'&&a.amountUsd!=null&&Number(a.amountUsd)<20)}><div><strong>{a.account}</strong><small>{a.date??'无快照'}{a.shared?' · 共享账户':''}</small></div><b>{amount(a.amountUsd)} <small>USD</small></b>{(a.status!=='ready'||(a.amountUsd!=null&&Number(a.amountUsd)<20))&&<span className="oa-attention">{a.status==='conflict'?'快照冲突，待核对':a.status==='ready'?'余额低于 20 USD':'快照待补'}</span>}</article>)}</div>{!loading&&!data?.balances.accounts.length&&<p className="oa-muted">该范围尚无相关账户快照。</p>}{activeFilters&&<p className="oa-muted">显示所涉账户的完整余额。</p>}</section>}
-      {!usdFirst && <details className="oa-reference"><summary>参考汇率与更新时间</summary><p>{rateText}</p><a href="https://exchangerate.dev" target="_blank" rel="noreferrer">Rates by Exchangerate.dev</a></details>}{onOpenReports && <section className="oa-panel oa-records" ref={detailsRef}><details open={detailsOpen} onToggle={e=>setDetailsOpen(e.currentTarget.open)}><summary><h2>原始日报</h2><span>{detailRecords.length} 条{filteredName?' · '+filteredName:''}</span></summary><div className="oa-record-actions"><button type="button" className="secondary" onClick={()=>{setDetailKey(null);setExpanded([]);}}>显示当前筛选全部日报</button>{detailKey&&<button type="button" className="secondary" onClick={()=>{setDetailKey(null);setDetailsOpen(false);groupsRef.current?.scrollIntoView({behavior:'smooth',block:'start'});}}>返回分类对比</button>}</div>
-        {detailRecords.map(r=><details className="oa-record" key={r.id} open={expanded.includes(r.id)} onToggle={e=>{const open=e.currentTarget.open;setExpanded(ids=>open?(ids.includes(r.id)?ids:[...ids,r.id]):ids.filter(id=>id!==r.id));}}><summary><span><b>{r.personaName||'未关联主页'}</b><small>{r.businessDate} · {r.platform||'平台待补'} · {r.adAccountRef||'账户待补'}</small></span><strong>{amount(r.spendUsd)} USD</strong></summary><dl>{[...(!onOpenReports?[['运营人员',r.operatorName||'待关联']]:[]),['广告账户',r.adAccountRef],['人设／主页',r.personaName],['平台',r.platform],['广告消耗 USD',amount(r.spendUsd)],['咨询量（上报）',count(r.consultCount)],['咨询成本 USD（原上报）',amount(r.consultCostUsd)],['点击量',count(r.clickCount)],['点击率 %（原上报）',r.ctrPercent??'未上报'],['账户余额快照 USD',amount(r.balanceUsd)],['推广视频上报数',count(r.promoVideoCount)],...(r.promoCost&&r.promoCost!=='0.00'?[['历史费用（币种未记录）',r.promoCost]]:[]),['备注',r.note||'—']].map(([key,value])=><div key={key}><dt>{key}</dt><dd>{value||'未上报'}</dd></div>)}</dl></details>)}
-        {!detailRecords.length&&<p className="oa-muted">当前筛选没有日报。</p>}
-      </details></section>}
-      {!onOpenReports && detailTab==='records' && <section className="oa-panel" aria-label="原始投流日报表">
+      {!usdFirst && <details className="oa-reference"><summary>参考汇率与更新时间</summary><p>{rateText}</p><a href="https://exchangerate.dev" target="_blank" rel="noreferrer">Rates by Exchangerate.dev</a></details>}      {detailTab==='records' && <section className="oa-panel" aria-label="原始投流日报表">
         <div className="oa-panel-heading"><h2>原始投流日报表</h2><span>{detailRecords.length} 条 {filteredName}</span>{detailKey&&<button type="button" className="secondary" onClick={()=>setDetailKey(null)}>显示全部日报</button>}</div>
         <div className="oa-native-scroll"><table className="oa-native" aria-label="原始投流日报">
-          <thead><tr>{['日期','人设／主页','平台','广告账户','消耗 USD','咨询','点击','CTR','操作'].map(label=><th scope="col" key={label}>{label}</th>)}</tr></thead>
+          <thead><tr>{(onOpenReports?['日期','广告户','主页','平台','消耗 USD','咨询','余额快照','备注','操作']:['日期','人设／主页','平台','广告账户','消耗 USD','咨询','点击','CTR','操作']).map(label=><th scope="col" key={label}>{label}</th>)}</tr></thead>
           <tbody>{detailRecords.map(r=>{
             const open=()=>{setSelectedRecord(r);recordDialog.current?.showModal();};
-            return <tr key={r.id} onClick={open}><td>{r.businessDate}</td><th scope="row">{r.personaName||'未关联主页'}</th><td><span className="oa-state">{r.platform||'待补'}</span></td><td>{r.adAccountRef||'待补'}</td><td>{amount(r.spendUsd)}</td><td>{count(r.consultCount)}</td><td>{count(r.clickCount)}</td><td>{r.ctrPercent==null?'—':r.ctrPercent+'%'}</td><td><button type="button" className="text-action" onClick={e=>{e.stopPropagation();open();}}>查看详情 →</button></td></tr>;
+            return <tr key={r.id} onClick={open}><td>{r.businessDate}</td>{onOpenReports?<><td>{r.adAccountRef||'待补'}</td><th scope="row">{r.personaName||'未关联主页'}</th><td><span className="oa-state">{r.platform||'待补'}</span></td><td>{amount(r.spendUsd)}</td><td>{count(r.consultCount)}</td><td>{amount(r.balanceUsd)}</td><td className="oa-note-cell">{r.note||'—'}</td></>:<><th scope="row">{r.personaName||'未关联主页'}</th><td><span className="oa-state">{r.platform||'待补'}</span></td><td>{r.adAccountRef||'待补'}</td><td>{amount(r.spendUsd)}</td><td>{count(r.consultCount)}</td><td>{count(r.clickCount)}</td><td>{r.ctrPercent==null?'—':r.ctrPercent+'%'}</td></>}<td><button type="button" className="text-action" onClick={e=>{e.stopPropagation();open();}}>查看详情 →</button></td></tr>;
           })}</tbody>
         </table></div>
         {!detailRecords.length&&<p className="oa-muted">当前筛选没有日报。</p>}
       </section>}
-      {!onOpenReports && <dialog className="oa-drawer" ref={recordDialog} aria-labelledby="oa-drawer-title" onClick={e=>{if(e.target===e.currentTarget)e.currentTarget.close();}}>
+      {<dialog className="oa-drawer" ref={recordDialog} aria-labelledby="oa-drawer-title" onClick={e=>{if(e.target===e.currentTarget)e.currentTarget.close();}}>
         <div className="oa-drawer-body"><header className="oa-panel-heading"><h2 id="oa-drawer-title">投流日报详情</h2><button type="button" className="secondary" onClick={()=>recordDialog.current?.close()}>关闭</button></header>
         {selectedRecord && <><p className="oa-muted">{selectedRecord.businessDate}</p><dl>{[
-          ['运营人员',selectedRecord.operatorName],['广告账户',selectedRecord.adAccountRef],['人设／主页',selectedRecord.personaName],['平台',selectedRecord.platform],
+          ...(!onOpenReports?[['运营人员',selectedRecord.operatorName]]:[]),['广告账户',selectedRecord.adAccountRef],['人设／主页',selectedRecord.personaName],['平台',selectedRecord.platform],
           ['广告消耗 USD',amount(selectedRecord.spendUsd)],['咨询量',count(selectedRecord.consultCount)],['咨询成本 USD（原上报）',amount(selectedRecord.consultCostUsd)],['点击量',count(selectedRecord.clickCount)],
           ['点击率 %（原上报）',selectedRecord.ctrPercent],['账户余额快照 USD',amount(selectedRecord.balanceUsd)],['推广视频上报数',count(selectedRecord.promoVideoCount)],['历史费用（币种未记录）',selectedRecord.promoCost],['备注',selectedRecord.note],
         ].map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value??'未上报'}</dd></div>)}</dl></>}
         </div>
       </dialog>}
-      {onOpenReports && <InvalidLeadFacts today={today} />}
+      {onOpenReports && detailTab==='trend' && <InvalidLeadFacts today={today} />}
     </>}
   </section>;
 }

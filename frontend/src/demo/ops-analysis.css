@@ -156,3 +156,37 @@
 .oa-boss :is(.overview-segments,.oa-trend-tabs,.chart-style-control,.oa-detail-tabs,.oa-dimensions) button[aria-pressed="true"] {
   background:var(--jade-dark) !important; color:#ffffff !important; border-color:var(--jade-dark) !important;
 }
+
+.oa-operator .oa-identity-bar,.ops-ad-accounts .acct-summary { display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding:12px; border-radius:12px; border:1px solid var(--line); background:var(--card); }
+.oa-operator .oa-identity-bar .ops-identity { margin:0; padding:0; border:0; background:none; }
+.oa-operator .oa-heading > .actions { margin-left:auto; }
+.oa-account-link { color:var(--jade); font-weight:600; }
+.oa-low-balance { color:var(--gold); background:#fff4df; border-radius:999px; padding:4px 8px; }
+.oa-operator .oa-kpis article:first-child { background:linear-gradient(145deg,var(--jade-dark),#143f37); color:white; }
+.oa-operator .oa-kpis article:first-child :is(h2,strong,span,b,small) { color:inherit; }
+.oa-operator .oa-kpis article:first-child .oa-benchmark { background:#ffffff22; padding:5px 8px; border:0; border-radius:999px; }
+.oa-operator .oa-kpis article:nth-child(2) > strong { color:var(--jade); }
+.oa-operator .oa-kpis article:nth-child(3) > strong { color:var(--gold); }
+:root .oa-operator button[aria-pressed="true"], :root .ops-feedback button[aria-pressed="true"], :root .ops-account-filters button[aria-pressed="true"] { background:var(--jade-dark) !important; color:white !important; border-color:var(--jade-dark) !important; }
+.oa-operator .overview-segments { display:flex; flex-wrap:wrap; gap:4px; padding:0; background:transparent; }
+.oa-operator .overview-segments button,.ops-account-filters button { border-radius:999px; min-height:32px; padding:4px 12px; }
+.oa-operator .oa-detail-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); padding:4px; gap:4px; background:var(--line); border-radius:10px; }
+.oa-operator .oa-detail-tabs button { background:transparent; border:0; color:var(--ink); box-shadow:none; }
+:is(.oa-operator,.ops-daily) .oa-native-scroll { overflow:auto; }
+:is(.oa-operator,.ops-daily) .oa-native { width:100%; border-collapse:collapse; }
+:is(.oa-operator,.ops-daily) .oa-native :is(th,td), :is(.oa-operator,.ops-daily) .oa-native :is(th,td):first-child { background:transparent; border-bottom:1px solid var(--line); padding:9px 10px; white-space:nowrap; text-align:left; }
+.oa-operator .oa-native .oa-note-cell { max-width:240px; overflow:hidden; text-overflow:ellipsis; }
+.oa-operator .oa-state,.ops-feedback-status { border-radius:999px; background:var(--bg); padding:4px 8px; }
+.oa-operator .oa-state[data-warning="true"],.ops-feedback-status[data-status="pending"] { background:#fff4df; color:#795119; }
+.ops-feedback-status[data-status="resolved"] { background:#e4f4ed; color:var(--jade); }
+.oa-operator .oa-drawer,.ops-workflow-drawer { position:fixed; inset:0 0 0 auto; margin:0; padding:18px; border:0; width:min(100%,650px); height:100dvh; max-width:none; max-height:none; background:var(--card); color:var(--ink); }
+.oa-operator .oa-drawer::backdrop,.ops-workflow-drawer::backdrop { background:#0e2c3966; }
+.oa-operator .oa-drawer dl > div { display:grid; gap:8px; grid-template-columns:1fr 1fr; border-bottom:1px solid var(--line); padding:8px 0; }
+.oa-operator .oa-drawer dd { margin:0; overflow-wrap:anywhere; }
+.ops-account-filters { display:flex; flex-wrap:wrap; gap:6px; margin-block:12px; }
+.ops-ad-accounts .acct-summary label { margin-left:auto; }
+.ops-ad-accounts .acct-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-top:12px; }
+.ops-ad-accounts .acct-card { display:flex; align-items:start; justify-content:space-between; gap:8px; padding:14px; border:1px solid var(--line); border-radius:14px; }
+.ops-ad-accounts .acct-card[data-low="true"] { box-shadow:inset 4px 0 0 var(--gold); overflow:hidden; }
+.ops-ad-accounts .acct-card small { display:block; margin-top:5px; }
+@media(max-width:700px) { .ops-ad-accounts .acct-grid { grid-template-columns:minmax(0,1fr); } }
