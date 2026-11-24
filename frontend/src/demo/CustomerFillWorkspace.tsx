@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { CreateOrder, Field } from "../OrderWorkspace";
 import { cents, currencies, expenseLabels } from "../commerceUi";
@@ -9,9 +9,10 @@ import ReportTextImport from "./ReportTextImport";
 import { afterSaleTotals, emptyAfterSale, parseAfterSaleText, signedMoney, type AfterSaleExpense, type AfterSaleFields } from "./afterSalesText";
 import FanFillForm from "./FanFillForm";
 import { loadServiceDirectory, type FillAccount } from "./serviceDirectory";
-import { effectiveOrderCents, type CrmOrderDraft, centsToYuan, customerTags, invalidReasons, personalPerformance, useCustomerCrm, type CrmActor, type CrmCustomer, type SpendTier } from "./customerCrm";
+import { orderFunds, effectiveOrderCents, type CrmOrderDraft, centsToYuan, customerTags, invalidReasons, personalPerformance, useCustomerCrm, type CrmActor, type CrmCustomer, type SpendTier } from "./customerCrm";
 import CrmOrderHistory from "./CrmOrderHistory";
 import "./customer-fill.css";
+import "../fill-ui.css";
 import "./role-workbenches.css";
 
 const modules = [
@@ -65,6 +66,7 @@ export default function CustomerFillWorkspace({ today }: { today: string }) {
   const actor: CrmActor | null = selectedPerson ? { role: "cs", employeeId: selectedPerson.id, employeeName: selectedPerson.name, teamIds: [selected?.teamId || personAccounts[0]?.teamId || ""] } : null;
   const mine = actor ? crm.state.customers.filter(customer => customer.employeeId === actor.employeeId) : [];
   const customer = mine.find(item => item.id === customerId);
+  const leadDrawer=useRef<HTMLDialogElement>(null);
   function navigate(next: FillPage) {
     const path = next === "leads" ? "/fill/fans" : next === "library" ? "/fill/orders" : next === "performance" ? "/fill/performance" : "/fill";
     window.history.pushState({}, "", path + "?role=cs");
@@ -73,7 +75,7 @@ export default function CustomerFillWorkspace({ today }: { today: string }) {
   }
   return <main className="customer-fill role-desk">
     <header className="desk-heading"><div><p className="eyebrow">日常填报</p><h1>{customer ? customer.name : titles[page]}</h1></div>{page !== "home" && <button type="button" className="secondary" onClick={() => customer ? setCustomerId("") : navigate("home")}>{customer ? "返回客资库" : "返回工作台"}</button>}</header>
-    <section className="card fill-account" aria-label="填报身份">
+    <section className="card fill-account fill-account-bar" aria-label="填报身份">
       {selected && !identityExpanded ? <div className="fill-identity-summary"><div><span className="fill-avatar" aria-hidden="true">{(selectedPerson?.name || "客").slice(0, 1)}</span><span className="fill-identity-text"><strong>{selectedPerson?.name}</strong><span>{selected.platform === "whatsapp" ? "WhatsApp" : selected.platform === "messenger" ? "Messenger" : "接待账号"} · 尾号{(selected.accountIdentifier || selected.wechatId).slice(-4)}</span></span></div><button type="button" className="secondary" aria-expanded={false} onClick={() => setIdentityExpanded(true)}>更换</button></div> : <div id="fill-identity-fields" className="fill-identity-fields">
       {selectedPerson && <div className="fill-identity-summary"><div><span className="fill-avatar" aria-hidden="true">{(selectedPerson.name || "客").slice(0, 1)}</span><span className="fill-identity-text"><strong>{selectedPerson.name}</strong><span>当前登录客服 · 演示模式</span></span></div></div>}
       <div className="fill-identity-selectors">
@@ -84,19 +86,47 @@ export default function CustomerFillWorkspace({ today }: { today: string }) {
       {error && <p className="error" role="alert">{error}</p>}
       {notice && <p className="notice" role="status">{notice}</p>}
     </section>
-    {page === "home" && <nav className="fill-home-modules" aria-label="客服业务入口">{modules.map(item => <button key={item.id} type="button" className="fill-module-card" onClick={() => navigate(item.id)}><span className="fill-module-icon" aria-hidden="true"><DashboardIcon name={item.icon} /></span><span className="fill-module-copy"><strong>{item.title}</strong><small>{item.detail}</small></span><span className="fill-module-arrow" aria-hidden="true">›</span></button>)}</nav>}
+    <nav className="fill-nav" aria-label="客服工作台导航">
+      <button className="secondary" type="button" aria-pressed={page==="home"} onClick={()=>navigate("home")}>工作台首页</button>
+      {modules.map(item=><button className="secondary" type="button" key={item.id} aria-pressed={page===item.id} onClick={()=>navigate(item.id)}>{item.title}</button>)}
+    </nav>
+    {page === "home" && <DemoFillHome today={today} mine={mine} employeeId={actor?.employeeId} state={crm.state} navigate={navigate} openLead={()=>{navigate("leads");requestAnimationFrame(()=>leadDrawer.current?.showModal());}}/>}
+
     {page !== "home" && !actor && <section className="card"><h2>{loading ? "正在读取客服" : "先选择客服"}</h2><p>第一行选择客服，第二行选择该客服当前负责的接待账号。</p></section>}
-    {actor && page === "leads" && (selected ? <FanFillForm key={selected.id} today={today} account={selected} employees={[]} tenures={[]} onRegister={(leads, source) => {
+    {actor && page === "leads" && (selected ? <section className="card"><div className="commerce-line"><h2>新增客资登记</h2><button type="button" onClick={()=>leadDrawer.current?.showModal()}>＋ 登记新客资</button></div>
+      <dialog className="fill-drawer" ref={leadDrawer} aria-label="登记新客资"><div className="fill-drawer-body"><header className="commerce-line"><h2>登记新客资</h2><button type="button" className="secondary" onClick={()=>leadDrawer.current?.close()}>关闭</button></header><FanFillForm key={selected.id} today={today} account={selected} employees={[]} tenures={[]} onRegister={(leads, source) => {
       try {
         if (selected.holderSince && source.businessDate < selected.holderSince) throw Error("该填报日期早于当前客服接手日期，请由主管核对历史归属");
         crm.dispatch({ type: "registerLeads", leads: leads.filter(lead => lead.customer.trim()).map(lead => ({ name: lead.customer, accountId: selected.id, employeeId: actor.employeeId, employeeName: actor.employeeName, teamId: selected.teamId || actor.teamIds[0], teamName: selected.teamName || "", source: source.pageName, createdOn: source.businessDate, adAccountId: source.adAccountId, need: lead.summary, contact: lead.contact, invalidReason: lead.invalidReason, invalidNote: lead.invalidNote })) });
         setNotice("已登记到本次客资库。无效申请要等主管确认后，才标记为无效。");
+        leadDrawer.current?.close();
         navigate("library");
       } catch (cause) { setNotice(""); setError(toErrorMessage(cause)); }
-    }} /> : <section className="card"><h2>再选择接待账号</h2><p>新客资要记在具体的 WhatsApp 或 Messenger 账号上。</p></section>)}
+    }} />{error&&<p role="alert" className="error">{error}</p>}</div></dialog></section> : <section className="card"><h2>再选择接待账号</h2><p>新客资要记在具体的 WhatsApp 或 Messenger 账号上。</p></section>)}
     {actor && page === "library" && (customer ? <CustomerDetail today={today} customer={customer} actor={actor} crm={crm} account={selected} onMessage={setNotice} /> : <CustomerLibrary people={mine} state={crm.state} onOpen={setCustomerId} />)}
-    {actor && page === "performance" && <Performance employeeId={actor.employeeId} state={crm.state} />}
+    {actor && page === "performance" && <Performance employeeId={actor.employeeId} state={crm.state} onOpen={id=>{navigate("library");setCustomerId(id);}} />}
   </main>;
+}
+
+function DemoFillHome({today,mine,employeeId,state,navigate,openLead}:{openLead:()=>void;today:string;mine:CrmCustomer[];employeeId?:string;state:ReturnType<typeof useCustomerCrm>["state"];navigate:(page:FillPage)=>void}){
+  const [checked,setChecked]=useState(false);
+  useEffect(()=>setChecked(false),[employeeId,today]);
+  const leads=mine.filter(row=>row.createdOn===today).length;
+  const validOrders=state.orders.filter(row=>row.employeeId===employeeId&&!row.cancelled);
+  const orders=validOrders.filter(row=>row.businessDate.startsWith(today.slice(0,7))).length;
+  const tails=validOrders.filter(row=>orderFunds(row).balance>0).length;
+  return <>
+    <section className="card fill-progress" aria-label="今日填报进度">
+      <div><small>今日已登记客资</small><strong>{employeeId?leads:"—"}</strong></div>
+      <div><small>本月有效开单</small><strong>{employeeId?orders:"—"}</strong></div>
+      <div><small>待收尾款单数</small><strong>{employeeId?tails:"—"}</strong></div>
+      <button className="secondary" type="button" disabled={!employeeId||leads>0||checked} onClick={()=>setChecked(true)}>{checked?"今日已打卡（演练）":"今日 0 粉打卡"}</button>
+    </section>
+    <div className="fill-home-grid">{modules.map((item,index)=><article key={item.id} className={`card fill-home-card ${index===1?"fill-hero":""}`}>
+      <h2><DashboardIcon name={item.icon}/>{item.title}</h2><strong>{employeeId?[leads,orders,tails][index]:"—"}</strong><small>{item.detail}</small>
+      <button className="secondary" type="button" onClick={()=>item.id==="leads"?openLead():navigate(item.id)}>{["+ 登记新客资","打开开单与售后 →","查看个人业绩 →"][index]}</button>
+    </article>)}</div>
+  </>;
 }
 
 function CustomerLibrary({ people, state, onOpen }: { people: CrmCustomer[]; state: ReturnType<typeof useCustomerCrm>["state"]; onOpen: (id: string) => void }) {
@@ -132,12 +162,17 @@ function CustomerDetail({ today, customer, actor, crm, account, onMessage }: { t
 }
 
 function OrderPractice({ today, operator, room, onPractice, customerName }: { customerName:string; today: string; operator: string; room?: { name: string; host: string }; onPractice: (value: CrmOrderDraft) => void }) {
+  const drawer=useRef<HTMLDialogElement>(null);
   const [channel, setChannel] = useState<"live" | "private">("live");
   const [error, setError] = useState("");
   return <div>
+    <button type="button" onClick={()=>drawer.current?.showModal()}>＋ 登记一笔成交</button>
+    <dialog className="fill-drawer fill-order-drawer" ref={drawer} aria-label="登记一笔成交"><div className="fill-drawer-body">
+    <header className="commerce-line"><h2>登记一笔成交</h2><button type="button" className="secondary" onClick={()=>drawer.current?.close()}>关闭</button></header>
     <div className="fill-history-mode" role="group" aria-label="成交渠道"><button type="button" aria-pressed={channel === "live"} onClick={() => setChannel("live")}>直播间开单</button><button type="button" aria-pressed={channel === "private"} onClick={() => setChannel("private")}>私推成交</button></div>
     {error && <p className="error" role="alert">{error}</p>}
-    <CreateOrder customerName={customerName} key={channel} channel={channel} today={today} operator={operator} registeredRoom={channel === "live" ? room : undefined} previewOnly onSaved={() => {}} onPractice={draft => { try { onPractice({ ...draft, channel }); setError(""); } catch (cause) { setError(toErrorMessage(cause)); } }} />
+    <CreateOrder customerName={customerName} key={channel} channel={channel} today={today} operator={operator} registeredRoom={channel === "live" ? room : undefined} previewOnly onSaved={() => {}} onPractice={draft => { try { onPractice({ ...draft, channel }); setError(""); drawer.current?.close(); } catch (cause) { setError(toErrorMessage(cause)); } }} />
+    </div></dialog>
   </div>;
 }
 
@@ -149,12 +184,22 @@ function InvalidRequest({ onSubmit }: { onSubmit: (reason: keyof typeof invalidR
   return <form className="card" onSubmit={event => { event.preventDefault(); if (!reason) return; try { onSubmit(reason, note); setNote(""); setError(""); } catch (cause) { setError(toErrorMessage(cause)); } }}><h2>标记无效客资</h2><p className="notice">选择语言不通、误点咨询/不感兴趣、色粉三类预设原因可直接计入无效客资；其他情况请填写判定原因提交客服主管复核（驳回后自动打上「尝试沟通」标识）。</p><Field label="无效原因"><select required aria-label="无效原因" value={reason} onChange={event => setReason(event.target.value as keyof typeof invalidReasons)}><option value="">请选择</option>{Object.entries(invalidReasons).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Field><Field label={isCustom ? "判定原因（必填）" : "补充说明（可选）"}><textarea required={isCustom} maxLength={1000} value={note} onChange={event => setNote(event.target.value)} placeholder={isCustom ? "请填写具体无效判定原因，提交给客服主管复核" : "补充具体情况，可选"} /></Field>{error && <p className="error" role="alert">{error}</p>}<button type="submit">{isCustom ? "提交主管复核" : "确认标记无效"}</button></form>;
 }
 
-function Performance({ employeeId, state }: { employeeId: string; state: ReturnType<typeof useCustomerCrm>["state"] }) {
+function Performance({ employeeId, state, onOpen }: { employeeId: string; onOpen:(id:string)=>void; state: ReturnType<typeof useCustomerCrm>["state"] }) {
   const result = personalPerformance(state, employeeId);
   const rows = state.orders.filter(order => order.employeeId === employeeId);
   return <section className="card" aria-label="个人业绩"><h2>个人业绩 <InfoTip label="个人业绩口径" text="合计等于直播间料价加代购费，再加私推料价。跑单和换料取消的旧单不计入，换料新单归新开单日。业绩跟开单时的客服，换账号不改旧单。" /></h2>
-    <div className="crm-metrics"><article><span>业绩合计</span><strong>¥{centsToYuan(result.totalCents)}</strong></article><article><span>直播间开单</span><strong>¥{centsToYuan(result.liveCents)}</strong><small>{result.liveCount} 笔</small></article><article><span>客服私推</span><strong>¥{centsToYuan(result.privateCents)}</strong><small>{result.privateCount} 笔</small></article></div>
-    {rows.map(order => { const customer = state.customers.find(item => item.id === order.customerId); return <p key={order.id}>{order.businessDate} · {customer?.name || "客户"} · {order.channel === "private" ? "私推" : "直播间"} · ¥{centsToYuan(effectiveOrderCents(order))}{order.replacedById ? " · 换料取消，转入 " + order.replacedById : order.cancelled ? " · 已跑单，不计入" : ""}</p>; })}
+    <div className="commerce-kpis fill-performance-kpis">
+      <div className="fill-hero"><small>直播间成交</small><strong>¥{centsToYuan(result.liveCents)}</strong></div>
+      <div><small>客服私推</small><strong>¥{centsToYuan(result.privateCents)}</strong></div>
+      <div><small>跑单／换料冲抵</small><strong>¥{centsToYuan(rows.filter(order=>order.cancelled).reduce((total,order)=>total+order.materialCents+order.feeCents,0))}</strong></div>
+    </div>
+    <div className="commerce-list">{rows.map(order=>{
+      const customer=state.customers.find(item=>item.id===order.customerId);
+      return <button type="button" key={order.id} className="commerce-record secondary" onClick={()=>onOpen(order.customerId)}>
+        <span><strong>{customer?.name||"客户"}</strong><small>{order.businessDate} · {order.id}</small><small>{order.channel==="private"?"客服私推":"直播间开单"}{order.cancelled?" · 已冲抵":""}</small></span>
+        <span className="commerce-amount">¥{centsToYuan(effectiveOrderCents(order))}<small>查看档案 →</small></span>
+      </button>;
+    })}</div>
     {!rows.length && <p className="notice">还没有记在这位客服名下的开单。</p>}
   </section>;
 }

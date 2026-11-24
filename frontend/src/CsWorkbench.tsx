@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { leadApi } from "./leadApi";
 import { api, type CsAccount, type Order, type User } from "./api";
 import { cents, money } from "./commerceUi";
 import { yuan } from "./dashboardDisplay";
@@ -11,6 +12,7 @@ import { Field, OrderWorkspace } from "./OrderWorkspace";
 import { PeriodToolbar, type StandardPreset } from "./PeriodToolbar";
 import { RequestCsBinding } from "./CsBindingControls";
 import "./demo/customer-fill.css";
+import "./fill-ui.css";
 import "./demo/role-workbenches.css";
 
 const modules = [
@@ -59,6 +61,8 @@ export function CsWorkbench({
   const [accountId, setAccountId] = useState("");
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [accountError, setAccountError] = useState("");
+  const [quickCreate,setQuickCreate]=useState(false);
+  const [customerName,setCustomerName]=useState("");
   const [selectedOrderId, setSelectedOrderId] = useState("");
 
   useEffect(() => {
@@ -93,7 +97,42 @@ export function CsWorkbench({
 
   const selectedAccount = accounts.find(item => item.id === accountId) ?? null;
 
-  function navigate(next: FillPage) {
+  const [progress,setProgress]=useState<{ leads:number|null; orders:number|null; tails:number|null; checked:boolean }>({leads:null,orders:null,tails:null,checked:false});
+  const [checking,setChecking]=useState(false);
+  useEffect(()=>{
+    if(page!=="home")return;
+    let active=true;
+    void leadApi.zeroStatus(today).then(result=>{if(active)setProgress(current=>({...current,leads:result.leadCount,checked:result.zeroCheckedIn}));}).catch(()=>{});
+    void api.orders("",{}).then(async ({orders})=>{
+      const valid=orders.filter(o=>!o.cancelled&&o.status!=="refunded");
+      if(active)setProgress(current=>({...current,orders:valid.filter(o=>o.businessDate.startsWith(today.slice(0,7))).length}));
+      const eligible=valid.filter(o=>o.workflowEnabled);
+      let tails=0;
+      for(let i=0;i<eligible.length&&active;i+=8){
+        const details=await Promise.all(eligible.slice(i,i+8).map(o=>api.orderRecord(o.id)));
+        tails+=details.filter(d=>!d.legacy&&Number(d.balance)>0).length;
+      }
+      if(active)setProgress(current=>({...current,tails}));
+    }).catch(()=>{if(active)setProgress(current=>({...current,tails:null}));});
+    return ()=>{active=false;};
+  },[page,today,user.id]);
+
+  async function checkIn(){
+    if(checking||progress.leads!==0||progress.checked)return;
+    setChecking(true);
+    try {
+      const result=await leadApi.submitZeroReport(today);
+      setProgress(current=>({...current,leads:result.leadCount,checked:result.zeroCheckedIn}));
+    } catch(error) {
+      setAccountError(toErrorMessage(error));
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  function navigate(next: FillPage, create=false, name="") {
+    setQuickCreate(create);
+    setCustomerName(name);
     const path =
       next === "leads"
         ? "/fill/fans"
@@ -138,7 +177,7 @@ export function CsWorkbench({
 
       {passwordCard}
 
-      <section className="card fill-account" aria-label="填报身份">
+      <section className="card fill-account fill-account-bar" aria-label="填报身份">
         <div className="fill-identity-fields">
           <div className="fill-identity-summary">
             <div>
@@ -158,7 +197,7 @@ export function CsWorkbench({
               </span>
             </div>
           </div>
-          {canChangePassword && <Field label="接待账号">
+          {canChangePassword && accounts.length > 0 && <Field label="接待账号">
             <select
               aria-label="选择接待账号"
               value={accountId}
@@ -190,33 +229,31 @@ export function CsWorkbench({
         )}
       </section>
 
-      {page === "home" && (
-        <nav className="fill-home-modules" aria-label="客服业务入口">
-          {modules.map(item => (
-            <button
-              key={item.id}
-              type="button"
-              className="fill-module-card"
-              onClick={() => navigate(item.id)}
-            >
-              <span className="fill-module-icon" aria-hidden="true">
-                <DashboardIcon name={item.icon} />
-              </span>
-              <span className="fill-module-copy">
-                <strong>{item.title}</strong>
-                <small>{item.detail}</small>
-              </span>
-              <span className="fill-module-arrow" aria-hidden="true">
-                ›
-              </span>
-            </button>
-          ))}
-        </nav>
-      )}
+      <nav className="fill-nav" aria-label="客服工作台导航">
+        <button type="button" className="secondary" aria-pressed={page==="home"} onClick={()=>navigate("home")}>工作台首页</button>
+        {modules.map(item=><button key={item.id} type="button" className="secondary" aria-pressed={page===item.id} onClick={()=>{setSelectedOrderId("");navigate(item.id);}}>{item.title}</button>)}
+      </nav>
+
+      {page === "home" && <>
+        <section className="card fill-progress" aria-label="今日填报进度">
+          {[["今日已登记客资",progress.leads],["本月有效开单",progress.orders],["待收尾款单数",progress.tails]].map(([label,value])=><div key={label}><small>{label}</small><strong>{value??"—"}</strong></div>)}
+          <button type="button" className="secondary" disabled={checking||progress.checked||progress.leads!==0} onClick={()=>void checkIn()}>{progress.checked?"今日已打卡":"今日 0 粉打卡"}</button>
+        </section>
+        <div className="fill-home-grid" aria-label="客服业务入口">
+          {modules.map((item,index)=><article className={`card fill-home-card ${index===1?"fill-hero":""}`} key={item.id}>
+            <h2><DashboardIcon name={item.icon}/>{item.title}</h2>
+            <strong>{[progress.leads,progress.orders,progress.tails][index]??"—"}</strong>
+            <small>{["今日已登记客资","本月有效开单","待收尾款单数"][index]} · {item.detail}</small>
+            <button type="button" className="secondary" onClick={()=>navigate(item.id,index!==2)}>{["+ 登记新客资","+ 登记一笔成交","查看个人业绩 →"][index]}</button>
+          </article>)}
+        </div>
+      </>}
 
       {page === "leads" && (
         <LeadWorkspace
           today={today}
+          createOnMount={quickCreate}
+          onOpenOrder={(_,name)=>navigate("library",true,name)}
           editable
           platform={selectedAccount?.platform ?? user.servicePlatform}
           defaultOperatorName={user.displayName}
@@ -229,6 +266,8 @@ export function CsWorkbench({
           user={user}
           selectedId={selectedOrderId}
           onSelectOrder={setSelectedOrderId}
+          createOnMount={quickCreate}
+          customerName={customerName}
         />
       )}
 
@@ -307,19 +346,10 @@ function CsPersonalPerformance({
           {error}
         </p>
       )}
-      <div className="commerce-kpis">
-        <div>
-          <small>有效总业绩（{validOrders.length} 单）</small>
-          <strong>{yuan(sumAmount(validOrders))}</strong>
-        </div>
-        <div>
-          <small>直播间业绩（{liveOrders.length} 单）</small>
-          <strong>{yuan(sumAmount(liveOrders))}</strong>
-        </div>
-        <div>
-          <small>私推业绩（{privateOrders.length} 单）</small>
-          <strong>{yuan(sumAmount(privateOrders))}</strong>
-        </div>
+      <div className="commerce-kpis fill-performance-kpis">
+        <div className="fill-hero"><small>直播间成交（{liveOrders.length} 单）</small><strong>{yuan(sumAmount(liveOrders))}</strong></div>
+        <div><small>客服私推（{privateOrders.length} 单）</small><strong>{yuan(sumAmount(privateOrders))}</strong></div>
+        <div><small>跑单／退款冲抵（{excludedOrders.length} 单）</small><strong>{yuan(sumAmount(excludedOrders))}</strong></div>
       </div>
       <p className="notice">
         口径：按开单卡料价＋代购费统计，排除跑单与退款订单（当前区间已排除 {excludedOrders.length} 笔，合计{" "}
