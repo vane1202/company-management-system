@@ -1,14 +1,74 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { requestInner } from "../api";
+import { submissionKey } from "../commerceUi";
+import { toErrorMessage } from "../errors";
 import { Field } from "../OrderWorkspace";
-import { expenseLabels, type DailyExpense } from "./BossPriority";
+import "./boss-priority.css";
+import "../finance-menu.css";
 
-export default function DailyOperatingExpenses({today}:{today:string}){
- const demo = import.meta.env.MODE === "demo";
- const dailyUrl = demo ? "/api/demo/daily-expenses" : "/api/finance/daily-expenses";
- const [records,setRecords]=useState<DailyExpense[]>([]),[error,setError]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false);
- const [form,setForm]=useState({date:today,category:'rent',amount:'',purpose:'',operator:'',proof:''});
- async function load(){setError('');try{const data=demo?await (async()=>{const response=await fetch(dailyUrl);const body=await response.json();if(!response.ok)throw Error(body.error||'费用读取失败');return body;})():await requestInner<{records:DailyExpense[]}>(dailyUrl);setRecords(data.records);}catch(cause){setError(cause instanceof Error?cause.message:'费用读取失败');}}
- useEffect(()=>{void load();},[]);
- return <section><p className="notice">房租、水电、接待及其他费用在此登记。工资沿用工资核算，广告消耗留在运营数据，商品及加工发货费用继续在业务费用登记，避免重复。{demo?'本次为浏览器会话演练，不写入正式后台。':'登记后写入正式账，BOSS 首页可查看。'}</p><form className="card daily-operating-form" onSubmit={async event=>{event.preventDefault();setBusy(true);setError('');setNotice('');try{const data=demo?await (async()=>{const response=await fetch(dailyUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(form)});const body=await response.json();if(!response.ok)throw Error(body.error||'费用登记失败');return body;})():await requestInner<{records:DailyExpense[]}>(dailyUrl,{method:'POST',body:JSON.stringify(form)});setRecords(data.records);setNotice(demo?'已登记本次演练费用，BOSS刷新后可查看。':'已登记费用，BOSS 刷新后可查看。');setForm({...form,amount:'',purpose:'',proof:''});}catch(cause){setError(cause instanceof Error?cause.message:'费用登记失败');}finally{setBusy(false);}}}><div className="grid two"><Field label="费用发生日期"><input required type="date" max={today} value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/></Field><Field label="费用类别"><select value={form.category} onChange={e=>setForm({...form,category:e.target.value})}>{Object.entries(expenseLabels).filter(([key])=>key!=='salary').map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></Field><Field label="金额 · ¥"><input required inputMode="decimal" pattern="[0-9]+(\.[0-9]{1,2})?" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})}/></Field><Field label="经办人"><input required maxLength={64} value={form.operator} onChange={e=>setForm({...form,operator:e.target.value})}/></Field><Field label="用途"><input required maxLength={300} value={form.purpose} onChange={e=>setForm({...form,purpose:e.target.value})}/></Field><Field label="凭证编号（选填）"><input maxLength={200} value={form.proof} onChange={e=>setForm({...form,proof:e.target.value})}/></Field></div><button type="submit" disabled={busy}>{busy?'登记中…':'登记费用'}</button></form>{error&&<p className="error" role="alert">{error}</p>}{notice&&<p role="status">{notice}</p>}<section className="card"><h2>已登记日常费用</h2><button type="button" className="secondary" onClick={()=>void load()}>刷新记录</button>{[...records].reverse().map(record=><article className="bp-expense-record" key={record.id}><div><strong>{expenseLabels[record.category]} · {record.purpose}</strong><small>{record.date} · {record.operator} · 凭证：{record.proof||'待补'}</small></div><b>¥{record.amount}</b></article>)}{!records.length&&<p className="empty-state">暂无登记。未登记期间，BOSS 首页「运营成本」会显示“待补齐”。</p>}</section></section>;
+const labels = {rent:"房租",utilities:"水电",hospitality:"接待费用",other:"其他费用"};
+type Expense = {id:string;date:string;category:keyof typeof labels;amount:string;operator:string;purpose:string;proof:string};
+const demo = import.meta.env.MODE === "demo";
+async function request(body?:object):Promise<{records:Expense[]}> {
+  const options = body ? {method:"POST",body:JSON.stringify(body)} : {};
+  if (!demo) return requestInner("/api/finance/daily-expenses",options);
+  const response = await fetch("/api/demo/daily-expenses",{...options,headers:{"Content-Type":"application/json"}});
+  const data = await response.json();
+  if (!response.ok) throw Error(data.error||"费用读取失败");
+  return data;
+}
+export default function DailyOperatingExpenses({today}:{today:string}) {
+  const [form,setForm] = useState({date:today,category:"rent",amount:"",operator:"",purpose:"",proof:""});
+  const [records,setRecords] = useState<Expense[]>([]);
+  const [busy,setBusy] = useState(false);
+  const [error,setError] = useState("");
+  const [notice,setNotice] = useState("");
+  const [drawerOpen,setDrawerOpen] = useState(false);
+  const [categoryFilter,setCategoryFilter] = useState<""|keyof typeof labels>("");
+  const [query,setQuery] = useState("");
+  const key = useRef(submissionKey());
+  useEffect(()=>{const close=(event:KeyboardEvent)=>{if(event.key==="Escape"&&!busy){setDrawerOpen(false);}};document.addEventListener("keydown",close);return()=>document.removeEventListener("keydown",close);},[busy]);
+ async function load() {
+    setError("");
+    try {setRecords((await request()).records);}
+    catch(error) {setError(toErrorMessage(error));}
+  }
+  useEffect(()=>{void load();},[]);
+  const filtered = records.filter(r => (!categoryFilter || r.category === categoryFilter) && `${r.purpose} ${r.operator} ${r.proof} ${labels[r.category]}`.toLowerCase().includes(query.trim().toLowerCase()));
+  return <section>
+    <p className="notice">登记房租、水电、接待及其他日常费用。工资、投流和售后成本分别沿用各自台账。{demo&&"演示记录仅保留在当前浏览器会话。"}</p>
+    {error&&<p role="alert" className="error">{error}</p>}
+    {notice&&<p role="status">{notice}</p>}
+    <section className="card">
+      <header className="commerce-line"><h2>已登记日常费用（{filtered.length}）</h2><div className="actions"><button type="button" disabled={busy} onClick={()=>setDrawerOpen(true)}>＋ 登记日常费用</button><button type="button" className="secondary" disabled={busy} onClick={()=>void load()}>刷新记录</button></div></header>
+      <div className="fin-toolbar">
+        <div className="fin-pills" role="group" aria-label="费用类别筛选">
+          <button type="button" className="fin-pill" aria-pressed={categoryFilter===""} onClick={()=>setCategoryFilter("")}>全部</button>
+          {(Object.entries(labels) as [keyof typeof labels,string][]).map(([value,label])=><button key={value} type="button" className="fin-pill" aria-pressed={categoryFilter===value} onClick={()=>setCategoryFilter(value)}>{label}</button>)}
+        </div>
+        <input type="search" placeholder="查找用途、经办人或凭证" value={query} onChange={e=>setQuery(e.target.value)} style={{maxWidth:240}}/>
+      </div>
+      <div className="fin-table-wrap"><table className="fin-table"><thead><tr><th>费用日期</th><th>分类</th><th>用途</th><th>经办人</th><th>凭证</th><th>金额 CNY</th></tr></thead><tbody>{filtered.slice().reverse().map(record=><tr key={record.id}><td className="fin-num">{record.date}</td><td>{labels[record.category]}</td><td>{record.purpose}</td><td>{record.operator}</td><td>{record.proof||"待补"}</td><td className="fin-num">¥{record.amount}</td></tr>)}</tbody></table></div>
+      {!filtered.length&&<p className="empty-state">暂无符合条件的日常费用记录。</p>}
+    </section>
+    {drawerOpen&&<div className="fin-drawer-backdrop" onClick={e=>{if(e.target===e.currentTarget&&!busy)setDrawerOpen(false);}}><div className="fin-drawer-panel" role="dialog" aria-modal="true" aria-label="登记日常费用"><header className="fin-drawer-head"><h2>登记日常费用</h2><button type="button" className="secondary" disabled={busy} onClick={()=>setDrawerOpen(false)}>关闭</button></header><form className="fin-drawer-body daily-operating-form" id="daily-expense-form" onSubmit={async event=>{
+      event.preventDefault();if(busy)return;
+      setBusy(true);setError("");setNotice("");
+      try {
+        setRecords((await request({...form,requestKey:key.current(form)})).records);
+        key.current=submissionKey();
+        setNotice("日常费用已登记。");
+        setForm({...form,amount:"",purpose:"",proof:""});
+        setDrawerOpen(false);
+      } catch(error) {setError(toErrorMessage(error));}
+      finally {setBusy(false);}
+    }}>
+      <div className="grid two">
+        <Field label="费用发生日期"><input required type="date" max={today} value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/></Field>
+        <Field label="费用类别"><select value={form.category} onChange={e=>setForm({...form,category:e.target.value})}>{Object.entries(labels).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></Field>
+        {([["amount","金额 · ¥",16],["operator","经办人",64],["purpose","用途",300],["proof","凭证编号（选填）",200]] as const).map(([name,label,max])=>
+          <Field label={label} key={name}><input required={name!=="proof"} maxLength={max} inputMode={name==="amount"?"decimal":undefined} value={form[name]} onChange={e=>setForm({...form,[name]:e.target.value})}/></Field>)}
+      </div>
+    </form><footer className="fin-drawer-foot"><button type="button" className="secondary" disabled={busy} onClick={()=>setDrawerOpen(false)}>取消</button><button type="submit" form="daily-expense-form" disabled={busy}>{busy?"登记中…":"登记费用"}</button></footer></div></div>}
+  </section>;
 }

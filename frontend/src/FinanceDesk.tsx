@@ -1,7 +1,7 @@
 import ReimbursementWorkspace from "./demo/ReimbursementWorkspace";
 import WarehouseWorkspace from "./demo/WarehouseWorkspace";
 import DailyOperatingExpenses from "./demo/DailyOperatingExpenses";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { api, type Currency, type FinancePayment } from "./api";
 import { CompanyPayments } from "./CompanyPayments";
 import { PaidPerformance } from "./PaidPerformance";
@@ -46,7 +46,6 @@ export function FinanceDesk({ today, onOpenSalary, section, active:isActive=true
   const defaultWork: Work = section ? (section === "finance" ? "receipts" : "warehouse") : "home";
   const [work, setWork] = useState<Work>(defaultWork);
   const [draftOpen, setDraftOpen] = useState(false);
-  const projectMenu = useRef<HTMLDetailsElement>(null);
   useEffect(()=>{
     if(!section||!isActive)return;
     const requested=sessionStorage.getItem('cms-demo-finance-task');
@@ -103,10 +102,6 @@ export function FinanceDesk({ today, onOpenSalary, section, active:isActive=true
         { id: "salary", label: "员工工资核算" }
       ];
   function selectProject(id: Work | "salary") {
-    if (projectMenu.current?.open) {
-      projectMenu.current.open = false;
-      projectMenu.current.querySelector("summary")?.focus();
-    }
     if (id === "salary") {
       onOpenSalary?.();
       return;
@@ -126,7 +121,7 @@ export function FinanceDesk({ today, onOpenSalary, section, active:isActive=true
             key={tab.id}
             type="button"
             role="tab"
-            aria-selected={activeTab}
+            aria-selected={activeTab} aria-pressed={activeTab}
             className={activeTab ? "selected" : ""}
             onClick={() => selectProject(tab.id)}
           >
@@ -135,32 +130,15 @@ export function FinanceDesk({ today, onOpenSalary, section, active:isActive=true
           </button>;
         })}
       </nav>
-      <details ref={projectMenu} className="finance-project-menu" key={section}>
-        <summary>
-          <strong>{sectionTabs.find(tab => tab.id === work)?.label}</strong>
-          <span>全部项目 <span aria-hidden="true">▾</span></span>
-        </summary>
-        <ul aria-label="全部财务项目">
-          {sectionTabs.map(tab => {
-            const badge = badges[tab.id as keyof FinanceBadges];
-            return <li key={tab.id}>
-              <button type="button" aria-current={work === tab.id ? "true" : undefined} onClick={() => selectProject(tab.id)}>
-                <span>{tab.label}</span>
-                {badge?.attention && <em className="finance-tab-badge">{badge.text}</em>}
-              </button>
-            </li>;
-          })}
-        </ul>
-      </details>
       {content}
     </div>;
   };
   if (work === "reimbursement") return wrapWithTabs(<ReimbursementWorkspace today={today} onBack={inlineBack}/>);
   if (work === "warehouse") return wrapWithTabs(<WarehouseWorkspace today={today} finance onBack={inlineBack}/>);
-  if (work === "settlement") return wrapWithTabs(<FinanceLedgerWorkspace today={today} heading="第三方结算" hideCompanions onBack={inlineBack} />);
+  if (work === "settlement") return wrapWithTabs(<FinanceLedgerWorkspace today={today} heading="收款与结算" hideCompanions onBack={inlineBack} />);
   if (work === "material") return wrapWithTabs(<WorkFrame title="料子货款结算" tip="此处查看料子供货成本与原付款台账；新结账单由库房提交，在「库房结账」中审核和登记付款。客户已付款不在这里抵扣。" onBack={inlineBack}><CompanyPayments today={today} readOnly={demo} categories={["goods", "sourcing"]} heading="翡翠料子货款" /></WorkFrame>);
   if (work === "ads") return wrapWithTabs(<WorkFrame title="广告充值" onBack={inlineBack}><AdAccountsWorkspace today={today} readOnly={false} /></WorkFrame>);
-  if (work === "other") return wrapWithTabs(<WorkFrame title={demo?"加工与发货台账":"其他财务事项"} onBack={inlineBack}><CompanyPayments today={today} readOnly={demo} excludeCategories={["goods", "sourcing"]} heading="加工、证书、包装和运费" />{!demo&&<><PaidPerformance today={today} readOnly={false} /><AdAccountsWorkspace today={today} readOnly={false} /></>}</WorkFrame>);
+  if (work === "other") return wrapWithTabs(<WorkFrame title={demo?"加工与发货台账":"其他财务事项"} onBack={inlineBack}><CompanyPayments today={today} readOnly={demo} excludeCategories={["goods", "sourcing"]} heading="加工、证书、包装和运费" />{!demo&&<><PaidPerformance today={today} readOnly={false} /></>}</WorkFrame>);
   if (work === "receipts") return wrapWithTabs(<WorkFrame
     title={demo ? "订单收款" : "订单收款核对"}
     tip="实时收款指开单当时收到的定金或全款，尾款按约定日后另记。客户付给公司或第三方后均减少客户欠款；第三方扣点和汇差不向客户追收。"

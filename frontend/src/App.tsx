@@ -1,3 +1,4 @@
+import "./admin-layout.css";
 import WarehouseWorkspace from "./demo/WarehouseWorkspace";
 import FinanceHome from "./demo/FinanceHome";
 import { isServiceAccount } from './serviceAccounts';
@@ -317,7 +318,7 @@ export function App() {
       {pagePanel("ops", user.role==='boss'?<Suspense fallback={<p role="status">正在读取投放分析…</p>}><DemoOpsAnalysis today={today} context={navigation.views.ops?.ops}/></Suspense>:<OpsPage today={today} onError={pageError("ops")} readOnly={false} />)}
       {pagePanel("editor", user.role==='boss'?<Suspense fallback={<p role="status">正在读取拍剪汇总…</p>}><DemoEditorOverview today={today}/></Suspense>:modules?.editor===false?<section className="card"><h2>拍剪模块已停用</h2><p>请联系管理员重新启用，历史数据仍保留。</p></section>:<EditorPage today={today} onError={pageError("editor")} readOnly={false} editorName={user.displayName} />)}
       {pagePanel("dashboard", <Suspense fallback={<p role="status">正在读取经营总览…</p>}><DemoEstimateBoard today={today} onError={pageError("dashboard")} onOpen={goTo} onDrill={route=>{setMobileNavOpen(false);setError("");navigation.navigate(route);}} /></Suspense>)}
-      {pagePanel("modules", <><ModuleSettings onError={pageError("modules")} onChange={setModules} /><SystemSettings defaultDays={backfillDays} /></>)}
+      {pagePanel("modules", <div className="admin-columns"><ModuleSettings onError={pageError("modules")} onChange={setModules} /><SystemSettings defaultDays={backfillDays} /></div>)}
       {pagePanel("people", <PeoplePage today={today} currentUserId={user.id} onError={pageError("people")} />)}
       {pagePanel("csAccounts", DemoRegisteredAccounts ? <Suspense fallback={<p role="status">正在读取账号名册…</p>}><DemoRegisteredAccounts supervisor={user.role === "cs_supervisor"} /></Suspense> : <CsAccountsPage supervisor={user.role === "cs_supervisor"} />)}
       {pagePanel("finance", user.role==='finance'?<FinanceDesk today={today} section="finance" active={activePage==='finance'} onOpenSalary={()=>goTo('salaries')} onSubViewChange={handleFinanceSub}/>:<FinanceWorkspace today={today} readOnly cashView={navigation.views.finance?.cash} />)}
@@ -669,9 +670,16 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
   const [issuedTempPassword, setIssuedTempPassword] = useState<{ displayName: string; username: string; temporaryPassword: string } | null>(null);
   const [scopeIds, setScopeIds] = useState<string[]>([]);
   const [savingUser, setSavingUser] = useState("");
+  const [tab, setTab] = useState<"users" | "teams">("users");
+  const [create, setCreate] = useState<"user" | "team" | null>(null);
   const [roleFilter, setRoleFilter] = useState("");
-  const visibleUsers = roleFilter ? users.filter((item) => item.role === roleFilter) : users;
-  const userPanelRef = useRef<HTMLFormElement>(null);
+  const [search, setSearch] = useState("");
+  const [confirmation, setConfirmation] = useState<{ message: string; run: () => void } | null>(null);
+  const visibleUsers = users.filter(item => {
+    const groups = teams.filter(team => item.managedTeamIds?.includes(team.id)).map(team => team.name);
+    return (!roleFilter || item.role === roleFilter) &&
+      [item.displayName, item.username, item.currentTeam?.name, ...(item.currentTeams ?? []).map(team => team.name), ...groups].join(" ").toLowerCase().includes(search.trim().toLowerCase());
+  });
   const [form, setForm] = useState({
     username: "",
     displayName: "",
@@ -681,15 +689,11 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
     membershipStart: today
   });
 
-  function scrollUserPanel() {
-    requestAnimationFrame(() => userPanelRef.current?.scrollIntoView?.({ behavior: "smooth", block: "nearest" }));
-  }
   function openScopePanel(item: AdminUser) {
     setEditingUser(null);
     setResetUser(null);
     setScopeUser(item);
     setScopeIds(item.managedTeamIds ?? []);
-    scrollUserPanel();
   }
   function openEditPanel(item: AdminUser) {
     setScopeUser(null);
@@ -711,7 +715,6 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
       teamIds: currentTeamIds,
       effectiveDate: today
     });
-    scrollUserPanel();
   }
   function openResetPanel(item: AdminUser) {
     setScopeUser(null);
@@ -719,7 +722,6 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
     setResetError("");
     setIssuedTempPassword(null);
     setResetUser({ id: item.id, username: item.username, displayName: item.displayName, temporaryPassword: "" });
-    scrollUserPanel();
   }
 
   async function refresh() {
@@ -746,10 +748,15 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
   }, []);
 
   return (
-    <section className="grid two admin-people">
-      <div className="card">
+    <section className="admin-people">
+      <nav className="admin-pills" aria-label="账号与小组">
+        <button type="button" aria-pressed={tab === "users"} onClick={() => setTab("users")}>员工账号与权限 ({users.length})</button>
+        <button type="button" aria-pressed={tab === "teams"} onClick={() => setTab("teams")}>客服小组管理 ({teams.length})</button>
+      </nav>
+      {tab === "teams" && <div className="card">
         <div className="commerce-line"><h2>小组</h2><button type="button" className="secondary" onClick={() => refresh().then(() => onError("")).catch((err) => onError(toErrorMessage(err)))}>刷新</button></div>
-        <form className="admin-team-form"
+        <button type="button" onClick={() => setCreate("team")}>＋ 新增小组</button>
+        {create === "team" && <AdminDialog title="新增小组" busy={teamPending} close={() => setCreate(null)}><form className="admin-team-form"
           onSubmit={async (event) => {
             event.preventDefault();
             if (teamPending) return;
@@ -764,6 +771,7 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
               setTeamPending(false);
             }
             setTeamName("");
+            setCreate(null);
             toast.success(`已新增小组「${name}」`);
             await refreshAfterSave();
           }}
@@ -771,7 +779,7 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
           <Field label="小组名称"><input required maxLength={64} value={teamName} onChange={(e) => setTeamName(e.target.value)} /></Field>
           <button type="submit" disabled={teamPending}>{teamPending ? "保存中…" : "新增小组"}</button>
           {teamError && <p className="action-error" role="alert">{teamError}</p>}
-        </form>
+        </form></AdminDialog>}
         {loaded && !teams.length && <div className="empty-state"><strong>还没有小组</strong><p>先新增一个小组，再开通主管和登记微信。</p></div>}
         <p className="notice">已有员工或业务记录的小组可以改名，不能删除。</p>
         <ul className="admin-team-list">
@@ -781,7 +789,7 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
             return (
               <li className="admin-team-row" key={team.id}>
                 {editing ? (
-                  <form className="admin-team-edit" onSubmit={async (event) => {
+                  <AdminDialog title="小组改名" busy={busy} close={() => setEditingTeamId("")}><form className="admin-team-edit" onSubmit={async (event) => {
                     event.preventDefault();
                     if (teamBusyId) return;
                     const name = editingTeamName.trim();
@@ -804,7 +812,8 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
                       <button type="submit" disabled={busy}>{busy ? "保存中…" : "保存"}</button>
                       <button type="button" className="secondary" disabled={!!teamBusyId} onClick={() => { setEditingTeamId(""); setTeamRowError(""); setTeamMessageId(""); }}>取消</button>
                     </div>
-                  </form>
+                    {teamMessageId === team.id && teamRowError && <p className="action-error" role="alert">{teamRowError}</p>}
+                  </form></AdminDialog>
                 ) : (
                   <>
                     <strong>{team.name}</strong>
@@ -832,13 +841,13 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
             );
           })}
         </ul>
-      </div>
-      <div className="card">
-        <h2>员工账号与权限</h2>
-        {scopeUser && <form ref={userPanelRef} className="review-card" onSubmit={async (e) => { e.preventDefault(); if (savingUser) return; const target = scopeUser; setSavingUser(target.id); try { await api.setSupervisorTeams(target.id, scopeIds); setScopeUser(null); onError(""); toast.success(`已保存 ${target.displayName} 的负责小组（${scopeIds.length} 个）`); await refreshAfterSave(); } catch (err) { fail(`${target.displayName} 负责小组未保存`, err); } finally { setSavingUser(""); } }}><h3>设置 {scopeUser.displayName} 的负责小组</h3><p className="notice">未勾选任何小组时，主管不能查看业务数据或登记客服接待账号。</p>{teams.map((team) => <label className="row" key={team.id}><input type="checkbox" checked={scopeIds.includes(team.id)} disabled={!!savingUser} onChange={(e) => setScopeIds(e.target.checked ? [...scopeIds,team.id] : scopeIds.filter((id) => id !== team.id))} />{team.name}</label>)}<div className="actions"><button disabled={!!savingUser}>{savingUser ? "保存中…" : "保存负责小组"}</button><button type="button" className="secondary" disabled={!!savingUser} onClick={() => setScopeUser(null)}>取消</button></div></form>}
+      </div>}
+      {tab === "users" && <div className="card">
+        <div className="commerce-line"><h2>员工账号与权限</h2><button type="button" onClick={() => setCreate("user")}>＋ 开通员工账号</button></div>
+        {scopeUser && <AdminDialog title="分配负责小组" busy={!!savingUser} close={() => setScopeUser(null)}><form className="review-card" onSubmit={async (e) => { e.preventDefault(); if (savingUser) return; const target = scopeUser; setSavingUser(target.id); try { await api.setSupervisorTeams(target.id, scopeIds); setScopeUser(null); onError(""); toast.success(`已保存 ${target.displayName} 的负责小组（${scopeIds.length} 个）`); await refreshAfterSave(); } catch (err) { fail(`${target.displayName} 负责小组未保存`, err); } finally { setSavingUser(""); } }}><h3>设置 {scopeUser.displayName} 的负责小组</h3><p className="notice">未勾选任何小组时，主管不能查看业务数据或登记客服接待账号。</p>{teams.map((team) => <label className="row" key={team.id}><input type="checkbox" checked={scopeIds.includes(team.id)} disabled={!!savingUser} onChange={(e) => setScopeIds(e.target.checked ? [...scopeIds,team.id] : scopeIds.filter((id) => id !== team.id))} />{team.name}</label>)}<div className="actions"><button disabled={!!savingUser}>{savingUser ? "保存中…" : "保存负责小组"}</button><button type="button" className="secondary" disabled={!!savingUser} onClick={() => setScopeUser(null)}>取消</button></div></form></AdminDialog>}
         <p className="notice">在这里开通员工登录账号、分配角色和主管负责小组。客服账号也可以由客服主管在「客服账号管理」里新增；首次登录改密由主管完成并保管。忘记密码时，仍在这里重置。WhatsApp、Messenger 接待账号的新增、持有人更换和登记码由本组客服主管管理。</p>
 
-        <form
+        {create === "user" && <AdminDialog title="开通员工账号" busy={userPending} close={() => setCreate(null)}><form
           onSubmit={async (event) => {
             event.preventDefault();
             if (userPending) return;
@@ -860,6 +869,7 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
             } finally {
               setUserPending(false);
             }
+            setCreate(null);
             setForm({ ...form, username: "", displayName: "", password: "", teamIds: [] });
             onError("");
             toast.success(`已开通账号：${created.name}（${created.role}）`);
@@ -897,8 +907,8 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
           </div>
           <button type="submit" disabled={userPending}>{userPending ? "保存中…" : "开通账号"}</button>
           {userError && <p className="action-error" role="alert">{userError}</p>}
-        </form>
-        {editingUser && <form ref={userPanelRef} className="review-card" onSubmit={async event => {
+        </form></AdminDialog>}
+        {editingUser && <AdminDialog title="修改信息" busy={!!savingUser} close={() => setEditingUser(null)}><form className="review-card" onSubmit={async event => {
           event.preventDefault();
           if (savingUser) return;
           const target = editingUser;
@@ -970,8 +980,8 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
           <p className="notice">{editingUser.role === "cs_supervisor" ? "客服主管的负责小组请在列表中点「设置负责小组」维护。" : "修改登录名会要求员工重新登录；调整所属小组会保留生效日期前的历史归属与业务记录。"}</p>
           {editError && <p className="action-error" role="alert">{editError}</p>}
           <div className="actions"><button disabled={!!savingUser}>{savingUser ? "保存中…" : "保存修改"}</button><button className="secondary" type="button" disabled={!!savingUser} onClick={() => setEditingUser(null)}>取消</button></div>
-        </form>}
-        {resetUser && <form ref={userPanelRef} className="card" onSubmit={async event => {
+        </form></AdminDialog>}
+        {resetUser && <AdminDialog title="重置密码" busy={!!savingUser} close={() => setResetUser(null)}><form className="card" onSubmit={async event => {
           event.preventDefault();
           if (savingUser) return;
           setSavingUser(resetUser.id); setResetError("");
@@ -997,22 +1007,19 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
             <button disabled={!!savingUser}>{savingUser ? "重置中…" : resetUser.temporaryPassword ? "确认重置" : "生成随机临时密码并重置"}</button>
             <button className="secondary" type="button" disabled={!!savingUser} onClick={() => setResetUser(null)}>取消</button>
           </div>
-        </form>}
-        {issuedTempPassword && <div className="card" role="status">
+        </form></AdminDialog>}
+        {issuedTempPassword && <AdminDialog title="一次性临时密码" close={() => setIssuedTempPassword(null)}><div role="status">
           <h3>临时密码（仅显示本次）</h3>
           <p>{issuedTempPassword.displayName}（<code>{issuedTempPassword.username}</code>）的临时密码：<code>{issuedTempPassword.temporaryPassword}</code></p>
           <p className="notice">请通过受信任渠道发给员工本人，首次登录后系统将强制修改密码。</p>
           <button type="button" className="secondary" onClick={() => setIssuedTempPassword(null)}>我已记录</button>
-        </div>}
-        <div className="commerce-line" style={{ marginTop: 18, marginBottom: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
-          <Field label="角色筛选">
-            <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}>
-              <option value="">全部角色</option>
-              {Object.entries(roleLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-            </select>
-          </Field>
-          <span className="notice" role="status" style={{ margin: 0 }}>共 {visibleUsers.length} 个账号</span>
+        </div></AdminDialog>}
+        <div className="admin-pills" aria-label="按角色筛选">
+          <button type="button" aria-pressed={!roleFilter} onClick={() => setRoleFilter("")}>全部</button>
+          {Object.entries(roleLabel).filter(([role]) => role !== "assistant").map(([role, label]) => <button key={role} type="button" aria-pressed={roleFilter === role} onClick={() => setRoleFilter(role)}>{label}</button>)}
         </div>
+        <Field label="搜索姓名、登录名或小组"><input type="search" value={search} onChange={event => setSearch(event.target.value)} /></Field>
+        {loaded && !visibleUsers.length && <p className="empty-state">没有符合条件的账号。</p>}
         <div className="table-wrap">
           <table>
             <thead><tr><th>姓名</th><th>登录名</th><th>角色</th><th>小组 / 管理范围</th><th>状态</th><th>操作</th></tr></thead>
@@ -1023,14 +1030,14 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
                 <tr key={item.id}>
                   <td data-label="姓名">{item.displayName}</td>
                   <td data-label="登录名">{item.username}</td>
-                  <td data-label="角色"><select aria-label={`${item.username}角色`} disabled={!!savingUser} value={item.role} onChange={async (e) => { if (savingUser) return; const role = e.target.value; setSavingUser(item.id); try { await api.updateUser(item.id, { role }); onError(""); toast.success(`已将 ${item.displayName} 的角色改为${roleLabel[role as keyof typeof roleLabel] ?? role}`); await refreshAfterSave(); } catch (err) { fail(`${item.displayName} 角色未修改`, err); } finally { setSavingUser(""); } }}>{Object.entries(roleLabel).filter(([key]) => key !== "assistant" || item.role === "assistant").map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></td>
-                  <td data-label="小组 / 管理范围">{item.role === "cs_supervisor" ? <div className="admin-scope-cell"><p>{(item.managedTeamIds ?? []).map((id) => teams.find((team) => team.id === id)?.name || id).join("、") || "暂未分配小组"}</p><button className="secondary" type="button" disabled={!!savingUser} onClick={() => openScopePanel(item)}>设置负责小组</button></div> : <div className="admin-scope-cell"><p>{(item.currentTeams?.length ? item.currentTeams.map((t) => t.name).join("、") : item.currentTeam?.name) || "未分配"}</p><button className="secondary" type="button" disabled={!!savingUser} onClick={() => openEditPanel(item)}>调整小组</button></div>}</td>
-                  <td data-label="状态"><button className="secondary" type="button" disabled={!!savingUser} onClick={async () => { if (savingUser) return; setSavingUser(item.id); try { await api.updateUser(item.id, { isActive: !item.isActive }); onError(""); toast.success(`已${item.isActive ? "停用" : "启用"}账号：${item.displayName}`); await refreshAfterSave(); } catch (err) { fail(`${item.displayName} ${item.isActive ? "停用" : "启用"}失败`, err); } finally { setSavingUser(""); } }}>{savingUser === item.id ? "保存中…" : item.isActive ? "停用账号" : "启用账号"}</button></td>
+                  <td data-label="角色"><select aria-label={`${item.username}角色`} disabled={!!savingUser} value={item.role} onChange={(e) => { const role = e.target.value; setConfirmation({ message: `将更改 ${item.displayName} 的角色及可访问的功能，确定继续？`, run: async () => { if (savingUser) return; setSavingUser(item.id); try { await api.updateUser(item.id, { role }); onError(""); toast.success(`已将 ${item.displayName} 的角色改为${roleLabel[role as keyof typeof roleLabel] ?? role}`); await refreshAfterSave(); } catch (err) { fail(`${item.displayName} 角色未修改`, err); } finally { setSavingUser(""); } }}); }}>{Object.entries(roleLabel).filter(([key]) => key !== "assistant" || item.role === "assistant").map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></td>
+                  <td data-label="小组 / 管理范围">{item.role === "cs_supervisor" ? <div className="admin-scope-cell"><p>{(item.managedTeamIds ?? []).map((id) => teams.find((team) => team.id === id)?.name || id).join("、") || <span className="admin-warning-badge">待分配负责小组</span>}</p><button className="secondary" type="button" disabled={!!savingUser} onClick={() => openScopePanel(item)}>设置负责小组</button></div> : <div className="admin-scope-cell"><p>{(item.currentTeams?.length ? item.currentTeams.map((t) => t.name).join("、") : item.currentTeam?.name) || "未分配"}</p><button className="secondary" type="button" disabled={!!savingUser} onClick={() => openEditPanel(item)}>调整小组</button></div>}</td>
+                  <td data-label="状态"><button className="secondary" type="button" disabled={!!savingUser} onClick={() => setConfirmation({ message: item.isActive ? `停用后 ${item.displayName} 将无法登录。` : `启用后 ${item.displayName} 可按原有角色权限登录。`, run: async () => { if (savingUser) return; setSavingUser(item.id); try { await api.updateUser(item.id, { isActive: !item.isActive }); onError(""); toast.success(`已${item.isActive ? "停用" : "启用"}账号：${item.displayName}`); await refreshAfterSave(); } catch (err) { fail(`${item.displayName} ${item.isActive ? "停用" : "启用"}失败`, err); } finally { setSavingUser(""); } } })}>{savingUser === item.id ? "保存中…" : item.isActive ? "停用账号" : "启用账号"}</button></td>
                   <td data-label="操作"><div className="actions">
                     <button className="secondary" type="button" disabled={!!savingUser} onClick={() => openEditPanel(item)}>修改信息</button>
                     {item.id !== currentUserId && <>
                       <button className="secondary" type="button" disabled={!!savingUser} onClick={() => openResetPanel(item)}>重置密码</button>
-                      <button className="secondary" type="button" disabled={!!savingUser} onClick={async () => {
+                      <button className="secondary" type="button" disabled={!!savingUser} onClick={() => setConfirmation({ message: `将注销 ${item.displayName} 的全部登录会话，继续使用需重新登录。`, run: async () => {
                         setSavingUser(item.id);
                         try {
                           await api.revokeUserSessions(item.id);
@@ -1041,7 +1048,7 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
                         } finally {
                           setSavingUser("");
                         }
-                      }}>强制下线</button>
+                      } })}>强制下线</button>
                     </>}
                   </div></td>
                 </tr>
@@ -1049,11 +1056,20 @@ function PeoplePage({ today, currentUserId, onError }: { today: string; currentU
             </tbody>
           </table>
         </div>
-      </div>
+      </div>}
+      {confirmation && <AdminDialog title="确认账号操作" center close={() => setConfirmation(null)}><p>{confirmation.message}</p><button type="button" onClick={() => {setConfirmation(null); confirmation.run();}}>确认</button></AdminDialog>}
     </section>
   );
 }
 
+function AdminDialog({title, children, close, busy, center}: {title: string; children: ReactNode; close: () => void; busy?: boolean; center?: boolean}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => { dialog.current?.showModal(); }, []);
+  return <dialog ref={dialog} aria-label={title} className={center ? "admin-dialog admin-modal" : "admin-dialog admin-drawer"} onCancel={event => {event.preventDefault(); if (!busy) close();}}>
+    <header className="commerce-line"><h2>{title}</h2><button className="secondary" type="button" disabled={busy} onClick={close}>{center ? "取消" : "关闭"}</button></header>
+    {children}
+  </dialog>;
+}
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="row field-label">

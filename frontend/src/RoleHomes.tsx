@@ -53,33 +53,28 @@ export function AdminHome({ onNavigate }: { onNavigate: Navigate }) {
   const modules = loaded(data?.modules);
   const moduleEntries = modules ? Object.entries(modules.modules) : null;
   const enabled = moduleEntries?.filter(([, value]) => value).length;
-  const unassignedSupervisors = employees?.filter(user => user.role === "cs_supervisor" && user.isActive && user.managedTeamIds?.length === 0);
+  const unassignedSupervisors = employees?.filter(user => user.role === "cs_supervisor" && user.isActive && !user.managedTeamIds?.length);
   const inactiveEmployees = employees?.filter(user => !user.isActive).length;
   const errors = sourceErrors([["员工账号", data?.users], ["小组", data?.teams], ["模块设置", data?.modules]]);
-  return <div className="management-dashboard role-home" aria-busy={loading}>
+  return <div className="management-dashboard role-home admin-overview" aria-busy={loading}>
     <HomeHeading title="系统管理概览" subtitle="账号、编制与系统配置" loading={loading} refresh={refresh} />
-    <div className="role-kpis" aria-label="系统配置概况">
-      <HomeMetric label="员工账号" value={employees?.length} note={employees ? `启用 ${employees.filter(user => user.isActive).length} · 停用 ${inactiveEmployees}` : undefined} page="people" onNavigate={onNavigate} pending={loading && !data} />
+    {!!unassignedSupervisors?.length && <aside className="admin-warning"><strong>配置待完善</strong><button type="button" className="secondary" onClick={() => onNavigate("people")}>待分配主管 {unassignedSupervisors.length} 人 →</button></aside>}
+    <div className="role-kpis" data-attention={!!unassignedSupervisors?.length} aria-label="系统配置概况">
+      <HomeMetric label="员工登录账号" value={employees?.length} note={employees ? `启用 ${employees.filter(user => user.isActive).length} · 停用 ${inactiveEmployees}` : undefined} page="people" onNavigate={onNavigate} pending={loading && !data} />
       <HomeMetric label="已建小组" value={teams?.length} note="维护归属与主管权限" page="people" onNavigate={onNavigate} pending={loading && !data} />
       <HomeMetric label="待分配主管" value={unassignedSupervisors?.length} note="设置主管负责的小组" page="people" onNavigate={onNavigate} pending={loading && !data} />
       <HomeMetric label="启用模块" value={enabled} note={moduleEntries ? `共 ${moduleEntries.length} 个业务模块` : undefined} page="modules" onNavigate={onNavigate} pending={loading && !data} />
     </div>
     <HomeErrors errors={errors} retry={refresh} />
-    <section className="role-home-panel"><div className="role-panel-title"><h2>管理入口</h2><span>配置与维护</span></div><div className="role-action-list">
-      <HomeAction page="people" title="账号与小组" detail="开通账号、分配负责小组" onNavigate={onNavigate} />
-      <HomeAction page="modules" title="模块与系统设置" detail="模块启停、填报补报窗口" onNavigate={onNavigate} />
-    </div></section>
-    <div className="role-detail-grid">
-      <section className="role-home-panel"><div className="role-panel-title"><h2>归属待完善</h2><button type="button" className="text-action" onClick={() => onNavigate("people")}>设置小组<DashboardIcon name="arrow" /></button></div>
-        <div className="role-status-row"><span>未分组的启用主管</span><strong>{unassignedSupervisors?.length ?? "—"}</strong></div>
-        {unassignedSupervisors?.length === 0 && <p className="panel-note">启用主管均已分配负责小组。</p>}
-        {!!unassignedSupervisors?.length && <p className="panel-note">{unassignedSupervisors.map(user => user.displayName).join("、")}：设置负责小组后才能查看组内数据。</p>}
-        {teams?.length === 0 && <p className="panel-note">尚未创建小组，请先建立小组再分配主管、登记接待账号。</p>}
-      </section>
+    <div className="role-detail-grid admin-columns">
       <section className="role-home-panel"><div className="role-panel-title"><h2>模块状态</h2><button type="button" className="text-action" onClick={() => onNavigate("modules")}>管理<DashboardIcon name="arrow" /></button></div>
         {moduleEntries?.map(([key, value]) => <div className="role-status-row" key={key}><span>{modules?.labels[key] ?? key}</span><span className={`role-status ${value ? "is-on" : "is-off"}`}>{value ? "已启用" : "已停用"}</span></div>)}
         {!moduleEntries && <p className="panel-note">{loading ? "正在读取模块状态…" : "模块状态暂不可用。"}</p>}
       </section>
+    <section className="role-home-panel"><div className="role-panel-title"><h2>职责与快捷设置</h2></div><p className="notice">管理员维护系统配置。客服接待账号由本组主管管理。</p><div className="role-action-list">
+      <HomeAction page="people" title="账号与小组" detail="开通账号、分配负责小组" onNavigate={onNavigate} />
+      <HomeAction page="modules" title="模块与系统设置" detail="模块启停、填报补报窗口" onNavigate={onNavigate} />
+    </div></section>
     </div>
     <p className="role-home-scope">本账号管理系统配置，无业务数据查看或修改权限。员工账号数不含公司客服接待账号。</p>
   </div>;

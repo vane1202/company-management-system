@@ -15,7 +15,7 @@ export function ModuleSettings({ onError, onChange }: { onError: (value: string)
       catch (err) { const text = toErrorMessage(err, "保存失败"); onError(text); toast.error(`模块配置未保存：${text}`); }
       finally { setPending(false); }
     }}>
-      {Object.entries(config.labels).map(([key, label]) => <label className="review-card" key={key} style={{ display: "block" }}><input type="checkbox" disabled={pending} checked={config.modules[key]} onChange={(e) => setConfig({ ...config, modules: { ...config.modules, [key]: e.target.checked } })} /> {label} · {config.modules[key] ? "启用" : "停用"}</label>)}
+      <div className="admin-module-grid">{Object.entries(config.labels).map(([key, label]) => <label className="admin-module-item" key={key}><strong>{label}</strong><small>控制此模块的填报入口和业务写入。</small><input type="checkbox" role="switch" disabled={pending} checked={config.modules[key]} onChange={(e) => setConfig({ ...config, modules: { ...config.modules, [key]: e.target.checked } })} /> <span className={config.modules[key] ? "role-status is-on" : "role-status is-off"}>{config.modules[key] ? "已启用" : "已停用"}</span></label>)}</div><p className="notice">若其他管理员已更新配置，请重新加载后再保存。</p>
       <button disabled={pending} type="submit">{pending ? "保存中…" : "保存模块配置"}</button>
     </form>}
   </section>;
