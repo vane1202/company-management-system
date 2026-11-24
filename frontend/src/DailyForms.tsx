@@ -1,3 +1,4 @@
+import "./demo/editor-history.css";
 import './demo/ops-analysis.css';
 import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
@@ -34,6 +35,15 @@ export function DailyForm({ kind, today, onError, readOnly = false, servicePlatf
   const [refreshingAccounts, setRefreshingAccounts] = useState(false);
   const [customPersona, setCustomPersona] = useState(false);
   const gate = useRef(createRequestGate());
+  const [editorView,setEditorView]=useState<"write"|"history">("write");
+  const editorWorkbench=kind==="editor_report"&&!readOnly;
+  const editorDrawer=useRef<HTMLDialogElement>(null);
+  const editorDraft=useRef<typeof form|null>(null);
+  function closeEditorCorrection(){
+    if(editorDraft.current)setForm(editorDraft.current);
+    editorDraft.current=null;
+    setReportId("");setTargetUserId("");setSaveError("");setMessage("");
+  }
   const opsDrawer=useRef<HTMLDialogElement>(null);
   const [opsAccount,setOpsAccount]=useState("");
   const opsMode=kind==="ops_report";
@@ -72,6 +82,7 @@ export function DailyForm({ kind, today, onError, readOnly = false, servicePlatf
   const personaOptions=kind==='editor_report'?[...new Set(rows.map(r=>String(r.personaName??'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'zh-CN')):[];
   const groups=kind==='editor_report'?productionGroups(visibleRows,editorName?'persona':filters.group):[];
   function edit(row: Row) {
+    if(editorWorkbench)editorDraft.current=form;
     const next: Record<string, string> = { businessDate: row.businessDate, [nameKey]: String(row[nameKey] ?? ""), note: String(row.note ?? "") };
     for (const key of Object.keys(fields)) next[key] = row[key] == null ? "" : String(row[key]);
     if (kind === "fan_report" && row.isLegacyUnclassified) {
@@ -84,7 +95,8 @@ export function DailyForm({ kind, today, onError, readOnly = false, servicePlatf
     setCustomPersona(false);
     setSaveError("");
     setMessage("已加载原记录，修改后保存会直接更新统计。变更日期或人设请点击新建；归类会更新原记录，不重复计数。");
-    if(opsMode)opsDrawer.current?.showModal();
+    if(editorWorkbench)editorDrawer.current?.showModal();
+    else if(opsMode)opsDrawer.current?.showModal();
     else requestAnimationFrame(() => formRef.current?.scrollIntoView?.({ behavior: "smooth", block: "nearest" }));
   }
   const latestOps=opsMode?[...rows].sort((a,b)=>b.businessDate.localeCompare(a.businessDate))[0]:undefined;
@@ -98,8 +110,12 @@ export function DailyForm({ kind, today, onError, readOnly = false, servicePlatf
     <h2>{kind === "fan_report" ? "客服主页日报" : kind === "ops_report" ? "运营投放日报" : readOnly?"视频素材明细":"拍剪日报"}{kind==="editor_report"&&<InfoTip label="库存与统计口径" text={editorNote+" 历史未归类记录保留原归属，需原填报人员明确归类。"}/>}</h2>
     {kind!=="editor_report"&&<p className="notice">{kind === "fan_report" ? fanNote : opsNote}</p>}
     {readOnly && kind!=="editor_report" && <p className="notice">BOSS 端仅查看数据，业务填报由对应岗位完成。</p>}
+    {editorWorkbench&&<>
+      <section className="editor-bar"><div><h2>翠管家 · 拍剪工作台</h2><span className="ed-badge">{!rowsLoaded?"正在读取":rows.some(row=>row.businessDate===today)?`今日已提交 ${new Set(rows.filter(row=>row.businessDate===today).map(row=>row.personaName)).size} 个人设`:"今日待填报"}</span></div></section>
+      <nav className="ed-tabs" aria-label="拍剪工作台导航"><button type="button" className="secondary" aria-pressed={editorView==="write"} onClick={()=>setEditorView("write")}>今日填报</button><button type="button" className="secondary" aria-pressed={editorView==="history"} onClick={()=>setEditorView("history")}>历史记录与修改 ({rows.length})</button></nav>
+    </>}
     {opsMode&&!readOnly&&<div className="actions"><button type="button" onClick={()=>createOps()}>＋ 填报今日投放</button><button type="button" className="secondary" disabled={!latestOps} onClick={()=>createOps(true)}>沿用上条基础信息填报</button></div>}
-    {!readOnly && (()=>{
+    {!readOnly && (!editorWorkbench||editorView==="write"||editorView==="history") && (()=>{
       const reportForm=<form ref={formRef} onSubmit={async (event) => {
       event.preventDefault();
       if (pending) return;
@@ -124,7 +140,7 @@ export function DailyForm({ kind, today, onError, readOnly = false, servicePlatf
         }
         if (kind === "fan_report") await api.saveFanReport(payload);
         else if (kind === "ops_report") { await api.saveOps(payload); opsDrawer.current?.close(); }
-        else await api.saveEditor(payload);
+        else { await api.saveEditor(payload); if(editorWorkbench&&reportId)editorDrawer.current?.close(); }
       } catch (err) {
         // 失败原因显示在“保存日报”按钮旁，并发失败提示；不再只写到页面最顶部。
         const text = toErrorMessage(err, "保存失败");
@@ -145,7 +161,7 @@ export function DailyForm({ kind, today, onError, readOnly = false, servicePlatf
       catch { setRowsError(REFRESH_AFTER_SAVE_FAILED); toast.error(REFRESH_AFTER_SAVE_FAILED); }
     }}>
       <fieldset disabled={pending}>
-        <div className={kind === "editor_report" ? "grid two editor-report-grid" : "grid two"}>
+        <div className={kind === "editor_report" ? "grid two editor-report-grid ed-numbers" : "grid two"}>
           <label className="row editor-full-row">业务日<input required type="date" max={today} value={form.businessDate} onChange={(e) => setForm({ ...form, businessDate: e.target.value })} /></label>
           {kind==='editor_report'&&!editorName&&<label className="row editor-full-row">拍剪师<select required value={form.editorName??''} onChange={e=>setForm({...form,editorName:e.target.value})}><option value="">选择拍剪师</option>{editorNames.map(name=><option key={name}>{name}</option>)}</select></label>}
           {kind==='ops_report'&&<label className="row">广告账户<select required={adAccounts.length>0} value={form.adAccountRef??''} onChange={e=>setForm({...form,adAccountRef:e.target.value})}><option value="">{adAccounts.length?'选择广告账户':'尚无账户（历史未关联）'}</option>{adAccounts.map(a=><option key={a.code} value={a.code}>{a.code} · {a.name}</option>)}</select></label>}
@@ -196,12 +212,17 @@ export function DailyForm({ kind, today, onError, readOnly = false, servicePlatf
 
       </fieldset>
     </form>;
+      if(editorWorkbench&&editorView==="history")return <dialog ref={editorDrawer} className="ed-drawer" aria-label="修改历史日报" onClose={closeEditorCorrection} onCancel={event=>{if(pending)event.preventDefault();}}>
+        <header className="ed-toolbar"><h2>修改历史日报</h2><button type="button" className="secondary" disabled={pending} onClick={()=>editorDrawer.current?.close()}>关闭</button></header>
+        {reportId&&reportForm}
+      </dialog>;
       return opsMode?<dialog ref={opsDrawer} className="ops-workflow-drawer" aria-label="投放日报填报" onCancel={event=>{if(pending)event.preventDefault();}}>
         <header className="commerce-line"><h2>{reportId?"编辑投放日报":"填报今日投放"}</h2><button type="button" className="secondary" disabled={pending} onClick={()=>opsDrawer.current?.close()}>关闭</button></header>
         {reportForm}
       </dialog>:reportForm;
     })()}
     {message && <p className="ok" role="status">{message}</p>}
+    {(!editorWorkbench||editorView==="history")&&<>
     <div className="commerce-line daily-records-header"><h3>已填记录</h3><button type="button" className="secondary" disabled={rowsLoading} onClick={()=>refresh().catch(err=>setRowsError(toErrorMessage(err)))}>{rowsLoading?'读取中…':'刷新'}</button></div>
     {rowsError&&<p className="error" role="alert">{rowsError}</p>}{rowsLoading&&!rowsLoaded&&<p role="status">正在读取已填记录…</p>}
     {kind==='editor_report'&&<><div className="production-filter-grid">{!editorName&&<label className="row">拍剪师筛选<select value={filters.editor} onChange={e=>setFilters({...filters,editor:e.target.value})}><option value="">全部拍剪师</option>{editorNames.map(name=><option key={name}>{name}</option>)}<option value="legacy">历史未归类</option></select></label>}<label className="row">人设筛选<select value={filters.persona} onChange={e=>setFilters({...filters,persona:e.target.value})}><option value="">全部人设</option>{personaOptions.map(name=><option key={name}>{name}</option>)}</select></label>{!editorName&&<label className="row">分类方式<select value={filters.group} onChange={e=>setFilters({...filters,group:e.target.value as 'editor'|'persona'})}><option value="editor">按拍剪师</option><option value="persona">按人设</option></select></label>}<details className="production-date-filter"><summary>日期筛选{filters.from||filters.to?" · 已设置":""}</summary><div className="grid two">{(['from','to'] as const).map((k,i)=><label className="row" key={k}>{['开始','结束'][i]}日期<input type="date" max={today} value={filters[k]} onChange={e=>setFilters({...filters,[k]:e.target.value})}/></label>)}</div></details></div><p className="notice">当前范围 {visibleRows.length} 条日报</p><div className="production-groups">{groups.map(g=><article className="production-group" key={g.name}><h3>{g.name}</h3><div className="stat-grid">{[['拍摄',g.shoot],['剪辑',g.edit],['发给运营',g.sent],['末次库存',g.inventory]].map(([label,value])=><div key={String(label)}><strong>{value??'—'}</strong><small>{label}</small></div>)}</div><small>{g.records.length} 条日报</small></article>)}</div></>}
@@ -209,10 +230,14 @@ export function DailyForm({ kind, today, onError, readOnly = false, servicePlatf
     {opsMode?<><div className="oa-detail-tabs ops-account-filters" role="group" aria-label="广告账户筛选">{["",...new Set(rows.map(row=>String(row.adAccountRef??"")).filter(Boolean))].map(account=><button type="button" className="secondary" key={account} aria-pressed={opsAccount===account} onClick={()=>setOpsAccount(account)}>{account||"全部广告户"}</button>)}</div>
       <div className="oa-native-scroll"><table className="oa-native" aria-label="已填投放日报"><thead><tr>{["日期","广告账户","人设／主页","平台","消耗 USD","咨询","点击","余额 USD","操作"].map(label=><th key={label} scope="col">{label}</th>)}</tr></thead>
       <tbody>{visibleRows.filter(row=>!opsAccount||row.adAccountRef===opsAccount).map(row=><tr key={row.id}>{[row.businessDate,row.adAccountRef,row[nameKey],row.platform,row.spendUsd,row.consultCount,row.clickCount,row.balanceUsd].map((value,i)=><td key={i}>{String(value??"—")}</td>)}<td>{!readOnly&&<button type="button" className="text-action" disabled={pending} onClick={()=>edit(row)}>编辑 →</button>}</td></tr>)}</tbody></table></div>
+    </>:editorWorkbench?<><div className="ed-pills" role="group" aria-label="人设快捷筛选">{["",...new Set(rows.map(row=>String(row.personaName??"")).filter(Boolean))].map(persona=><button key={persona} type="button" className="secondary" aria-pressed={filters.persona===persona} onClick={()=>setFilters({...filters,persona})}>{persona||"全部人设"}</button>)}</div>
+      <div className="ed-table-scroll"><table className="ed-table" aria-label="拍剪历史日报"><thead><tr>{["业务日","人设／主页","拍摄","剪辑","发给运营","囤量快照","备注","操作"].map(label=><th key={label} scope="col">{label}</th>)}</tr></thead><tbody>
+      {visibleRows.map(row=><tr key={row.id}>{[row.businessDate,row.personaName,row.shootCount,row.editCount,row.sentToOpsCount,row.inventorySnapshot,row.note].map((value,i)=><td key={i}>{String(value??"—")}</td>)}<td><button type="button" className="text-action" disabled={pending} onClick={()=>edit(row)}>修改 →</button></td></tr>)}
+      </tbody></table></div>
     </>:visibleRows.map((row) => <article className="review-card" key={row.id}>
       <div className="review-card-head"><strong>{row.businessDate}</strong></div>
       {detailLines(kind, row).map((line) => <p key={line}>{line}</p>)}
       {!readOnly && <button type="button" className="secondary" disabled={pending} onClick={() => edit(row)}>加载并修改</button>}
-    </article>)}
+    </article>)}</>}
   </section>;
 }
