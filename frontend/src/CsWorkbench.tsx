@@ -234,9 +234,9 @@ export function CsWorkbench({
         <div className="fill-home-grid" aria-label="客服业务入口">
           {modules.filter(item=>isEmployeeAccount||item.id!=="reimbursements").map((item,index)=><article className={`card fill-home-card ${index===1?"fill-hero":""}`} key={item.id}>
             <h2><DashboardIcon name={item.icon}/>{item.title}</h2>
-            <strong>{[progress.leads,progress.orders,progress.tails][index]??"—"}</strong>
-            <small>{["今日已登记客资","本月有效开单","待收尾款单数"][index]} · {item.detail}</small>
-            <button type="button" className="secondary" onClick={()=>navigate(item.id,index!==2)}>{["+ 登记新客资","+ 登记一笔成交","查看个人业绩 →"][index]}</button>
+            <strong>{item.id==="reimbursements"?"报销":([progress.leads,progress.orders,progress.tails][index]??"—")}</strong>
+            <small>{item.id==="reimbursements"?`售后垫付 · ${item.detail}`:`${["今日已登记客资","本月有效开单","待收尾款单数"][index]} · ${item.detail}`}</small>
+            <button type="button" className="secondary" onClick={()=>navigate(item.id,item.id==="leads"||item.id==="library")}>{["+ 登记新客资","+ 登记一笔成交","查看个人业绩 →","+ 申请售后报销"][index]}</button>
           </article>)}
         </div>
       </>}

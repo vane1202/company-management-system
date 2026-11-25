@@ -127,8 +127,8 @@ function DemoFillHome({today,mine,employeeId,state,navigate,openLead}:{openLead:
       <button className="secondary" type="button" disabled={!employeeId||leads>0||checked} onClick={()=>setChecked(true)}>{checked?"今日已打卡（演练）":"今日 0 粉打卡"}</button>
     </section>
     <div className="fill-home-grid">{modules.map((item,index)=><article key={item.id} className={`card fill-home-card ${index===1?"fill-hero":""}`}>
-      <h2><DashboardIcon name={item.icon}/>{item.title}</h2><strong>{employeeId?[leads,orders,tails][index]:"—"}</strong><small>{item.detail}</small>
-      <button className="secondary" type="button" onClick={()=>item.id==="leads"?openLead():navigate(item.id)}>{["+ 登记新客资","打开开单与售后 →","查看个人业绩 →"][index]}</button>
+      <h2><DashboardIcon name={item.icon}/>{item.title}</h2><strong>{item.id==="reimbursements"?"报销":(employeeId?[leads,orders,tails][index]:"—")}</strong><small>{item.detail}</small>
+      <button className="secondary" type="button" onClick={()=>item.id==="leads"?openLead():navigate(item.id)}>{["+ 登记新客资","打开开单与售后 →","查看个人业绩 →","+ 申请售后报销"][index]}</button>
     </article>)}</div>
   </>;
 }
