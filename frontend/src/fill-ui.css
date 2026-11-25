@@ -297,7 +297,7 @@
 :root main.customer-fill .lead-record .lead-title { flex-wrap:wrap; }
 :root main.customer-fill .fill-performance-kpis { gap:12px; }
 :root main.customer-fill .fill-performance-kpis > div { padding:14px 16px; border-radius:12px; border:1px solid var(--line); background:var(--bg,#f7f9f8); min-width:0; }
-:root main.customer-fill .fill-performance-kpis > div.fill-hero { border-color:transparent; }
+:root main.customer-fill .fill-performance-kpis > div.fill-hero { background:linear-gradient(145deg,var(--jade-dark),#143f37); border-color:transparent; }
 :root main.customer-fill .fill-performance-kpis strong { font-size:clamp(18px,2.1vw,24px); line-height:1.25; margin-top:6px; font-family:var(--font-mono,monospace); overflow-wrap:anywhere; }
 :root .fill-order-detail .commerce-kpis strong { font-family:var(--font-mono,monospace); }
 :root .fill-order-detail .commerce-kpis > div:last-child strong { color:var(--gold); }
