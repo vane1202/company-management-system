@@ -830,6 +830,9 @@ progress::-moz-progress-bar { background: #4c7954; border-radius: 14px; }
 .live-cost-source{display:block;margin-top:2px;font-size:12px;color:var(--muted);line-height:1.35;overflow-wrap:anywhere}
 .order-jade-cost{padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--bg, #f7f9f8)}
 .order-jade-cost strong{display:block}
+.order-items-list{gap:10px}
+.order-items-list .commerce-record{padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--bg, #f7f9f8)}
+.order-items-list .order-item-price{text-align:right;flex-shrink:0}
 label.row small.hint,label.row>small{display:block;margin-top:4px;color:var(--muted);font-weight:400;line-height:1.45;overflow-wrap:anywhere}
 .commerce-item .text-action{white-space:normal;display:inline;padding:0;min-height:0;font-size:12px;vertical-align:baseline}
 .commerce-item .hint .text-action{margin-left:.35em}
