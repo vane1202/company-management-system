@@ -529,10 +529,14 @@
     if(path==="/api/auth/me")return json({user:currentUser(),...meta});
     if(path==="/api/auth/meta")return json(meta);
     if(path==='/api/demo/reimbursements'){
-      if(role!=='finance')return json({error:'Finance access required'},403);
+      if(!['finance','cs','cs_supervisor'].includes(role))return json({error:'Reimbursement access required'},403);
       if(!window.CmsReimbursements)return json({error:'Reimbursement module unavailable'},503);
       try{
-        const snapshot=()=>({state:reimbursementState(),categories:window.CmsReimbursements.categories,expenses:payables().expenses.filter(e=>!e.voided_at&&e.pending_cny!==null&&cents(e.pending_cny)>0n)});
+        const snapshot=()=>{
+          const state=reimbursementState();
+          const claims=state.claims.filter(c=>role==='finance'?(!c.stage||c.stage==='finance'):c.ownerRole==='cs');
+          return {state:{claims:claims.map(c=>({...c,paidAmount:window.CmsReimbursements.money(state.payments.filter(p=>p.claimId===c.id).reduce((n,p)=>n+cents(p.amount),0n))})),payments:role==='finance'?state.payments:[]},categories:window.CmsReimbursements.categories,expenses:role==='finance'?payables().expenses.filter(e=>!e.voided_at&&e.pending_cny!==null&&cents(e.pending_cny)>0n):[]};
+        };
         if(method==='GET')return json(snapshot());
         if(method!=='POST')return json({error:'Unsupported method'},405);
         const next=window.CmsReimbursements.apply(reimbursementState(),JSON.parse(options.body||'{}'),{role,today,actor:currentUser().displayName,expenses:payables().expenses,references:allPaymentReferences(),id:'reim-'+Date.now()+'-'+Math.random().toString(36).slice(2,9),now:new Date().toISOString()});

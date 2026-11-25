@@ -3,12 +3,34 @@ const vm=require('node:vm');
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const script=fs.readFileSync(require('node:path').join(__dirname,'readonly-api.js'),'utf8');
+test('客服报销凭证需由主管提交，财务才可核对',async()=>{
+ const store=new Map(), path='/api/demo/reimbursements';
+ const staff=environment('cs','',undefined,store), supervisor=environment('cs_supervisor','',undefined,store), finance=environment('finance','',undefined,store);
+ const snapshot=await finance.json(path);
+ const expenseDate=(await finance.json('/api/finance/payables')).body.expenses[0].business_date;
+ const draft={action:'create',category:'advance',purpose:'演示售后垫付',amount:'10',expenseDate,claimDate:expenseDate,requestKey:'cs-reimbursement-1',proofs:['data:image/png;base64,iVBORw0KGgo=']};
+ assert.equal((await supervisor.json(path,'POST',draft)).status,403);
+ const created=await staff.json(path,'POST',draft);
+ assert.equal(created.status,200);
+ const claim=created.body.state.claims.find(row=>row.purpose===draft.purpose);
+ assert.equal(claim.stage,'supervisor');
+ assert.equal((await finance.json(path)).body.state.claims.length,snapshot.body.state.claims.length);
+ const forward={action:'forward',id:claim.id,version:claim.version};
+ assert.equal((await staff.json(path,'POST',forward)).status,403);
+ assert.equal((await finance.json(path,'POST',{...forward,action:'review',decision:'approved',reason:'核对'})).status,409);
+ assert.equal((await supervisor.json(path,'POST',forward)).status,200);
+ const forwarded=(await finance.json(path)).body.state.claims.find(row=>row.id===claim.id);
+ assert.equal(forwarded.stage,'finance');
+ assert.deepEqual(forwarded.proofs,draft.proofs);
+ assert.equal((await supervisor.json(path,'POST',forward)).status,409);
+});
+
 test('财务报销登记核对分次付款独立汇总，不增加运营成本或重复业务成本',async()=>{
  const store=new Map(),f=environment('finance','',undefined,store),boss=environment('boss','',undefined,store),path='/api/demo/reimbursements';
  const expense=(await f.json('/api/finance/payables')).body.expenses.find(e=>e.id==='demo-expense-0'),date=expense.business_date;
  const before=(await boss.json('/api/demo/boss-priority')).body.expenses;
  const input={action:'create',claimant:'演示员工',department:'演示小组',category:'temporary',purpose:'临时支出报销',amount:'100.00',expenseDate:date,claimDate:date,expenseId:'',receiptRef:'REIM-01',note:'测试',requestKey:'reim-key-1'};
- for(const role of ['boss','warehouse','admin','cs_supervisor','cs','editor','ops']){
+ for(const role of ['boss','warehouse','admin','editor','ops']){
   assert.equal((await environment(role).json(path)).status,403);assert.equal((await environment(role).json(path,'POST',input)).status,403);
  }
  assert.equal((await f.json(path,'POST',{...input,amount:'-1'})).status,400);

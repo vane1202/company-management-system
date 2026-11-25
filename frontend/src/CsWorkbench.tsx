@@ -1,3 +1,4 @@
+import ReimbursementWorkspace from "./demo/ReimbursementWorkspace";
 import { useEffect, useState, type ReactNode } from "react";
 import { leadApi } from "./leadApi";
 import { api, type CsAccount, type Order, type User } from "./api";
@@ -18,7 +19,8 @@ import "./demo/role-workbenches.css";
 const modules = [
   { id: "leads", title: "新增客资登记", detail: "加粉详情·需求记录", icon: "fans" },
   { id: "library", title: "开单与售后", detail: "客户开单/售后记录", icon: "orders" },
-  { id: "performance", title: "个人业绩查询", detail: "直播间/私推业绩", icon: "summary" }
+  { id: "performance", title: "个人业绩查询", detail: "直播间/私推业绩", icon: "summary" },
+  { id: "reimbursements", title: "售后垫付报销", detail: "上传凭证并提交主管", icon: "orders" }
 ] as const;
 
 type ModuleId = (typeof modules)[number]["id"];
@@ -28,7 +30,7 @@ const titles: Record<FillPage, string> = {
   home: "客服工作台",
   leads: "新增客资登记",
   library: "开单与售后",
-  performance: "个人业绩查询"
+  performance: "个人业绩查询", reimbursements: "售后垫付报销"
 };
 
 function resolvePage(): FillPage {
@@ -36,6 +38,7 @@ function resolvePage(): FillPage {
   if (tail === "fans") return "leads";
   if (tail === "orders" || tail === "after-sales") return "library";
   if (tail === "performance") return "performance";
+  if (tail === "reimbursements") return "reimbursements";
   return "home";
 }
 
@@ -140,7 +143,7 @@ export function CsWorkbench({
           ? "/fill/orders"
           : next === "performance"
             ? "/fill/performance"
-            : "/fill";
+            : next === "reimbursements" ? "/fill/reimbursements" : "/fill";
     window.history.pushState({}, "", path);
     setPage(next);
     if (next !== "library") setSelectedOrderId("");
@@ -231,7 +234,7 @@ export function CsWorkbench({
 
       <nav className="fill-nav" aria-label="客服工作台导航">
         <button type="button" className="secondary" aria-pressed={page==="home"} onClick={()=>navigate("home")}>工作台首页</button>
-        {modules.map(item=><button key={item.id} type="button" className="secondary" aria-pressed={page===item.id} onClick={()=>{setSelectedOrderId("");navigate(item.id);}}>{item.title}</button>)}
+        {modules.filter(item=>canChangePassword||item.id!=="reimbursements").map(item=><button key={item.id} type="button" className="secondary" aria-pressed={page===item.id} onClick={()=>{setSelectedOrderId("");navigate(item.id);}}>{item.title}</button>)}
       </nav>
 
       {page === "home" && <>
@@ -240,7 +243,7 @@ export function CsWorkbench({
           <button type="button" className="secondary" disabled={checking||progress.checked||progress.leads!==0} onClick={()=>void checkIn()}>{progress.checked?"今日已打卡":"今日 0 粉打卡"}</button>
         </section>
         <div className="fill-home-grid" aria-label="客服业务入口">
-          {modules.map((item,index)=><article className={`card fill-home-card ${index===1?"fill-hero":""}`} key={item.id}>
+          {modules.filter(item=>canChangePassword||item.id!=="reimbursements").map((item,index)=><article className={`card fill-home-card ${index===1?"fill-hero":""}`} key={item.id}>
             <h2><DashboardIcon name={item.icon}/>{item.title}</h2>
             <strong>{[progress.leads,progress.orders,progress.tails][index]??"—"}</strong>
             <small>{["今日已登记客资","本月有效开单","待收尾款单数"][index]} · {item.detail}</small>
@@ -271,6 +274,7 @@ export function CsWorkbench({
         />
       )}
 
+      {canChangePassword && page === "reimbursements" && <ReimbursementWorkspace today={today} mode="staff" />}
       {page === "performance" && (
         <CsPersonalPerformance
           today={today}

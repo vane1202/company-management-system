@@ -31,8 +31,9 @@ export function enforceRoleBoundary(req: Request, _res: Response, next: NextFunc
       || (req.method === "PATCH" && new RegExp(`^/api/cs-logins/${uuidPart}/teams/?$`, "i").test(req.path));
     const followups = req.path === "/api/supervisor/order-followups" && (read || req.method === "POST");
     const consultationCost = read && req.path === "/api/supervisor/consultation-cost";
+    const reimbursements = /^\/api\/finance\/reimbursements(?:\/|$)/.test(req.path);
     const bindings = /^\/api\/cs-device-bindings(?:\/(.*))?$/.test(req.path);
-    if (!metadata && !fans && !orders && !accounts && !cancellation && !peopleRead && !reviewWrite && !csLogins && !followups && !consultationCost && !bindings) return next(new HttpError(403, "客服主管仅可操作负责小组内的业务"));
+    if (!metadata && !fans && !orders && !accounts && !cancellation && !peopleRead && !reviewWrite && !csLogins && !followups && !consultationCost && !reimbursements && !bindings) return next(new HttpError(403, "客服主管仅可操作负责小组内的业务"));
   }
   next();
 }

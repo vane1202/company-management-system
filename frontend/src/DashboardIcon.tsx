@@ -18,6 +18,7 @@ const paths: Record<Page | "refresh" | "arrow", string> = {
   modules: "M4 5h16v6H4z M4 15h16v6H4z M8 8h1 M15 18h1",
   assessment: "M4 19V5 M4 19h16 M8 16v-5 M12 16V7 M16 16v-3",
   reportHistory: "M3 12a9 9 0 1 0 3-7 M3 3v6h6 M12 7v5l3 2",
+  teamReimbursements: "M5 3h14v18H5z M8 8h8 M8 12h8 M8 16h5",
   customerReview: "M5 3h14v18H5z M8 8h8 M8 13l3 3 5-6",
   refresh: "M20 8a8 8 0 1 0 0 8 M20 3v5h-5",
   arrow: "M5 12h14 M14 7l5 5-5 5"

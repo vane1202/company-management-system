@@ -6,23 +6,38 @@
  function text(value,label,max=128){if(typeof value!=='string'||!value.trim()||value.length>max)fail('请填写'+label);return value.trim();}
  function date(value,today){if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(value)||!Number.isFinite(Date.parse(value+'T00:00:00Z'))||new Date(value+'T00:00:00Z').toISOString().slice(0,10)!==value||value>today)fail('日期无效或晚于今日');return value;}
  function apply(state,input,ctx){
-  if(ctx.role!=='finance')fail('仅财务可管理报销',403);
+  if(!['finance','cs','cs_supervisor'].includes(ctx.role))fail('无报销权限',403);
   const next=JSON.parse(JSON.stringify(state)),{actor,today,id,now,expenses}=ctx;
   if(input.action==='create'){
+   if(ctx.role==='cs_supervisor')fail('请由客服发起报销',403);
+   const staff=ctx.role==='cs';
    const requestKey=text(input.requestKey,'提交标识');if(next.claims.some(c=>c.requestKey===requestKey))return next;
    if(!Object.hasOwn(categories,input.category))fail('报销类别无效');
    const amount=cents(input.amount);if(amount<=0n)fail('报销金额必须大于0');
-   const source=input.expenseId?expenses.find(e=>e.id===input.expenseId&&!e.voided_at):null;
-   if(input.expenseId&&!source)fail('关联费用不存在');
+   const source=!staff&&input.expenseId?expenses.find(e=>e.id===input.expenseId&&!e.voided_at):null;
+   if(!staff&&input.expenseId&&!source)fail('关联费用不存在');
    if(source&&(source.pending_cny==null||amount>cents(source.pending_cny)))fail('报销金额超过关联费用待付金额');
    if(source&&next.claims.some(c=>c.expenseId===source.id&&c.status!=='rejected'))fail('该费用已有报销单，请勿重复登记');
-   const claimant=text(input.claimant,'报销人'),receipt=text(input.receiptRef,'凭证编号');
+   const claimant=staff?actor:text(input.claimant,'报销人');
+   const proofs=Array.isArray(input.proofs)?input.proofs:[];
+   if(proofs.length>3||proofs.some(value=>typeof value!=='string'||!/^data:image\/(png|jpeg|webp);base64,/.test(value)))fail('凭证图片格式无效');
+   const receipt=proofs.length?'image:'+requestKey:text(input.receiptRef,'付款截图');
+
    if(next.claims.some(c=>c.status!=='rejected'&&c.claimant===claimant&&c.receiptRef===receipt))fail('该报销人与凭证已有报销单，请核对');
    const expenseDate=date(input.expenseDate,today),claimDate=date(input.claimDate,today);if(expenseDate>claimDate)fail('费用日期不能晚于报销登记日期');
-   next.claims.push({id,requestKey,claimant,department:typeof input.department==='string'?input.department.slice(0,64):'',category:input.category,purpose:text(input.purpose,'报销事由',500),amount:money(amount),expenseDate,claimDate,expenseId:source?.id||'',receiptRef:receipt,note:typeof input.note==='string'?input.note.slice(0,1000):'',status:'pending',version:1,createdBy:actor,createdAt:now,history:[]});return next;
+   next.claims.push({id,requestKey,claimant,department:staff?'演示客服组':typeof input.department==='string'?input.department.slice(0,64):'',category:input.category,purpose:text(input.purpose,'报销事由',500),amount:money(amount),expenseDate,claimDate,expenseId:source?.id||'',receiptRef:receipt,proofs,stage:staff?'supervisor':'finance',ownerRole:ctx.role,note:typeof input.note==='string'?input.note.slice(0,1000):'',status:'pending',version:1,createdBy:actor,createdAt:now,history:[]});return next;
   }
   const claim=next.claims.find(c=>c.id===input.id);if(!claim)fail('报销单不存在',404);
   if(input.version!==claim.version)fail('报销单已更新，请刷新后重试',409);
+  if(ctx.role==='cs')fail('客服只能发起报销',403);
+  if(ctx.role==='cs_supervisor'){
+   if(claim.stage!=='supervisor')fail('该报销单已处理',409);
+   if(input.action==='forward'){claim.stage='finance';claim.forwardedBy=actor;}
+   else if(input.action==='supervisorReturn'){claim.supervisorNote=text(input.reason,'退回说明',500);claim.stage='supervisor_returned';claim.status='rejected';}
+   else fail('主管仅可提交财务或退回客服',403);
+   claim.version++;return next;
+  }
+  if(claim.stage&&claim.stage!=='finance')fail('该报销单尚未提交财务',409);
   if(input.action==='review'){
    if(claim.status!=='pending')fail('该报销单已处理',409);
    if(!['approved','rejected'].includes(input.decision))fail('核对结果无效');

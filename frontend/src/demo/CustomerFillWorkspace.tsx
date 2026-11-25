@@ -1,3 +1,4 @@
+import ReimbursementWorkspace from "./ReimbursementWorkspace";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { CreateOrder, Field } from "../OrderWorkspace";
@@ -18,7 +19,8 @@ import "./role-workbenches.css";
 const modules = [
   { id: "leads", title: "新增客资登记", detail: "加粉详情·需求记录", icon: "fans" },
   { id: "library", title: "开单与售后", detail: "客户开单/售后记录", icon: "orders" },
-  { id: "performance", title: "个人业绩查询", detail: "直播间/私推业绩", icon: "summary" }
+  { id: "performance", title: "个人业绩查询", detail: "直播间/私推业绩", icon: "summary" },
+  { id: "reimbursements", title: "售后垫付报销", detail: "上传凭证并提交主管", icon: "orders" }
 ] as const;
 type ModuleId = typeof modules[number]["id"];
 type FillPage = "home" | ModuleId;
@@ -27,9 +29,10 @@ const pathPage = (): FillPage => {
   if (key === "fans") return "leads";
   if (key === "orders" || key === "after-sales") return "library";
   if (key === "performance") return "performance";
+  if (key === "reimbursements") return "reimbursements";
   return "home";
 };
-const titles: Record<FillPage, string> = { home: "客服工作台", leads: "新增客资登记", library: "开单与售后", performance: "个人业绩查询" };
+const titles: Record<FillPage, string> = { home: "客服工作台", leads: "新增客资登记", library: "开单与售后", performance: "个人业绩查询", reimbursements: "售后垫付报销" };
 
 export default function CustomerFillWorkspace({ today }: { today: string }) {
   const crm = useCustomerCrm(today);
@@ -68,7 +71,7 @@ export default function CustomerFillWorkspace({ today }: { today: string }) {
   const customer = mine.find(item => item.id === customerId);
   const leadDrawer=useRef<HTMLDialogElement>(null);
   function navigate(next: FillPage) {
-    const path = next === "leads" ? "/fill/fans" : next === "library" ? "/fill/orders" : next === "performance" ? "/fill/performance" : "/fill";
+    const path = next === "leads" ? "/fill/fans" : next === "library" ? "/fill/orders" : next === "performance" ? "/fill/performance" : next === "reimbursements" ? "/fill/reimbursements" : "/fill";
     window.history.pushState({}, "", path + "?role=cs");
     setPage(next); setCustomerId("");
     window.scrollTo({ top: 0, behavior: "instant" });
@@ -104,6 +107,7 @@ export default function CustomerFillWorkspace({ today }: { today: string }) {
       } catch (cause) { setNotice(""); setError(toErrorMessage(cause)); }
     }} />{error&&<p role="alert" className="error">{error}</p>}</div></dialog></section> : <section className="card"><h2>再选择接待账号</h2><p>新客资要记在具体的 WhatsApp 或 Messenger 账号上。</p></section>)}
     {actor && page === "library" && (customer ? <CustomerDetail today={today} customer={customer} actor={actor} crm={crm} account={selected} onMessage={setNotice} /> : <CustomerLibrary people={mine} state={crm.state} onOpen={setCustomerId} />)}
+    {page === "reimbursements" && <ReimbursementWorkspace today={today} mode="staff" />}
     {actor && page === "performance" && <Performance employeeId={actor.employeeId} state={crm.state} onOpen={id=>{navigate("library");setCustomerId(id);}} />}
   </main>;
 }

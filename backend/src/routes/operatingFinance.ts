@@ -1,10 +1,40 @@
-import { Router } from "express";
+import { createHash } from "node:crypto";
+import { json, Router } from "express";
 import type { Pool, PoolClient } from "pg";
 import type { AppConfig } from "../config.js";
 import { HttpError } from "../types.js";
 import { businessToday, isIsoDate } from "../lib/dates.js";
 import { centsToMoney, moneyToCents, parseMoney } from "../lib/money.js";
 import { writeAudit } from "../audit.js";
+import { managedTeamIds, membershipOnDate, type Actor } from "../users.js";
+import { uuid } from "../lib/commerce.js";
+
+function reimbursementActor(actor: Actor | undefined): Actor {
+  if (actor?.role === "finance" || actor?.role === "cs_supervisor" ||
+      (actor?.role === "cs" && actor.accountKind === "employee")) return actor;
+  throw new HttpError(403, "仅财务、客服员工和客服主管可访问报销");
+}
+
+function claimScope(actor: Actor, teams: string[]): { where: string; args: (string | string[])[] } {
+  if (actor.role === "finance") return { where: "c.workflow_stage IN ('finance','historical')", args: [] };
+  if (actor.role === "cs_supervisor") return { where: "c.team_id = ANY($1::uuid[])", args: [teams] };
+  return { where: "c.created_by = $1 AND c.team_id IS NOT NULL", args: [actor.id] };
+}
+
+function readProof(value: unknown) {
+  if (typeof value !== "string") throw new HttpError(400, "凭证图片格式无效");
+  const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/]+={0,2})$/.exec(value);
+  if (!match) throw new HttpError(400, "凭证支持 JPG、PNG 或 WebP");
+  const [,mime,encoded] = match;
+  const bytes = Buffer.from(encoded,"base64");
+  const valid = mime === "image/png" ? bytes.subarray(0,8).equals(Buffer.from("89504e470d0a1a0a","hex")) :
+    mime === "image/jpeg" ? bytes.subarray(0,3).equals(Buffer.from("ffd8ff","hex")) :
+    bytes.toString("ascii",0,4) === "RIFF" && bytes.toString("ascii",8,12) === "WEBP";
+  if (!valid || bytes.toString("base64") !== encoded || bytes.length > 5 * 1024 * 1024) {
+    throw new HttpError(400, "凭证图片损坏或超过 5 MB");
+  }
+  return { mime, bytes };
+}
 
 const DAILY_CATEGORIES = new Set(["rent", "utilities", "hospitality", "other"]);
 const CLAIM_CATEGORIES: Record<string, string> = {
@@ -99,15 +129,38 @@ export function createOperatingFinanceRouter(db: Pool, config: AppConfig): Route
     } finally { client.release(); }
   });
 
-  router.all("/reimbursements", async (req, res, next) => {
+  router.get("/reimbursements/proofs/:proofId", async (req, res, next) => {
+    try {
+      const actor = reimbursementActor(req.actor);
+      const { where, args } = claimScope(actor, await managedTeamIds(db, actor));
+      const proof = (await db.query(
+        `SELECT p.mime_type,p.image_bytes FROM reimbursement_proofs p
+           JOIN reimbursement_claims c ON c.id=p.claim_id WHERE ${where} AND p.id=$${args.length+1}`,
+        [...args, uuid(req.params.proofId)]
+      )).rows[0];
+      if (!proof) throw new HttpError(404,"凭证不存在");
+      res.set({ "Cache-Control":"private, no-store", "X-Content-Type-Options":"nosniff" })
+        .type(proof.mime_type).send(proof.image_bytes);
+    } catch (error) { next(error); }
+  });
+
+  const parseProofs = json({ limit: "21mb" });
+  router.all("/reimbursements", (req,res,next) => {
+    try {
+      reimbursementActor(req.actor);
+      if (req.method === "POST") parseProofs(req,res,next);
+      else next();
+    } catch (error) { next(error); }
+  }, async (req, res, next) => {
     if (req.method !== "GET" && req.method !== "POST") { next(); return; }
     const client = await db.connect();
     try {
-      financeOnly(req.actor?.role);
+      const actor = reimbursementActor(req.actor);
       const today = businessToday(new Date(), config.businessTimezone);
       await client.query("BEGIN");
-      if (req.method === "POST") await applyReimbursement(client, req.body ?? {}, { actorId: req.actor!.id, actorName: req.actor!.displayName, today, ip: req.ip });
-      const payload = await reimbursementSnapshot(client);
+      const scope = await managedTeamIds(client, actor);
+      if (req.method === "POST") await applyReimbursement(client, req.body ?? {}, { actor, scope, actorId: actor.id, today, ip: req.ip });
+      const payload = await reimbursementSnapshot(client, actor, scope);
       await client.query("COMMIT");
       res.set("Cache-Control", "private, no-store").json(payload);
     } catch (error) {
@@ -119,15 +172,23 @@ export function createOperatingFinanceRouter(db: Pool, config: AppConfig): Route
   return router;
 }
 
-async function reimbursementSnapshot(client: PoolClient) {
+async function reimbursementSnapshot(client: PoolClient, actor: Actor, scope: string[]) {
+  const { where, args } = claimScope(actor, scope);
   const claims = (await client.query(
-    `SELECT id::text AS id, claimant, department, category, purpose, amount_cny::text AS amount,
-            expense_date::text AS "expenseDate", claim_date::text AS "claimDate",
+    `SELECT c.id::text AS id, claimant, department, category, purpose, amount_cny::text AS amount,
+            c.expense_date::text AS "expenseDate", c.claim_date::text AS "claimDate",
             COALESCE(expense_id::text, '') AS "expenseId", receipt_ref AS "receiptRef", note, status, version,
-            created_by::text AS "createdBy", review_note AS "reviewNote", reviewed_by::text AS "reviewedBy"
-       FROM reimbursement_claims
-      ORDER BY created_at, id`
+            u.display_name AS "createdBy", c.review_note AS "reviewNote", reviewer.display_name AS "reviewedBy",
+            c.workflow_stage AS stage,c.supervisor_note AS "supervisorNote", supervisor.display_name AS "forwardedBy",
+            coalesce((SELECT sum(p.amount_cny) FROM reimbursement_payments p WHERE p.claim_id=c.id),0)::text AS "paidAmount",
+            ARRAY(SELECT id FROM reimbursement_proofs WHERE claim_id=c.id ORDER BY position) AS "proofIds"
+       FROM reimbursement_claims c JOIN users u ON c.created_by=u.id
+       LEFT JOIN users reviewer ON c.reviewed_by=reviewer.id
+       LEFT JOIN users supervisor ON c.forwarded_by=supervisor.id
+      WHERE ${where}
+      ORDER BY c.created_at, c.id`, args
   )).rows;
+  if (actor.role !== "finance") return { state: { claims, payments: [] }, categories: CLAIM_CATEGORIES, expenses: [] };
   const payments = (await client.query(
     `SELECT id::text AS id, claim_id::text AS "claimId", amount_cny::text AS amount, paid_on::text AS date,
             payee, account, reference
@@ -149,49 +210,84 @@ async function reimbursementSnapshot(client: PoolClient) {
   return { state: { claims, payments }, categories: CLAIM_CATEGORIES, expenses };
 }
 
-async function applyReimbursement(client: PoolClient, input: Record<string, unknown>, ctx: { actorId: string; actorName: string; today: string; ip?: string }) {
+async function applyReimbursement(client: PoolClient, input: Record<string, unknown>, ctx: { actor: Actor; scope: string[]; actorId: string; today: string; ip?: string }) {
   if (input.action === "create") {
-    const requestKey = text(input.requestKey, "请求编号", 80);
-    const existing = await client.query("SELECT 1 FROM reimbursement_claims WHERE request_key = $1", [requestKey]);
-    if (existing.rowCount) return;
-    if (!Object.prototype.hasOwnProperty.call(CLAIM_CATEGORIES, String(input.category))) throw new HttpError(400, "报销类别无效");
+    if (ctx.actor.role === "cs_supervisor") throw new HttpError(403,"请由客服发起报销");
+    const staff = ctx.actor.role === "cs";
+    const requestKey = uuid(input.requestKey);
+    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", ["reimbursement:"+requestKey]);
+    const existing = (await client.query("SELECT created_by FROM reimbursement_claims WHERE request_key=$1", [requestKey])).rows[0];
+    if (existing) {
+      if (existing.created_by !== ctx.actorId) throw new HttpError(409,"提交编号已被使用");
+      return;
+    }
+    if (!Array.isArray(input.proofs) || input.proofs.length < 1 || input.proofs.length > 3) {
+      throw new HttpError(400,"请上传 1 至 3 张付款截图或账单截图");
+    }
+    const proofs = input.proofs.map(readProof);
+    const team = staff ? await membershipOnDate(client,ctx.actorId,ctx.today) : undefined;
+    if (staff && !team) throw new HttpError(409,"当前客服账号未分配小组，请联系管理员");
+    if (!staff && !Object.hasOwn(CLAIM_CATEGORIES, String(input.category))) throw new HttpError(400, "报销类别无效");
     const amount = parseMoney(input.amount, "报销金额");
     if (moneyToCents(amount) <= 0n) throw new HttpError(400, "报销金额必须大于0");
-    const expenseId = typeof input.expenseId === "string" && input.expenseId ? input.expenseId : null;
+    const expenseId = !staff && typeof input.expenseId === "string" && input.expenseId ? input.expenseId : null;
     if (expenseId) {
       const pending = await pendingExpense(client, expenseId);
       if (moneyToCents(amount) > pending) throw new HttpError(400, "报销金额超过关联费用待付金额");
       const duplicate = await client.query("SELECT 1 FROM reimbursement_claims WHERE expense_id = $1 AND status <> 'rejected'", [expenseId]);
       if (duplicate.rowCount) throw new HttpError(409, "该费用已有报销单，请勿重复登记");
     }
-    const claimant = text(input.claimant, "报销人", 128);
-    const receipt = text(input.receiptRef, "凭证编号", 128);
+    const claimant = staff ? ctx.actor.displayName : text(input.claimant, "报销人", 128);
+    const receipt = "image:" + createHash("sha256").update(proofs[0].bytes).digest("hex");
     const duplicateReceipt = await client.query("SELECT 1 FROM reimbursement_claims WHERE status <> 'rejected' AND claimant = $1 AND receipt_ref = $2", [claimant, receipt]);
     if (duplicateReceipt.rowCount) throw new HttpError(409, "该报销人与凭证已有报销单，请核对");
     const expenseDate = dateOnOrBefore(input.expenseDate, ctx.today, "费用日期");
-    const claimDate = dateOnOrBefore(input.claimDate, ctx.today, "报销登记日期");
+    const claimDate = staff ? ctx.today : dateOnOrBefore(input.claimDate, ctx.today, "报销登记日期");
     if (expenseDate > claimDate) throw new HttpError(400, "费用日期不能晚于报销登记日期");
-    const department = typeof input.department === "string" ? input.department.trim().slice(0, 64) : "";
+    const department = team ? team.name : typeof input.department === "string" ? input.department.trim().slice(0, 64) : "";
     const note = typeof input.note === "string" ? input.note.trim().slice(0, 1000) : "";
     const saved = (await client.query(
       `INSERT INTO reimbursement_claims
-        (request_key, claimant, department, category, purpose, amount_cny, expense_date, claim_date, expense_id, receipt_ref, note, status, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pending',$12)
+        (request_key, claimant, department, category, purpose, amount_cny, expense_date, claim_date, expense_id, receipt_ref, note, status, created_by, workflow_stage, team_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pending',$12,$13,$14)
        RETURNING id`,
-      [requestKey, claimant, department, input.category, text(input.purpose, "报销事由", 500), amount, expenseDate, claimDate, expenseId, receipt, note, ctx.actorId]
+      [requestKey, claimant, department, staff ? "advance" : input.category, text(input.purpose, "报销事由", 500), amount, expenseDate, claimDate, expenseId, receipt, note, ctx.actorId, staff ? "supervisor" : "finance", team?.team_id ?? null]
     )).rows[0];
-    await writeAudit(client, { actorId: ctx.actorId, action: "reimbursement_create", entityType: "reimbursement_claim", entityId: saved.id, after: input, ip: ctx.ip });
+    for (const [position,proof] of proofs.entries()) {
+      await client.query("INSERT INTO reimbursement_proofs(claim_id,position,mime_type,image_bytes) VALUES($1,$2,$3,$4)",
+        [saved.id,position,proof.mime,proof.bytes]);
+    }
+    await writeAudit(client, { actorId: ctx.actorId, action: "reimbursement_create", entityType: "reimbursement_claim", entityId: saved.id, after: { proofCount: proofs.length, stage: staff ? "supervisor" : "finance" }, ip: ctx.ip });
     return;
   }
 
-  const id = text(input.id, "报销单", 80);
-  const claim = (await client.query<{ id: string; status: string; version: number; amount_cny: string; expense_id: string | null; expense_date: string; claimant: string }>(
-    `SELECT id::text, status, version, amount_cny::text, expense_id::text, expense_date::text, claimant
+  if (ctx.actor.role === "cs") throw new HttpError(403,"客服只能发起报销");
+  const id = uuid(input.id);
+  const claim = (await client.query<{ id: string; status: string; version: number; amount_cny: string; expense_id: string | null; expense_date: string; claimant: string; team_id: string | null; workflow_stage: string }>(
+    `SELECT id::text, status, version, amount_cny::text, expense_id::text, expense_date::text, claimant, team_id, workflow_stage
        FROM reimbursement_claims WHERE id = $1 FOR UPDATE`,
     [id]
   )).rows[0];
-  if (!claim) throw new HttpError(404, "报销单不存在");
+  if (!claim || (ctx.actor.role === "cs_supervisor" && (!claim.team_id || !ctx.scope.includes(claim.team_id)))) {
+    throw new HttpError(404, "报销单不存在");
+  }
   if (Number(input.version) !== claim.version) throw new HttpError(409, "报销单已更新，请刷新后重试");
+
+  if (ctx.actor.role === "cs_supervisor") {
+    const forward = input.action === "forward";
+    const returned = input.action === "supervisorReturn";
+    if (!forward && !returned) throw new HttpError(403,"主管仅可提交财务或退回客服");
+    if (claim.workflow_stage !== "supervisor") throw new HttpError(409,"凭证不存在?");
+    const reason = returned ? text(input.reason,"主管仅可提交财务或退回客服",500) : null;
+    await client.query(
+      `UPDATE reimbursement_claims SET workflow_stage=$2,status=$3,supervisor_note=$4,
+          forwarded_by=$5,forwarded_at=CASE WHEN $5::uuid IS NULL THEN NULL ELSE now() END,version=version+1 WHERE id=$1`,
+      [id,forward ? "finance" : "supervisor_returned",forward ? "pending" : "rejected",reason,forward ? ctx.actorId : null]
+    );
+    await writeAudit(client,{actorId:ctx.actorId,action:forward ? "reimbursement_forward" : "reimbursement_supervisor_return",entityType:"reimbursement_claim",entityId:id,after:{reason},ip:ctx.ip});
+    return;
+  }
+  if (claim.workflow_stage !== "finance") throw new HttpError(409,"该记录尚未进入财务报销流程");
 
   if (input.action === "review") {
     if (claim.status !== "pending") throw new HttpError(409, "该报销单已处理");

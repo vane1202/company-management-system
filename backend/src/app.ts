@@ -72,7 +72,11 @@ export function createApp(db: Pool, config: AppConfig) {
     })
   );
   app.disable("x-powered-by");
-  app.use(express.json({ limit: "200kb" }));
+  const parseJson = express.json({ limit: "200kb" });
+  app.use((req, res, next) => {
+    if (req.method === "POST" && /^\/api\/finance\/reimbursements\/?$/i.test(req.path)) return next();
+    parseJson(req, res, next);
+  });
 
   app.use((req, res, next) => {
     const origin = req.get("origin");
