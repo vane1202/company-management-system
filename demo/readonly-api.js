@@ -818,9 +818,10 @@
     if(role==='finance'&&path!=='/api/finance'&&path!=='/api/orders'&&!path.startsWith('/api/order-records/'))return json({error:"演示财务仅可查看收款、结算与工资"},403);
     if(path==="/api/finance"&&["finance","boss"].includes(role))return json({payments,settlements,summary:{pending:{CNY:"0.00",TWD:"1200.00",USD:"90.00",SGD:"0.00",HKD:"0.00"},directCny:"1290.50",settledCny:"323.40",totalCny:"1613.90"}});
     if(path==="/api/order-records/persona-options"&&["cs","cs_supervisor","boss"].includes(role)){
+      const excluded=new Set(['人设集体视频','客户视频','成品素材','直播预告']);
       const names=new Set(editors.map(e=>String(e.personaName||'').trim()).filter(Boolean));
       try{const stored=JSON.parse(window.sessionStorage.getItem('cms-demo-editor-history-v1')||'null');if(Array.isArray(stored))stored.forEach(r=>(r.lines||[]).forEach(l=>{const n=String(l.personaName||'').trim();if(n)names.add(n);}));}catch{}
-      return json({personas:[...names].sort((a,b)=>a.localeCompare(b,'zh-Hans-CN'))});
+      return json({personas:[...names].filter(n=>!excluded.has(n)).sort((a,b)=>a.localeCompare(b,'zh-Hans-CN'))});
     }
     if(path.startsWith("/api/order-records/")&&["boss","cs_supervisor","finance"].includes(role)){const id=path.slice("/api/order-records/".length);const order=visibleOrders().find(o=>o.id===id);return order?json(orderRecord(order)):json({error:"订单不存在或不在演示可见范围"},404);}
     if(path==="/api/admin/users"&&role==="admin")return json({users:staff});

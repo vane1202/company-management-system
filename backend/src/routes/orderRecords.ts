@@ -42,7 +42,10 @@ export function createOrderRecordsRouter(db: Pool, config: AppConfig) {
   });
   router.get("/persona-options",async(_req,res,next)=>{
     try {
-      const {rows}=await db.query<{name:string}>("SELECT DISTINCT TRIM(persona_name) AS name FROM editor_reports WHERE TRIM(COALESCE(persona_name,''))<>'' ORDER BY 1");
+      const {rows}=await db.query<{name:string}>(
+        "SELECT DISTINCT TRIM(persona_name) AS name FROM editor_reports WHERE TRIM(COALESCE(persona_name,''))<>'' AND TRIM(persona_name) <> ALL($1::text[]) ORDER BY 1",
+        [["人设集体视频","客户视频","成品素材","直播预告"]]
+      );
       res.set("Cache-Control","private, no-store").json({personas:rows.map(row=>row.name)});
     } catch(error) { next(error); }
   });
