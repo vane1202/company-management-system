@@ -1,5 +1,5 @@
 import ReimbursementWorkspace from "./demo/ReimbursementWorkspace";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { leadApi } from "./leadApi";
 import { api, type CsAccount, type Order, type User } from "./api";
 import { cents, money } from "./commerceUi";
@@ -12,6 +12,7 @@ import { LeadWorkspace } from "./LeadWorkspace";
 import { Field, OrderWorkspace } from "./OrderWorkspace";
 import { PeriodToolbar, type StandardPreset } from "./PeriodToolbar";
 import { RequestCsBinding } from "./CsBindingControls";
+import { isServiceAccount } from "./serviceAccounts";
 import "./demo/customer-fill.css";
 import "./fill-ui.css";
 import "./demo/role-workbenches.css";
@@ -45,20 +46,15 @@ function resolvePage(): FillPage {
 export function CsWorkbench({
   today,
   user,
-  canChangePassword,
-  onOpenPassword,
   onLogout,
-  onDeviceActivated,
-  passwordCard
+  onDeviceActivated
 }: {
   today: string;
   user: User;
-  canChangePassword: boolean;
-  onOpenPassword: () => void;
   onLogout: () => void;
   onDeviceActivated: (user: User) => void | Promise<void>;
-  passwordCard?: ReactNode;
 }) {
+  const isEmployeeAccount = !isServiceAccount(user.accountKind);
   const [page, setPage] = useState<FillPage>(resolvePage);
   const [accounts, setAccounts] = useState<CsAccount[]>([]);
   const [accountId, setAccountId] = useState("");
@@ -70,11 +66,11 @@ export function CsWorkbench({
 
   useEffect(() => {
     let active = true;
-    setLoadingAccounts(canChangePassword);
+    setLoadingAccounts(isEmployeeAccount);
     setAccounts([]);
     setAccountId("");
     setAccountError("");
-    if (canChangePassword) api
+    if (isEmployeeAccount) api
       .csAccounts()
       .then(data => {
         if (!active) return;
@@ -96,7 +92,7 @@ export function CsWorkbench({
       active = false;
       window.removeEventListener("popstate", onPop);
     };
-  }, [today, user.id, canChangePassword]);
+  }, [today, user.id, isEmployeeAccount]);
 
   const selectedAccount = accounts.find(item => item.id === accountId) ?? null;
 
@@ -167,18 +163,11 @@ export function CsWorkbench({
               {selectedOrderId ? "返回订单列表" : "返回工作台"}
             </button>
           )}
-          {canChangePassword && (
-            <button type="button" className="secondary" onClick={onOpenPassword}>
-              修改密码
-            </button>
-          )}
           <button type="button" className="secondary" onClick={onLogout}>
             退出
           </button>
         </div>
       </header>
-
-      {passwordCard}
 
       <section className="card fill-account fill-account-bar" aria-label="填报身份">
         <div className="fill-identity-fields">
@@ -190,8 +179,8 @@ export function CsWorkbench({
               <span className="fill-identity-text">
                 <strong>{user.displayName}</strong>
                 <span>
-                  {canChangePassword ? "已登录客服账号" : "已绑定接待账号"}
-                  {canChangePassword && (selectedAccount
+                  {isEmployeeAccount ? "已登录客服账号" : "已绑定接待账号"}
+                  {isEmployeeAccount && (selectedAccount
                     ? ` · ${selectedAccount.wechatId}`
                     : accounts.length
                       ? ` · 本组可用接待账号 ${accounts.length} 个`
@@ -200,7 +189,7 @@ export function CsWorkbench({
               </span>
             </div>
           </div>
-          {canChangePassword && accounts.length > 0 && <Field label="接待账号">
+          {isEmployeeAccount && accounts.length > 0 && <Field label="接待账号">
             <select
               aria-label="选择接待账号"
               value={accountId}
@@ -223,7 +212,7 @@ export function CsWorkbench({
             </select>
           </Field>}
         </div>
-        {page === "home" && canChangePassword && selectedAccount &&
+        {page === "home" && isEmployeeAccount && selectedAccount &&
           <RequestCsBinding key={selectedAccount.id} accountId={selectedAccount.id} onActivate={onDeviceActivated} />}
         {accountError && (
           <p className="error" role="alert">
@@ -234,7 +223,7 @@ export function CsWorkbench({
 
       <nav className="fill-nav" aria-label="客服工作台导航">
         <button type="button" className="secondary" aria-pressed={page==="home"} onClick={()=>navigate("home")}>工作台首页</button>
-        {modules.filter(item=>canChangePassword||item.id!=="reimbursements").map(item=><button key={item.id} type="button" className="secondary" aria-pressed={page===item.id} onClick={()=>{setSelectedOrderId("");navigate(item.id);}}>{item.title}</button>)}
+        {modules.filter(item=>isEmployeeAccount||item.id!=="reimbursements").map(item=><button key={item.id} type="button" className="secondary" aria-pressed={page===item.id} onClick={()=>{setSelectedOrderId("");navigate(item.id);}}>{item.title}</button>)}
       </nav>
 
       {page === "home" && <>
@@ -243,7 +232,7 @@ export function CsWorkbench({
           <button type="button" className="secondary" disabled={checking||progress.checked||progress.leads!==0} onClick={()=>void checkIn()}>{progress.checked?"今日已打卡":"今日 0 粉打卡"}</button>
         </section>
         <div className="fill-home-grid" aria-label="客服业务入口">
-          {modules.filter(item=>canChangePassword||item.id!=="reimbursements").map((item,index)=><article className={`card fill-home-card ${index===1?"fill-hero":""}`} key={item.id}>
+          {modules.filter(item=>isEmployeeAccount||item.id!=="reimbursements").map((item,index)=><article className={`card fill-home-card ${index===1?"fill-hero":""}`} key={item.id}>
             <h2><DashboardIcon name={item.icon}/>{item.title}</h2>
             <strong>{[progress.leads,progress.orders,progress.tails][index]??"—"}</strong>
             <small>{["今日已登记客资","本月有效开单","待收尾款单数"][index]} · {item.detail}</small>
@@ -274,7 +263,7 @@ export function CsWorkbench({
         />
       )}
 
-      {canChangePassword && page === "reimbursements" && <ReimbursementWorkspace today={today} mode="staff" />}
+      {isEmployeeAccount && page === "reimbursements" && <ReimbursementWorkspace today={today} mode="staff" />}
       {page === "performance" && (
         <CsPersonalPerformance
           today={today}

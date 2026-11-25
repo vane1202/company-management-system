@@ -161,16 +161,12 @@ export function App() {
 
   if (DemoCustomerFill && user.role === "cs") return <Suspense fallback={<p role="status">正在打开客服填报…</p>}><DemoCustomerFill today={today} /></Suspense>;
   if (user.role === "cs") {
-    const canChangeCsPassword = !isServiceAccount(user.accountKind);
     return (
       <CsWorkbench
         today={today}
         user={user}
-        canChangePassword={canChangeCsPassword}
-        onOpenPassword={() => setPasswordOpen(true)}
         onLogout={logout}
         onDeviceActivated={hydrateUser}
-        passwordCard={passwordOpen && canChangeCsPassword ? <SelfChangePasswordCard user={user} onClose={() => setPasswordOpen(false)} /> : null}
       />
     );
   }
