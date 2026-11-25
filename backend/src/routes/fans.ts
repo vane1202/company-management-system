@@ -4,6 +4,7 @@ import type { Pool } from "pg";
 import { writeAudit } from "../audit.js";
 import { query, queryOne } from "../db.js";
 import { businessToday, diffDays, isIsoDate, toDateOnly } from "../lib/dates.js";
+import { teamOrderSql } from "../lib/teamOrder.js";
 import {
   FAN_STATS_INCOMPLETE_NOTE,
   fanDetailFieldsEqual,
@@ -648,7 +649,7 @@ async function buildFanSummaries(
   const teams = teamIds.length
     ? await query<{ id: string; name: string }>(
         db,
-        `SELECT id, name FROM teams WHERE id = ANY($1::uuid[]) ORDER BY name`,
+        `SELECT id, name FROM teams WHERE id = ANY($1::uuid[]) ORDER BY ${teamOrderSql()}`,
         [teamIds]
       )
     : [];

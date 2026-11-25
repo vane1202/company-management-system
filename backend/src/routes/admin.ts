@@ -4,6 +4,7 @@ import { writeAudit } from "../audit.js";
 import { query, queryOne, withTransaction } from "../db.js";
 import { isIsoDate } from "../lib/dates.js";
 import { generateTemporaryPassword, hashPassword, validatePassword } from "../lib/password.js";
+import { teamOrderSql } from "../lib/teamOrder.js";
 import { HttpError, type UserRole } from "../types.js";
 import { isBossOrAdmin, normalizeUsername, setUserTeamMembership, setUserTeamMemberships } from "../users.js";
 
@@ -36,7 +37,7 @@ export function createAdminRouter(db: Pool): Router {
                JOIN users u ON u.id = ss.supervisor_id
               WHERE ss.team_id = t.id
            ) s ON TRUE
-          ORDER BY t.name`
+          ORDER BY ${teamOrderSql("t")}`
       );
       res.json({
         teams: teams.map((team) => ({
@@ -120,14 +121,15 @@ export function createAdminRouter(db: Pool): Router {
       if (!UUID_RE.test(id)) throw new HttpError(400, "小组不存在");
       const before = await queryOne<{ id: string; name: string }>(db, "SELECT id, name FROM teams WHERE id = $1", [id]);
       if (!before) throw new HttpError(404, "小组不存在");
-      const links = await queryOne<{ members: number; supervisors: number; reports: number; leads: number; codes: number }>(
+      const links = await queryOne<{ members: number; supervisors: number; reports: number; leads: number; codes: number; orders: number }>(
         db,
         `SELECT
            (SELECT count(*)::int FROM team_memberships WHERE team_id = $1) AS members,
            (SELECT count(*)::int FROM supervisor_scopes WHERE team_id = $1) AS supervisors,
            (SELECT count(*)::int FROM fan_reports WHERE team_id = $1) AS reports,
            (SELECT count(*)::int FROM fan_leads WHERE team_id = $1) AS leads,
-           (SELECT count(*)::int FROM cs_registration_codes WHERE team_id = $1) AS codes`,
+           (SELECT count(*)::int FROM cs_registration_codes WHERE team_id = $1) AS codes,
+           (SELECT count(*)::int FROM orders WHERE performance_team_id = $1) AS orders`,
         [id]
       );
       const parts: string[] = [];
@@ -136,6 +138,7 @@ export function createAdminRouter(db: Pool): Router {
       if (links?.reports) parts.push(links.reports + " 条加粉日报");
       if (links?.leads) parts.push(links.leads + " 条客户线索");
       if (links?.codes) parts.push(links.codes + " 条登记码");
+      if (links?.orders) parts.push(links.orders + " 笔业绩订单");
       if (parts.length) throw new HttpError(409, "这个小组还有" + parts.join("、") + "，不能删除。可以改名。");
       try {
         await queryOne(db, "DELETE FROM teams WHERE id = $1", [id]);
@@ -174,7 +177,7 @@ export function createAdminRouter(db: Pool): Router {
                 ) AS current_team,
                 (
                   SELECT COALESCE(
-                    json_agg(json_build_object('id', t.id, 'name', t.name) ORDER BY t.name, m.start_date),
+                    json_agg(json_build_object('id', t.id, 'name', t.name) ORDER BY ${teamOrderSql("t")}, m.start_date),
                     '[]'::json
                   )
                     FROM (

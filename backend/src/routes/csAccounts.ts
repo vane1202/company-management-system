@@ -5,6 +5,7 @@ import type { Pool } from "pg";
 import { query, queryOne } from "../db.js";
 import { writeAudit } from "../audit.js";
 import { HttpError } from "../types.js";
+import { teamOrderSql } from "../lib/teamOrder.js";
 import { businessToday, isIsoDate } from "../lib/dates.js";
 import { hashPassword } from "../lib/password.js";
 import { newRegistrationCode, normalizeRegistrationCode, parseAccountId, parseWechatId, parseServiceIdentity, registrationHash, serviceLabel } from "../lib/csAccounts.js";
@@ -24,7 +25,7 @@ export function createCsAccountsRouter(db: Pool, config: AppConfig): Router {
   router.get("/teams", async (req, res, next) => {
     try {
       const ids = await managedTeamIds(db, req.actor!);
-      res.json({ teams: await query(db, "SELECT id,name FROM teams WHERE id=ANY($1::uuid[]) AND is_active=TRUE ORDER BY name", [ids]) });
+      res.json({ teams: await query(db, `SELECT id,name FROM teams WHERE id=ANY($1::uuid[]) AND is_active=TRUE ORDER BY ${teamOrderSql()}`, [ids]) });
     } catch (error) { next(error); }
   });
   router.get("/", async (req, res, next) => {

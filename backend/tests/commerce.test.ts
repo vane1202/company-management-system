@@ -121,6 +121,7 @@ describe("成交、客户付款与财务结算隔离",()=>{
  it('志伟组可只读查看跨组的志伟线订单，不扩大历史小组写权限',async()=>{
   const team=(await db.query("INSERT INTO teams(name) VALUES('志伟组') RETURNING id")).rows[0].id;
   const scoped=await order({projectLine:'志伟线'});
+  await db.query("UPDATE orders SET performance_team_id=NULL WHERE id=$1",[scoped]);
   const ordinary=await order({projectLine:'一线'});
   await get('unassigned','/api/order-records/'+scoped).expect(404);
   await db.query("INSERT INTO supervisor_scopes(supervisor_id,team_id) VALUES($1,$2)",[users.unassigned,team]);
@@ -174,6 +175,8 @@ describe("成交、客户付款与财务结算隔离",()=>{
   for(const [name,role] of [["production","editor"],["operations","ops"],["cashier","cs"],["othercs","cs"],["boss","boss"],["admin","admin"],["finance","finance"],["supervisor","cs_supervisor"],["unassigned","cs_supervisor"]])users[name]=(await db.query("INSERT INTO users(username,display_name,password_hash,role,must_change_password) VALUES($1,$1,$2,$3,FALSE) RETURNING id",[name,hash,role])).rows[0].id;
   const team=(await db.query("INSERT INTO teams(name) VALUES('虚构测试组') RETURNING id")).rows[0].id;
   await db.query("INSERT INTO team_memberships(user_id,team_id,start_date) VALUES($1,$2,$3)",[users.cashier,team,today]);await db.query("INSERT INTO supervisor_scopes(supervisor_id,team_id) VALUES($1,$2)",[users.supervisor,team]);app=createApp(db,config);
+  const historicalTeam=(await db.query("INSERT INTO teams(name) VALUES('虚构历史组') RETURNING id")).rows[0].id;
+  await db.query("INSERT INTO team_memberships(user_id,team_id,start_date,end_date) VALUES($1,$2,($3::date-30),($3::date-1))",[users.cashier,historicalTeam,today]);
   for(const name of Object.keys(users)){const agent=request.agent(app),token=(await agent.get("/api/auth/csrf")).body.csrfToken;const r=await agent.post("/api/auth/login").set("Origin",origin).set("X-CSRF-Token",token).send({username:name,password}).expect(200);clients[name]={agent,token:r.body.csrfToken};}
  });
  afterAll(async()=>{await db?.end();});

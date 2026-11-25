@@ -55,6 +55,8 @@ describe("production warehouse workflow in an isolated database", () => {
       const login = await agent.post("/api/auth/login").set("Origin", origin).set("X-CSRF-Token", csrf).send({ username, password }).expect(200);
       clients[role] = { agent, id, token: login.body.csrfToken };
     }
+    const teamId = (await db.query("INSERT INTO teams(name) VALUES('客服一组') RETURNING id")).rows[0].id;
+    await db.query("INSERT INTO team_memberships(user_id,team_id,start_date) VALUES($1,$2,'2020-01-01')", [clients.cs.id, teamId]);
   });
   afterAll(async () => { await db?.end(); });
 

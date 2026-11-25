@@ -10,6 +10,15 @@ import { afterSaleCharge, amount, cancellationOrder, buyingFee, currency, dateFi
 
 import { effectiveDue, orderIdentity } from "../lib/orderLifecycle.js";
 import { createOrderChargesRouter } from "./orderCharges.js";
+import { teamOrderSql } from "../lib/teamOrder.js";
+
+async function orderTeams(db: Pool | PoolClient, userId: string, date: string, lock = false) {
+  const {rows} = await db.query<{id: string; name: string}>(`
+    SELECT t.id,t.name FROM team_memberships m JOIN teams t ON t.id=m.team_id
+    WHERE m.user_id=$1 AND m.start_date<=$2::date AND (m.end_date IS NULL OR m.end_date>=$2::date)
+      AND t.is_active ORDER BY ${teamOrderSql("t")} ${lock ? 'FOR SHARE OF m,t' : ''}`, [userId,date]);
+  return [...new Map(rows.map(team=>[team.id,team])).values()];
+}
 
 export function createOrderRecordsRouter(db: Pool, config: AppConfig) {
   const router=Router();
@@ -23,6 +32,14 @@ export function createOrderRecordsRouter(db: Pool, config: AppConfig) {
   };
   const audit=(c:PoolClient,req:Request,action:string,id:string,data:unknown)=>writeAudit(c,{actorId:req.actor!.id,action,entityType:"order",entityId:id,after:data,ip:req.ip});
   const touch=async(c:PoolClient,id:string)=>{await c.query("UPDATE orders SET updated_at=now(),review_version=review_version+1 WHERE id=$1",[id]);await c.query("UPDATE order_details SET version=version+1 WHERE order_id=$1",[id]);};
+  router.get("/performance-teams",async(req,res,next)=>{
+    try {
+      if(req.actor!.role!=="cs")throw new HttpError(403,"仅客服可查询本人的开单小组");
+      const date=dateField(req.query.date,config.businessTimezone);
+      const teams=await orderTeams(db,req.actor!.id,date);
+      res.set("Cache-Control","private, no-store").json({teams});
+    } catch(error) { next(error); }
+  });
   router.post("/",mutate(async(c,req)=>{
     if(req.actor!.role!=="cs")throw new HttpError(403,"仅客服可填报订单");
     const b=req.body ?? {}, key=uuid(b.requestKey);
@@ -38,14 +55,20 @@ export function createOrderRecordsRouter(db: Pool, config: AppConfig) {
     const materialLotNo=textField(b.materialLotNo??"","料号",64,false);
     const projectLine=textField(b.projectLine??"","项目线",64,false);
     const body={owner:req.actor!.id,businessDate,orderRef,customerLabel:textField(b.customerLabel,"客户称呼",64),personaName:textField(b.personaName,"人设"),...orderIdentity(b),operatorName:textField(b.operatorName,"经办客服"),dealChannel,projectLine,materialCostCny,materialLotNo,source:textField(b.source??"","来源",128,false),note:textField(b.note??"","备注",500,false),customerCurrency:cur,customerDue:cur==="CNY"?total:amount(b.customerDue,"客户约定总应收",true),items};
-    const hash=hashPayload(body), old=await replay(c,"order_details",key,hash);
+    const requestedTeam = b.performanceTeamId ? uuid(b.performanceTeamId) : null;
+    const hash=hashPayload(requestedTeam ? {...body,performanceTeamId:requestedTeam} : body);
+    const old=await replay(c,"order_details",key,hash);
     if(old)return {id:old.order_id,replayed:true};
-    const o=(await c.query(`INSERT INTO orders(user_id,business_date,order_ref,customer_label,amount,status,is_custom,note,last_submitted_by,material_cost_cny,material_lot_no) VALUES($1,$2,$3,$4,$5,'placed',FALSE,$6,$1,$7,$8) RETURNING id`,[body.owner,body.businessDate,body.orderRef,body.customerLabel,total,body.note,body.materialCostCny,body.materialLotNo])).rows[0];
+    const teams=await orderTeams(c,body.owner,businessDate,true);
+    if(!teams.length)throw new HttpError(409,"开单日没有可用的所属小组，请联系管理员分配");
+    const team=requestedTeam ? teams.find(item=>item.id===requestedTeam) : teams.length===1 ? teams[0] : undefined;
+    if(!team)throw new HttpError(400,requestedTeam?"请选择开单日所属的有效小组":"请选择这笔成交的业绩归属小组");
+    const o=(await c.query(`INSERT INTO orders(user_id,business_date,order_ref,customer_label,amount,status,is_custom,note,last_submitted_by,material_cost_cny,material_lot_no,performance_team_id) VALUES($1,$2,$3,$4,$5,'placed',FALSE,$6,$1,$7,$8,$9) RETURNING id`,[body.owner,body.businessDate,body.orderRef,body.customerLabel,total,body.note,body.materialCostCny,body.materialLotNo,team.id])).rows[0];
     await c.query(`INSERT INTO order_details(order_id,persona_name,operator_name,source,customer_currency,customer_due,request_key,payload_hash,deal_channel,project_line) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,[o.id,body.personaName,body.operatorName,body.source,cur,body.customerDue,key,hash,body.dealChannel,body.projectLine]);
     await c.query("UPDATE order_details SET persona_code=$2,live_room_code=$3,host_name=$4,customer_code=$5 WHERE order_id=$1",[o.id,body.personaCode,body.liveRoomCode,body.hostName,body.customerCode]);
     const itemIds:string[]=[];
     for(const i of items){const ins=(await c.query("INSERT INTO order_items(order_id,label,material_ref,kind,price_cny,buying_fee_cny,sourcing_no_settle) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id",[o.id,i.label,i.materialRef,i.kind,i.priceCny,i.buyingFeeCny,i.sourcingNoSettle])).rows[0];itemIds.push(ins.id);}
-    await audit(c,req,"order_record_create",o.id,body);
+    await audit(c,req,"order_record_create",o.id,{...body,performanceTeamId:team.id});
     return {id:o.id,itemIds};
   }));
   router.get("/:id", (req, res, next) => {

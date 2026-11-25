@@ -6,6 +6,7 @@ import { query } from "../db.js";
 import { managedTeamIds, type Actor } from "../users.js";
 import { businessToday, isIsoDate } from "../lib/dates.js";
 import { readableOrderTeamScope } from "../lib/commerce.js";
+import { teamOrderSql } from "../lib/teamOrder.js";
 import { writeAudit } from "../audit.js";
 
 const KINDS = new Set(["fans", "orders", "after-sales", "attendance"]);
@@ -28,7 +29,7 @@ export function createPeopleWorkbenchRouter(db: Pool, _config: AppConfig): Route
       const visible = await scope(db, actor);
       const today = businessToday(new Date(), _config.businessTimezone);
       const teams = (await query<{ id: string; name: string }>(db,
-        `SELECT id::text, name FROM teams WHERE is_active AND ($1::boolean OR id = ANY($2::uuid[])) ORDER BY name`,
+        `SELECT id::text, name FROM teams WHERE is_active AND ($1::boolean OR id = ANY($2::uuid[])) ORDER BY ${teamOrderSql()}`,
         [visible.all, visible.teams])).map(row => ({ id: row.id, name: row.name }));
       const people = await query<{ id: string; code: string; name: string; active: boolean; team_id: string | null }>(db,
         `SELECT u.id::text, u.username AS code, u.display_name AS name, u.is_active AS active, m.team_id::text
@@ -95,7 +96,8 @@ export function createPeopleWorkbenchRouter(db: Pool, _config: AppConfig): Route
         `SELECT o.id::text, o.user_id::text AS account_id, o.business_date::text, COALESCE(o.customer_label, '') AS customer_label,
                 o.user_id::text AS employee_id, d.deal_channel,
                 COALESCE(NULLIF(TRIM(d.operator_name), ''), '待确认归属') AS operator_name,
-                CASE WHEN TRIM(d.project_line) IN ('志伟线', '志伟组') THEN '志伟组' ELSE t.name END AS team_name,
+                CASE WHEN o.performance_team_id IS NOT NULL THEN performance_team.name
+                     WHEN TRIM(d.project_line) IN ('志伟线', '志伟组') THEN '志伟组' ELSE t.name END AS team_name,
                 CASE WHEN d.deal_channel = 'private' THEN
                   COALESCE((SELECT SUM(i.price_cny + i.buying_fee_cny) FROM order_items i WHERE i.order_id = o.id), o.amount)::numeric(14,2)::text
                 END AS booking_amount,
@@ -108,6 +110,7 @@ export function createPeopleWorkbenchRouter(db: Pool, _config: AppConfig): Route
               ORDER BY start_date DESC LIMIT 1
            ) m ON TRUE
            LEFT JOIN teams t ON t.id = m.team_id
+           LEFT JOIN teams performance_team ON performance_team.id=o.performance_team_id
           WHERE ($1::boolean OR ${readableOrderTeamScope(2)} OR ($3::boolean AND o.user_id = $4::uuid))`,
         [visible.all, visible.teams, visible.self, actor.id]));
       const assessmentOrders = orders.map(row => ({
@@ -181,9 +184,9 @@ export function createPeopleWorkbenchRouter(db: Pool, _config: AppConfig): Route
              LEFT JOIN LATERAL (
                SELECT team_id FROM team_memberships WHERE user_id = o.user_id AND start_date <= o.business_date AND (end_date IS NULL OR end_date >= o.business_date)
                ORDER BY start_date DESC LIMIT 1) m ON TRUE
-             LEFT JOIN teams t ON t.id = m.team_id
+             LEFT JOIN teams t ON t.id = COALESCE(o.performance_team_id,m.team_id)
             WHERE o.business_date BETWEEN $5::date AND $6::date
-              AND ($1::boolean OR m.team_id = ANY($2::uuid[]) OR ($3::boolean AND o.user_id = $4::uuid))
+              AND ($1::boolean OR ${readableOrderTeamScope(2)} OR ($3::boolean AND o.user_id = $4::uuid))
               AND ($7::text = '' OR o.user_id::text = $7)
             ORDER BY o.business_date DESC, o.order_ref`,
           [visible.all, visible.teams, visible.self, actor.id, from, to, accountFilter])).map(row => fieldRecord(row, "orders", "开单记录", "正式订单", [
@@ -203,9 +206,9 @@ export function createPeopleWorkbenchRouter(db: Pool, _config: AppConfig): Route
              LEFT JOIN LATERAL (
                SELECT team_id FROM team_memberships WHERE user_id = o.user_id AND start_date <= e.business_date AND (end_date IS NULL OR end_date >= e.business_date)
                ORDER BY start_date DESC LIMIT 1) m ON TRUE
-             LEFT JOIN teams t ON t.id = m.team_id
+             LEFT JOIN teams t ON t.id = COALESCE(o.performance_team_id,m.team_id)
             WHERE e.voided_at IS NULL AND e.business_date BETWEEN $5::date AND $6::date
-              AND ($1::boolean OR m.team_id = ANY($2::uuid[]) OR ($3::boolean AND o.user_id = $4::uuid))
+              AND ($1::boolean OR COALESCE(o.performance_team_id,m.team_id) = ANY($2::uuid[]) OR ($3::boolean AND o.user_id = $4::uuid))
               AND ($7::text = '' OR o.user_id::text = $7)
             ORDER BY e.business_date DESC`,
           [visible.all, visible.teams, visible.self, actor.id, from, to, accountFilter])).map(row => fieldRecord(row, "after-sales", "售后费用", "正式费用", [

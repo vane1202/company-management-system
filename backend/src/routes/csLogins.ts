@@ -5,6 +5,7 @@ import { writeAudit } from "../audit.js";
 import { query, queryOne, withTransaction } from "../db.js";
 import { businessToday, isIsoDate } from "../lib/dates.js";
 import { hashPassword, validatePassword } from "../lib/password.js";
+import { compareTeamNames, teamOrderSql } from "../lib/teamOrder.js";
 import { HttpError } from "../types.js";
 import { managedTeamIds, normalizeUsername, setUserTeamMemberships } from "../users.js";
 
@@ -24,7 +25,7 @@ export function createCsLoginsRouter(db: Pool, config: AppConfig): Router {
     try {
       const teamIds = await managedTeamIds(db, req.actor!);
       const teams = teamIds.length
-        ? await query<{ id: string; name: string }>(db, "SELECT id, name FROM teams WHERE is_active = TRUE AND id = ANY($1::uuid[]) ORDER BY name", [teamIds])
+        ? await query<{ id: string; name: string }>(db, `SELECT id, name FROM teams WHERE is_active = TRUE AND id = ANY($1::uuid[]) ORDER BY ${teamOrderSql()}`, [teamIds])
         : [];
       const users = teamIds.length
         ? await query<{ id: string; username: string; display_name: string; is_active: boolean; must_change_password: boolean; team_id: string; team_ids: string[]; team_name: string }>(
@@ -42,18 +43,24 @@ export function createCsLoginsRouter(db: Pool, config: AppConfig): Router {
             [teamIds]
           )
         : [];
+      const orderedUsers = users
+        .map((user) => {
+          const sortedNames = [...new Set(user.team_name.split("、").filter(Boolean))].sort(compareTeamNames);
+          return {
+            id: user.id,
+            username: user.username,
+            displayName: user.display_name,
+            isActive: user.is_active,
+            mustChangePassword: user.must_change_password,
+            teamId: user.team_id,
+            teamIds: Array.isArray(user.team_ids) ? user.team_ids : [user.team_id],
+            teamName: sortedNames.join("、")
+          };
+        })
+        .sort((a, b) => compareTeamNames(a.teamName.split("、")[0] ?? "", b.teamName.split("、")[0] ?? "") || a.displayName.localeCompare(b.displayName, "zh-CN"));
       res.json({
         teams: teams.map((team) => ({ id: team.id, name: team.name })),
-        users: users.map((user) => ({
-          id: user.id,
-          username: user.username,
-          displayName: user.display_name,
-          isActive: user.is_active,
-          mustChangePassword: user.must_change_password,
-          teamId: user.team_id,
-          teamIds: Array.isArray(user.team_ids) ? user.team_ids : [user.team_id],
-          teamName: user.team_name
-        }))
+        users: orderedUsers
       });
     } catch (error) {
       next(error);

@@ -165,6 +165,11 @@ function CustomerDetail({ today, customer, actor, crm, account, onMessage }: { t
   </div>;
 }
 
+const demoPerformanceTeams = [
+  {id:"practice-team-2", name:"客服二组"},
+  {id:"practice-team-zw", name:"志伟组"}
+];
+
 function OrderPractice({ today, operator, room, onPractice, customerName }: { customerName:string; today: string; operator: string; room?: { name: string; host: string }; onPractice: (value: CrmOrderDraft) => void }) {
   const drawer=useRef<HTMLDialogElement>(null);
   const [channel, setChannel] = useState<"live" | "private">("live");
@@ -175,7 +180,7 @@ function OrderPractice({ today, operator, room, onPractice, customerName }: { cu
     <header className="commerce-line"><h2>登记一笔成交</h2><button type="button" className="secondary" onClick={()=>drawer.current?.close()}>关闭</button></header>
     <div className="fill-history-mode" role="group" aria-label="成交渠道"><button type="button" aria-pressed={channel === "live"} onClick={() => setChannel("live")}>直播间开单</button><button type="button" aria-pressed={channel === "private"} onClick={() => setChannel("private")}>私推成交</button></div>
     {error && <p className="error" role="alert">{error}</p>}
-    <CreateOrder customerName={customerName} key={channel} channel={channel} today={today} operator={operator} registeredRoom={channel === "live" ? room : undefined} previewOnly onSaved={() => {}} onPractice={draft => { try { onPractice({ ...draft, channel }); setError(""); drawer.current?.close(); } catch (cause) { setError(toErrorMessage(cause)); } }} />
+    <CreateOrder customerName={customerName} practiceTeams={demoPerformanceTeams} key={channel} channel={channel} today={today} operator={operator} registeredRoom={channel === "live" ? room : undefined} previewOnly onSaved={() => {}} onPractice={draft => { try { onPractice({ ...draft, channel }); setError(""); drawer.current?.close(); } catch (cause) { setError(toErrorMessage(cause)); } }} />
     </div></dialog>
   </div>;
 }
@@ -200,7 +205,7 @@ function Performance({ employeeId, state, onOpen }: { employeeId: string; onOpen
     <div className="commerce-list">{rows.map(order=>{
       const customer=state.customers.find(item=>item.id===order.customerId);
       return <button type="button" key={order.id} className="commerce-record secondary" onClick={()=>onOpen(order.customerId)}>
-        <span><strong>{customer?.name||"客户"}</strong><small>{order.businessDate} · {order.id}</small><small>{order.channel==="private"?"客服私推":"直播间开单"}{order.cancelled?" · 已冲抵":""}</small></span>
+        <span><strong>{customer?.name||"客户"}</strong><small>{order.businessDate} · {order.id}</small><small>{order.channel==="private"?"客服私推":"直播间开单"}{order.performanceTeamName?` · ${order.performanceTeamName}`:""}{order.cancelled?" · 已冲抵":""}</small></span>
         <span className="commerce-amount">¥{centsToYuan(effectiveOrderCents(order))}<small>查看档案 →</small></span>
       </button>;
     })}</div>

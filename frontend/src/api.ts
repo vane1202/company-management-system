@@ -1,3 +1,4 @@
+import { compareTeamNames, sortTeams } from "./teamOrder";
 import type { AssessmentFoundation } from "./demo/assessmentFoundation";
 import { httpErrorMessage, networkErrorMessage } from "./errors";
 import { resolveImageMime } from "./imageMime";
@@ -89,6 +90,7 @@ export async function loadCsrf(): Promise<void> {
 }
 
 export const api = {
+  orderPerformanceTeams: (date: string) => requestInner<{teams:Team[]}>(`/api/order-records/performance-teams?date=${encodeURIComponent(date)}`).then(result=>sortTeams(result.teams)),
   orderRecord: (id: string) => requestInner<OrderRecord>(`/api/order-records/${encodeURIComponent(id)}`),
   paidPerformance:()=>requestInner<{records:PaidPerformanceRecord[]}>('/api/finance/live-performance'),
   createOrderRecord: (payload: Record<string, unknown>) => requestInner<{id:string;itemIds?:string[]}>("/api/order-records", {method:"POST",body:JSON.stringify(payload)}),
@@ -110,7 +112,7 @@ export const api = {
   adAction: (action:string,payload:Record<string,unknown>) => requestInner(`/api/ad-accounts${action?`/${action}`:""}`,{method:"POST",body:JSON.stringify(payload)}),
   financeAction: (action: string, payload: Record<string,unknown>) => requestInner<{id:string}>(`/api/finance/${action}`,{method:"POST",body:JSON.stringify(payload)}),
   csAccounts: (date?: string) => requestInner<{ accounts: CsAccount[] }>(`/api/cs-accounts${date ? `?date=${encodeURIComponent(date)}` : ""}`),
-  csLogins: () => requestInner<{ teams: { id: string; name: string }[]; users: { id: string; username: string; displayName: string; isActive: boolean; mustChangePassword: boolean; teamId: string; teamIds?: string[]; teamName: string }[] }>("/api/cs-logins"),
+  csLogins: () => requestInner<{ teams: { id: string; name: string }[]; users: { id: string; username: string; displayName: string; isActive: boolean; mustChangePassword: boolean; teamId: string; teamIds?: string[]; teamName: string }[] }>("/api/cs-logins").then(data=>({...data,teams:sortTeams(data.teams)})),
   csBindings: () => requestInner<{bindings: CsBinding[]}>("/api/cs-device-bindings"),
   requestCsBinding: (accountId: string, label: string) => requestInner("/api/cs-device-bindings", {method:"POST",body:JSON.stringify({accountId,label})}),
   changeCsBinding: (accountId: string, action: "activate" | "approve" | "unbind", bindingId?: string) =>
@@ -120,8 +122,8 @@ export const api = {
     requestInner<{record:SupervisorFollowup}>("/api/supervisor/order-followups",{method:"POST",body:JSON.stringify(input)}),
   createCsLogin: (payload: { username: string; displayName: string; password: string; teamId?: string; teamIds?: string[] }) => requestInner<{ user: { id: string; username: string; displayName: string; mustChangePassword: boolean } }>("/api/cs-logins", { method: "POST", body: JSON.stringify(payload) }),
   updateCsLoginTeams: (id: string, payload: { teamIds: string[]; effectiveDate?: string }) => requestInner<{ ok: boolean }>(`/api/cs-logins/${encodeURIComponent(id)}/teams`, { method: "PATCH", body: JSON.stringify(payload) }),
-  assessmentFoundation: () => requestInner<AssessmentFoundation>("/api/assessment/foundation"),
-  csTeams: () => requestInner<{ teams: Team[] }>("/api/cs-accounts/teams"),
+  assessmentFoundation: () => requestInner<AssessmentFoundation>("/api/assessment/foundation").then(data=>({...data, teams:data.teams&&sortTeams(data.teams)})),
+  csTeams: () => requestInner<{ teams: Team[] }>("/api/cs-accounts/teams").then(data=>({...data,teams:sortTeams(data.teams)})),
   createCsAccount:(payload:{platform:'whatsapp'|'messenger';accountIdentifier:string;teamId:string;phoneLabel:string;holderName:string})=>requestInner<{id:string}>('/api/cs-accounts',{method:'POST',body:JSON.stringify(payload)}),
   updateCsAccount: (id: string, payload: { accountIdentifier: string; phoneLabel: string; holderName: string; teamId?: string }) => requestInner<{ needsRegistration: boolean; teamChanged?: boolean }>(`/api/cs-accounts/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(payload) }),
   updateUser: (id: string, payload: Record<string, unknown>) => requestInner(`/api/admin/users/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(payload) }),
@@ -168,7 +170,7 @@ export const api = {
   fanSummary: (date: string, teamId?: string, accountId?: string) =>
     requestInner<{ date: string; teams: FanSummary[] }>(
       `/api/fan-reports/summary?date=${encodeURIComponent(date)}${teamId ? `&teamId=${encodeURIComponent(teamId)}` : ""}${accountId ? `&accountId=${encodeURIComponent(accountId)}` : ""}`
-    ),
+    ).then(data => ({ ...data, teams: [...data.teams].sort((a, b) => compareTeamNames(a.teamName, b.teamName)) })),
   fanPeriodSummary: (from: string, to: string) =>
     requestInner<{ from: string; to: string; totalAdded: number | null }>(
       "/api/fan-reports/period-summary?" + new URLSearchParams({ from, to })
@@ -203,7 +205,7 @@ export const api = {
   dashboardSeries: (to: string, days = 7) =>
     requestInner<FanSeries>(`/api/dashboard/series?${new URLSearchParams({ to, days: String(days) })}`),
   liveBusiness: (preset:string,range:{from:string;to:string}|undefined,filters:LiveBusinessFilters) => requestInner<LiveBusinessData>(`/api/dashboard/live-business?${new URLSearchParams({preset,...range,...filters})}`),
-  teams: () => requestInner<{ teams: Team[] }>("/api/admin/teams"),
+  teams: () => requestInner<{ teams: Team[] }>("/api/admin/teams").then(data=>({...data,teams:sortTeams(data.teams)})),
   createTeam: (payload: Record<string, unknown>) =>
     requestInner("/api/admin/teams", { method: "POST", body: JSON.stringify(payload) }),
   updateTeam: (id: string, payload: { name: string }) =>
@@ -323,6 +325,7 @@ export type Order = {
   accountKind?: string;
   teamId?: string | null;
   teamName?: string | null;
+  performanceTeamId?: string | null;
   businessDate: string;
   orderRef: string;
   customerLabel?: string | null;
@@ -363,7 +366,7 @@ export type AdTopup = {id:string;account_ref:string;paid_on:string;credited_usd:
 export type AdAccountsData = {accounts:AdAccount[];topups:AdTopup[];summary:{paidCny:string;creditedUsd:string;spentUsd:string;balanceUsd:string}};
 export type OrderRecord = {
   legacy:boolean;
-  order:{id:string;order_ref:string;customer_label:string;business_date:string;amount:string;status:string;historical_team_access?:boolean;cancelled?:boolean;wechat_id?:string;display_name:string;note?:string;custom_product_cost:string;labor_cost:string;shipping_cost:string;material_cost_cny?:string|null;material_lot_no?:string|null};
+  order:{id:string;order_ref:string;customer_label:string;business_date:string;amount:string;status:string;historical_team_access?:boolean;performance_team_id?:string|null;performance_team_name?:string|null;cancelled?:boolean;wechat_id?:string;display_name:string;note?:string;custom_product_cost:string;labor_cost:string;shipping_cost:string;material_cost_cny?:string|null;material_lot_no?:string|null};
   cancellations?:{id:string;booked_on:string;base_amount_cny:string;reason:string;created_at:string;created_by_name:string|null;voided_at:string|null;void_reason:string|null;voided_by_name:string|null}[];
   details?:{dealChannel?:"live"|"private";projectLine?:string;personaName:string;personaCode?:string;liveRoomCode?:string;hostName?:string;customerCode?:string;operatorName:string;source:string;customerCurrency:Currency;customerDue:string;baseCustomerDue?:string;shippedOn:string|null;version:number};
   items?:{id:string;label:string;material_ref:string;kind:string;price_cny:string;buying_fee_cny:string;sourcing_no_settle?:boolean}[];

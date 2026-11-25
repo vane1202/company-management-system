@@ -1,5 +1,6 @@
 import {leadCoverage,leadStats,type Lead,type LeadReport} from '../leadApi';
 import {daysIn,shift,type TrendSeries,type TrendPoint} from './bossTrendData';
+import { compareTeamNames } from '../teamOrder';
 
 export type LeadSelection = {account:string;team:string;page:string;persona:string;operator:string;channel:string;adAccount:string};
 export function selectAnalysisLeads(leads:Lead[],filters?:LeadSelection){
@@ -19,5 +20,6 @@ export function leadAnalysis(leads:Lead[],reports:LeadReport[],range:{from:strin
   const points=(key:'received'|'sameDay'):TrendPoint[]=>daily.map(d=>({date:d.date,value:d.known?String(d.stats[key]):null,reason:d.known?'':d.reason,count:d.stats.received,native:'',estimated:false}));
   const series:TrendSeries[]=[{key:'received',label:'已登记承接',points:points('received')},{key:'qualified',label:'承接当日明确需求',points:points('sameDay')}];
   const groups=[...new Set(active.map(l=>by==='team'?l.teamId:l.accountId))].map(key=>{const rows=active.filter(l=>(by==='team'?l.teamId:l.accountId)===key);return {key,name:by==='team'?rows[0].teamName:rows[0].wechatId,stats:leadStats(rows,today)};});
+  if (by === "team") groups.sort((a, b) => compareTeamNames(a.name, b.name));
   return {series,groups,from,to:range.to};
 }

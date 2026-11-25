@@ -36,6 +36,8 @@ export type CrmOrder = {
   employeeId: string;
   employeeName: string;
   businessDate: string;
+  performanceTeamId?: string;
+  performanceTeamName?: string;
   channel: "live" | "private";
   materialCents: number;
   feeCents: number;
@@ -54,7 +56,7 @@ export type CrmOrder = {
   transferredBy?: string;
 };
 export type CrmReceipt = { id:string; date:string; amountMinor:number; purpose:'deposit'|'balance'; channel:string; reference:string; reportedBy:string };
-export type CrmOrderDraft = { businessDate:string; channel:'live'|'private'; materialCny:string; feeCny:string; customerCurrency?:'CNY'|'TWD'|'USD'|'SGD'|'HKD'; customerDue?:string; materialRef?:string; items?:CrmOrder['items'] };
+export type CrmOrderDraft = { businessDate:string; performanceTeamId?:string; performanceTeamName?:string; channel:'live'|'private'; materialCny:string; feeCny:string; customerCurrency?:'CNY'|'TWD'|'USD'|'SGD'|'HKD'; customerDue?:string; materialRef?:string; items?:CrmOrder['items'] };
 
 export function orderFunds(order: CrmOrder) {
   const due = order.customerDueMinor ?? order.materialCents + (order.channel==='private'?0:order.feeCents);
@@ -302,7 +304,7 @@ function addOrder(state: CrmState, action: Extract<CrmAction, { type: "addOrder"
   if(!['CNY','TWD','USD','SGD','HKD'].includes(currency))throw Error('付款币种无效');
   const due=currency==='CNY'?material+fee:yuanToCents(action.customerDue??'');
   if(due===null||due<=0)throw Error('请填写与客户约定的外币总应收');
-  const order: CrmOrder = { id: nextId(state, "order-"), customerId: customer.id, employeeId: customer.employeeId, employeeName: customer.employeeName, businessDate: action.businessDate, channel: action.channel, materialCents: material, feeCents: action.channel === "private" ? 0 : fee, cancelled: false,customerCurrency:currency,customerDueMinor:due,materialRef:action.materialRef?.trim().slice(0,128),items:action.items,receipts:[] };
+  const order: CrmOrder = { id: nextId(state, "order-"), customerId: customer.id, employeeId: customer.employeeId, employeeName: customer.employeeName, businessDate: action.businessDate, performanceTeamId:action.performanceTeamId, performanceTeamName:action.performanceTeamName, channel: action.channel, materialCents: material, feeCents: action.channel === "private" ? 0 : fee, cancelled: false,customerCurrency:currency,customerDueMinor:due,materialRef:action.materialRef?.trim().slice(0,128),items:action.items,receipts:[] };
   return { ...state, orders: [...state.orders, order] };
 }
 
@@ -338,7 +340,7 @@ function transferOrder(state:CrmState,action:Extract<CrmAction,{type:'transferOr
   if(action.draft.businessDate<original.businessDate||(original.receipts??[]).some(p=>p.date>action.draft.businessDate))throw Error('新开单日期不能早于原开单或已登记付款日期');
   if(funds.allocated<=0)throw Error('请先登记原订单定金');
   if(funds.balance<=0||(original.receipts??[]).some(p=>p.purpose==='balance'))throw Error('已结清或登记过尾款的订单请交财务处理换料');
-  const added=addOrder(state,{...action.draft,type:'addOrder',actor:action.actor,customerId:original.customerId},today);
+  const added=addOrder(state,{...action.draft,performanceTeamId:original.performanceTeamId,performanceTeamName:original.performanceTeamName,type:'addOrder',actor:action.actor,customerId:original.customerId},today);
   const next=added.orders.at(-1)!;
   if(orderFunds(next).currency!==funds.currency)throw Error('转单前后约定币种须一致；跨币种请交财务核对');
   if(orderFunds(next).due<funds.allocated)throw Error('新单应收小于原定金，请先交财务处理差额');
