@@ -91,6 +91,7 @@ export async function loadCsrf(): Promise<void> {
 
 export const api = {
   orderPerformanceTeams: (date: string) => requestInner<{teams:Team[]}>(`/api/order-records/performance-teams?date=${encodeURIComponent(date)}`).then(result=>sortTeams(result.teams)),
+  orderPersonaOptions: () => requestInner<{personas:string[]}>("/api/order-records/persona-options").then(result=>result.personas),
   orderRecord: (id: string) => requestInner<OrderRecord>(`/api/order-records/${encodeURIComponent(id)}`),
   paidPerformance:()=>requestInner<{records:PaidPerformanceRecord[]}>('/api/finance/live-performance'),
   createOrderRecord: (payload: Record<string, unknown>) => requestInner<{id:string;itemIds?:string[]}>("/api/order-records", {method:"POST",body:JSON.stringify(payload)}),

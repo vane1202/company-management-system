@@ -40,6 +40,12 @@ export function createOrderRecordsRouter(db: Pool, config: AppConfig) {
       res.set("Cache-Control","private, no-store").json({teams});
     } catch(error) { next(error); }
   });
+  router.get("/persona-options",async(_req,res,next)=>{
+    try {
+      const {rows}=await db.query<{name:string}>("SELECT DISTINCT TRIM(persona_name) AS name FROM editor_reports WHERE TRIM(COALESCE(persona_name,''))<>'' ORDER BY 1");
+      res.set("Cache-Control","private, no-store").json({personas:rows.map(row=>row.name)});
+    } catch(error) { next(error); }
+  });
   router.post("/",mutate(async(c,req)=>{
     if(req.actor!.role!=="cs")throw new HttpError(403,"仅客服可填报订单");
     const b=req.body ?? {}, key=uuid(b.requestKey);
