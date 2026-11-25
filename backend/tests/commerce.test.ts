@@ -118,6 +118,25 @@ describe("成交、客户付款与财务结算隔离",()=>{
   const fv2=(await get('othercs','/api/order-records/'+foreign).expect(200)).body.details.version;
   await post('supervisor',`/api/order-records/${foreign}/cancellations/${own}/void`,{version:fv2,reason:'别组'}).expect(404);
  });
+ it('志伟组可只读查看跨组的志伟线订单，不扩大历史小组写权限',async()=>{
+  const team=(await db.query("INSERT INTO teams(name) VALUES('志伟组') RETURNING id")).rows[0].id;
+  const scoped=await order({projectLine:'志伟线'});
+  const ordinary=await order({projectLine:'一线'});
+  await get('unassigned','/api/order-records/'+scoped).expect(404);
+  await db.query("INSERT INTO supervisor_scopes(supervisor_id,team_id) VALUES($1,$2)",[users.unassigned,team]);
+  try {
+   const list=(await get('unassigned','/api/orders').expect(200)).body.orders;
+   expect(list.map((row:{id:string})=>row.id)).toEqual([scoped]);
+   expect(list[0].teamName).toBe('虚构测试组');
+   const detail=(await get('unassigned','/api/order-records/'+scoped).expect(200)).body;
+   expect(detail.order.historical_team_access).toBe(false);
+   await get('unassigned','/api/order-records/'+ordinary).expect(404);
+   await post('unassigned','/api/order-records/'+scoped+'/cancellations',{version:detail.details.version,reason:'范围测试'}).expect(404);
+   expect((await get('supervisor','/api/order-records/'+scoped).expect(200)).body.order.historical_team_access).toBe(true);
+  } finally {
+   await db.query("DELETE FROM supervisor_scopes WHERE supervisor_id=$1 AND team_id=$2",[users.unassigned,team]);
+  }
+ });
  it('主管首页营业额与BOSS营业额同口径：不含追加收费，扣跑单',async()=>{
   const day=`/api/orders?from=${today}&to=${today}`,before=(await get('supervisor',day).expect(200)).body.totals;
   const kept=await order({customerCurrency:'CNY',items:[{kind:'material',label:'计入营业额',priceCny:'100.00'}]});

@@ -5,6 +5,7 @@ import { HttpError } from "../types.js";
 import { query } from "../db.js";
 import { managedTeamIds, type Actor } from "../users.js";
 import { businessToday, isIsoDate } from "../lib/dates.js";
+import { readableOrderTeamScope } from "../lib/commerce.js";
 import { writeAudit } from "../audit.js";
 
 const KINDS = new Set(["fans", "orders", "after-sales", "attendance"]);
@@ -107,11 +108,7 @@ export function createPeopleWorkbenchRouter(db: Pool, _config: AppConfig): Route
               ORDER BY start_date DESC LIMIT 1
            ) m ON TRUE
            LEFT JOIN teams t ON t.id = m.team_id
-          WHERE ($1::boolean OR EXISTS (
-            SELECT 1 FROM team_memberships tm
-             WHERE tm.user_id = o.user_id AND tm.team_id = ANY($2::uuid[])
-               AND tm.start_date <= o.business_date AND (tm.end_date IS NULL OR tm.end_date >= o.business_date)
-          ) OR ($3::boolean AND o.user_id = $4::uuid))`,
+          WHERE ($1::boolean OR ${readableOrderTeamScope(2)} OR ($3::boolean AND o.user_id = $4::uuid))`,
         [visible.all, visible.teams, visible.self, actor.id]));
       const assessmentOrders = orders.map(row => ({
           id: row.id, accountId: row.account_id, businessDate: row.business_date, customerLabel: row.customer_label,

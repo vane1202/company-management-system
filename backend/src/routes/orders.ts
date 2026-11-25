@@ -1,5 +1,6 @@
 import { Router } from "express";
 import type { Pool } from "pg";
+import { readableOrderTeamScope } from "../lib/commerce.js";
 import { writeAudit } from "../audit.js";
 import { query, queryOne } from "../db.js";
 import { businessToday, isIsoDate, toDateOnly } from "../lib/dates.js";
@@ -37,7 +38,7 @@ export function createOrderRouter(db: Pool, config: AppConfig): Router {
           WHERE ($1 = '' OR o.user_id::text = $1)
             AND ($2::date IS NULL OR o.business_date >= $2)
             AND ($3::date IS NULL OR o.business_date <= $3)
-            AND ($4::uuid[] IS NULL OR EXISTS(SELECT 1 FROM team_memberships m WHERE m.user_id=o.user_id AND m.team_id=ANY($4::uuid[]) AND m.start_date<=o.business_date AND (m.end_date IS NULL OR m.end_date>=o.business_date)))
+            AND ($4::uuid[] IS NULL OR ${readableOrderTeamScope(4)})
             AND ($5='' OR o.status::text=$5)
           ORDER BY o.business_date DESC, o.created_at DESC`,
         [userFilter, filters.from, filters.to, scopes, filters.status]
@@ -63,7 +64,7 @@ export function createOrderRouter(db: Pool, config: AppConfig): Router {
           WHERE ($1 = '' OR o.user_id::text = $1)
             AND ($2::date IS NULL OR o.business_date >= $2)
             AND ($3::date IS NULL OR o.business_date <= $3)
-            AND ($4::uuid[] IS NULL OR EXISTS(SELECT 1 FROM team_memberships m WHERE m.user_id=o.user_id AND m.team_id=ANY($4::uuid[]) AND m.start_date<=o.business_date AND (m.end_date IS NULL OR m.end_date>=o.business_date)))
+            AND ($4::uuid[] IS NULL OR ${readableOrderTeamScope(4)})
             AND ($5='' OR o.status::text=$5)
           ORDER BY o.business_date, o.order_ref`,
         [userFilter, filters.from, filters.to, scopes, filters.status]

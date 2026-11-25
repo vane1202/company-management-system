@@ -2,7 +2,7 @@ import { Router } from "express";
 import type { Pool } from "pg";
 import type { AppConfig } from "../config.js";
 import { query, withTransaction } from "../db.js";
-import { visibleOrder, uuid } from "../lib/commerce.js";
+import { readableOrderTeamScope, visibleOrder, uuid } from "../lib/commerce.js";
 import { businessToday, isIsoDate } from "../lib/dates.js";
 import { HttpError } from "../types.js";
 import { managedTeamIds } from "../users.js";
@@ -20,9 +20,7 @@ export function createSupervisorFollowupsRouter(db: Pool, config: AppConfig) {
           f.version, u.display_name AS "updatedBy", f.updated_at AS "updatedAt"
         FROM supervisor_order_followups f JOIN orders o ON o.id=f.order_id
         JOIN users u ON u.id=f.updated_by
-        WHERE EXISTS(SELECT 1 FROM team_memberships m WHERE m.user_id=o.user_id
-          AND m.team_id=ANY($1::uuid[]) AND m.start_date<=o.business_date
-          AND (m.end_date IS NULL OR m.end_date>=o.business_date))`, [scopes]);
+        WHERE ${readableOrderTeamScope(1)}`, [scopes]);
       res.set("Cache-Control", "private, no-store").json({ records });
     } catch (error) { next(error); }
   });
