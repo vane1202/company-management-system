@@ -205,9 +205,9 @@ async function scopedActiveTeams(client: PoolClient, scope: string[]) {
 async function reimbursementSnapshot(client: PoolClient, actor: Actor, scope: string[], today: string) {
   const { where, args } = claimScope(actor, scope);
   const claims = (await client.query(
-    `SELECT c.id::text AS id, claimant, department, category, purpose, amount_cny::text AS amount,
+    `SELECT c.id::text AS id, c.claimant, c.department, c.category, c.purpose, c.amount_cny::text AS amount,
             c.expense_date::text AS "expenseDate", c.claim_date::text AS "claimDate",
-            COALESCE(expense_id::text, '') AS "expenseId", receipt_ref AS "receiptRef", note, status, version,
+            COALESCE(c.expense_id::text, '') AS "expenseId", c.receipt_ref AS "receiptRef", c.note, c.status, c.version,
             u.display_name AS "createdBy", c.review_note AS "reviewNote", reviewer.display_name AS "reviewedBy",
             c.workflow_stage AS stage,c.supervisor_note AS "supervisorNote", supervisor.display_name AS "forwardedBy",
             COALESCE(c.team_id::text, '') AS "teamId",
