@@ -186,7 +186,7 @@ export function createAdminRouter(db: Pool): Router {
                     JOIN teams t ON t.id = m.team_id
                 ) AS current_teams
            FROM users u
-          WHERE u.account_kind = 'employee' AND u.employee_removed_at IS NULL
+          WHERE u.account_kind = 'employee' AND u.employee_removed_at IS NULL AND NOT u.payroll_only
           ORDER BY u.display_name`
       );
       const scopes = await query<{ supervisor_id: string; team_id: string }>(db, "SELECT supervisor_id,team_id FROM supervisor_scopes");

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { api } from "../api";
+import { api, requestInner } from "../api";
 import { toErrorMessage } from "../errors";
-import { commissionLine, commissionPeople, commissionSummary, yuan, type CommissionLine } from "./commissionCalc";
+import { commissionLine, commissionPeople, commissionSummary, yuan, type CommissionInput, type CommissionLine } from "./commissionCalc";
 
 const statusLabel = { ready: "可计提", pending: "待核算", reversed: "已回冲" };
 
@@ -19,15 +19,18 @@ function CommissionContent({ today, readOnly, month, setMonth }: { today: string
     let live = true;
     setLoading(true);
     setError("");
-    api.orders().then(async (data) => {
-      const rows = await Promise.all(data.orders.map(async (order) => {
+    setLines(null);
+    const source = !readOnly && import.meta.env.MODE !== "demo"
+      ? requestInner<{ records: (CommissionInput & { channel: "live" | "private" })[] }>(`/api/finance/commission-inputs?month=${encodeURIComponent(month)}`).then(data => data.records.map(record => commissionLine(record, record.channel)))
+      : api.orders().then(data => Promise.all(data.orders.filter(order => order.businessDate.startsWith(month)).map(async (order) => {
         const record = await api.orderRecord(order.id);
         return commissionLine(record, order.dealChannel === "private" ? "private" : "live");
-      }));
+      })));
+    source.then(rows => {
       if (live) setLines(rows);
     }).catch((cause) => { if (live) setError(toErrorMessage(cause)); }).finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
-  }, []);
+  }, [month, readOnly]);
   if (error) return <section className="commission-panel"><h2>{readOnly ? "本组提成" : "业绩提成"}</h2><p className="error" role="alert">{error}</p></section>;
   const visible = (lines ?? []).filter((line) => line.businessDate.startsWith(month));
   const summary = commissionSummary(visible);

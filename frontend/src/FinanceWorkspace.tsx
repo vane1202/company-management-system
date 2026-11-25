@@ -46,13 +46,21 @@ export function FinanceLedgerWorkspace({today,readOnly=false,initialQuery='',ini
   const targetNetCents=cents(form.netCny);
   const diffCents=targetNetCents!==null&&allocCents!==null?targetNetCents-allocCents:null;
   const isBalanced=diffCents!==null&&diffCents===0n&&allocations.length>0;
-  const pendingEntries=data?Object.entries(data.summary.pending):[];
+  const pendingEntries = Object.keys(currencies).flatMap(currency => {
+    const amount = data?.summary.pending[currency as Currency];
+    return amount != null && cents(amount) !== 0n ? [[currency, amount] as const] : [];
+  });
   return <div className="commerce-workspace"><header className="commerce-heading"><div><p className="eyebrow">客户付款 · 第三方结算</p><h1>{heading??(readOnly?"收款与结算":"财务工作台")}<InfoTip label="收款与结算说明" text={`${readOnly?"BOSS 只读查看。":"由财务登记扣点、结汇与人民币到账。"}客户付款已抵扣客户应收，结算扣费和汇差由公司承担。`}/></h1></div><div className="actions">{onBack&&<button type="button" className="secondary" onClick={onBack}>返回</button>}{!readOnly&&data&&<button type="button" disabled={busy} onClick={()=>setSettleOpen(true)}>＋ 登记第三方结算与到账</button>}<button className="secondary" disabled={busy} onClick={()=>void reload()}>{busy?"读取中…":"刷新"}</button></div></header>
     {error&&<p className="error" role="alert">{error}</p>}
     {!data?(error?<section className="card overview-error" role="alert"><p>未能读取财务数据，可点击重试。</p><button type="button" className="secondary" disabled={busy} onClick={()=>void reload()}>{busy?"读取中…":"重新读取"}</button></section>:<section className="card" role="status">正在读取财务数据…</section>):<>
     <div className="fin-kpis">
       <article className="fin-kpi fin-kpi-hero"><small>实际人民币累计流入 <InfoTip label="累计口径" text="人民币流入已扣除结算手续费，不再重复扣费。此处不含旧订单未知收款，也不计算退款流出与利润。"/></small><strong>¥ {data.summary.totalCny}</strong></article>
-      <article className="fin-kpi fin-kpi-warn"><small>待第三方结算金额</small><strong>{pendingEntries.length?pendingEntries.map(([cur,value])=>`${value} ${cur}`).join(" · "):"0.00"}</strong></article>
+      <article className="fin-kpi fin-kpi-warn">
+        <small>待第三方结算金额 · 原币</small>
+        {pendingEntries.length ? <dl className="fin-pending-balances">{pendingEntries.map(([currency, amount]) =>
+          <div key={currency}><dt>{currency}</dt><dd>{Number(amount).toLocaleString("zh-CN", {minimumFractionDigits: 2, maximumFractionDigits: 2})}</dd></div>
+        )}</dl> : <span>暂无待结算</span>}
+      </article>
       <article className="fin-kpi"><small>直接收款</small><strong>¥ {data.summary.directCny}</strong></article>
       <article className="fin-kpi"><small>第三方净到账</small><strong>¥ {data.summary.settledCny}</strong></article>
     </div>

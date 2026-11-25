@@ -43,7 +43,16 @@ function pending(base: Pick<CommissionLine, "id" | "businessDate" | "orderRef" |
   return { ...base, status: "pending", pendingReason: reason, revenueCents: 0, costCents: 0, netCents: 0, hostCents: null, csCents: null };
 }
 
-export function commissionLine(record: OrderRecord, channel: "live" | "private"): CommissionLine {
+export type CommissionInput = {
+  order: Pick<OrderRecord["order"], "id" | "business_date" | "order_ref" | "status" | "material_cost_cny" | "cancelled"> &
+    Partial<Pick<OrderRecord["order"], "customer_label">>;
+  details?: Pick<NonNullable<OrderRecord["details"]>, "hostName" | "operatorName"> | null;
+  items?: Pick<NonNullable<OrderRecord["items"]>[number], "price_cny" | "buying_fee_cny">[];
+  charges?: { amount_cny: string; voided_at?: string | null }[];
+  expenses?: { category: string; amount_cny: string; voided_at?: string | null }[];
+};
+
+export function commissionLine(record: CommissionInput, channel: "live" | "private"): CommissionLine {
   const order = record.order;
   const base = {
     id: order.id,

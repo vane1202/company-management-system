@@ -126,6 +126,9 @@
 .fin-kpi-hero { background: linear-gradient(145deg, var(--jade-dark), #143f37); }
 .fin-kpi-hero small { color: #b7d7ce; }
 .fin-kpi-warn strong { color: var(--gold); }
+.fin-pending-balances { display: grid; gap: 6px; margin: 0; }
+.fin-pending-balances > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; }
+.fin-pending-balances dd { margin: 0 0 0 auto; color: var(--gold); font: 600 1rem var(--font-mono); }
 
 .fin-table th {
   padding: 8px 10px;

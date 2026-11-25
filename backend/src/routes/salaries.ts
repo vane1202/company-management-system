@@ -1,4 +1,5 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
+import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { withTransaction } from "../db.js";
 import { writeAudit } from "../audit.js";
@@ -23,9 +24,27 @@ export function createSalaryRouter(db: Pool): Router {
   // A salary-specific directory exposes no passwords, account controls or WeChat assets.
   router.get("/employees", async (_req, res, next) => {
     try {
-      const result = await db.query("SELECT id,display_name,username,role,is_active FROM users WHERE account_kind='employee' ORDER BY display_name,id");
-      res.json({ employees: result.rows.map(row => ({ id: row.id, displayName: row.display_name, username: row.username, role: row.role, isActive: row.is_active })) });
+      const result = await db.query("SELECT id,display_name,username,role,is_active,payroll_only FROM users WHERE account_kind='employee' AND employee_removed_at IS NULL ORDER BY display_name,id");
+      res.json({ employees: result.rows.map(row => ({ id: row.id, displayName: row.display_name, username: row.username, role: row.role, isActive: row.is_active, payrollOnly: row.payroll_only })) });
     } catch (e) { next(e); }
+  });
+  router.post("/employees", async (req, res, next) => {
+    try {
+      const displayName = textField(req.body?.displayName, "领薪人员姓名", 64);
+      const employee = await withTransaction(db, async client => {
+        await client.query("SELECT pg_advisory_xact_lock(260026)");
+        const existing = await client.query("SELECT 1 FROM users WHERE payroll_only AND lower(display_name)=lower($1)", [displayName]);
+        if (existing.rowCount) throw new HttpError(409, "已有同名领薪档案，请从名单选择");
+        const username = "pay_" + randomUUID().replaceAll("-", "").slice(0, 28);
+        const { rows: [row] } = await client.query(
+          "INSERT INTO users (username, display_name, password_hash, role, is_active, payroll_only) VALUES ($1,$2,'!','assistant',false,true) RETURNING id",
+          [username, displayName]
+        );
+        await writeAudit(client, {actorId: req.actor!.id, action: "payroll_person_create", entityType: "user", entityId: row.id, after: {displayName, payrollOnly: true}, ip: req.ip});
+        return {id: row.id, displayName, username, role: "assistant", isActive: false, payrollOnly: true};
+      });
+      res.status(201).json({employee});
+    } catch (error) { next(error); }
   });
   router.get("/summary", async (req, res, next) => {
     try {

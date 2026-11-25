@@ -219,6 +219,7 @@ export const api = {
     requestInner(`/api/admin/users/${id}/scopes`, { method: "POST", body: JSON.stringify(payload) }),
   salaries: (userId?: string) => requestInner<{ salaries: Salary[] }>(`/api/salaries${userId?`?userId=${encodeURIComponent(userId)}`:""}`),
   salaryEmployees: () => requestInner<{employees:SalaryEmployee[]}>("/api/salaries/employees"),
+  createSalaryPerson: (displayName: string) => requestInner<{employee:SalaryEmployee}>("/api/salaries/employees", {method:"POST", body:JSON.stringify({displayName})}),
   salarySummary: (filters: {from:string;to:string;userId?:string}) => requestInner<SalarySummary>(`/api/salaries/summary?${new URLSearchParams(filters)}`),
   salaryHistory: (id:string) => requestInner<{history:SalaryHistory[]}>(`/api/salaries/${encodeURIComponent(id)}/history`),
   updateSalary: (id:string, payload:Record<string,unknown>) => requestInner(`/api/salaries/${encodeURIComponent(id)}`,{method:"PATCH",body:JSON.stringify(payload)}),
@@ -424,7 +425,7 @@ export type Salary = {
   isActive?:boolean;
   recordVersion:string;
 };
-export type SalaryEmployee={id:string;displayName:string;username:string;role:Role;isActive:boolean};
+export type SalaryEmployee={id:string;displayName:string;username:string;role:Role;isActive:boolean;payrollOnly?:boolean};
 export type SalarySummary={period:{from:string;to:string};totalAllocated:string;employeeCount:number;recordCount:number;roles:{role:Role;employeeCount:number;allocated:string}[];employees:{userId:string;displayName:string;username:string;role:Role;isActive:boolean;allocated:string;records:(Salary&{allocated:string})[]}[];note:string};
 export type SalaryHistory={id:string;action:string;before:Partial<Salary>|null;after:Partial<Salary>&{reason?:string};createdAt:string;actorName:string};
 export type Note = { id: string; authorName: string; targetDate: string; content: string };

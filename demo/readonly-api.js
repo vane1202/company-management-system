@@ -175,7 +175,7 @@
   function salaryApi(path,q){
     const withStaff=r=>{const e=salaryStaff.find(x=>x.id===r.userId);return {...r,displayName:e.displayName,username:e.username,role:e.role,isActive:true,createdAt:"2026-01-01T01:00:00Z",recordVersion:"1"};};
     if(path==="/api/salaries")return json({salaries:salaryStandards.filter(r=>!q.get("userId")||r.userId===q.get("userId")).map(withStaff)});
-    if(path==="/api/salaries/employees")return json({employees:salaryStaff.map(e=>({...e,isActive:true}))});
+    if(path==="/api/salaries/employees")return json({employees:salaryStaff.map(e=>({...e,isActive:!e.payrollOnly}))});
     if(path==="/api/salaries/summary"){
       const from=q.get("from")||today.slice(0,8)+"01",to=q.get("to")||today,userId=q.get("userId")||"";
       const employees=salaryStaff.filter(e=>!userId||e.id===userId).map(e=>{const records=salaryStandards.filter(r=>r.userId===e.id&&r.effectiveFrom<=to&&(!r.effectiveTo||r.effectiveTo>=from)).map(r=>({...withStaff(r),allocated:allocate([r],from,to)}));return {userId:e.id,displayName:e.displayName,username:e.username,role:e.role,isActive:true,allocated:sumMoney(records,"allocated"),records};}).filter(e=>e.records.length);
@@ -514,6 +514,18 @@
     }
     if(path==="/api/auth/logout"&&method==="POST"){role="";window.sessionStorage.setItem("cms-fictional-role","");return json({ok:true});}
     if(!role)return json({error:"请使用演示账号登录"},401);
+    if(path==="/api/salaries/employees"&&method==="POST"){
+      if(role!=="finance")return json({error:"仅财务可新增领薪人员"},403);
+      let body;
+      try{body=JSON.parse(options.body||"{}");}catch{return json({error:"演示输入无效"},400);}
+      const displayName=String(body?.displayName??"").trim();
+      if(!displayName||displayName.length>64)return json({error:"请填写领薪人员姓名（最多 64 字）"},400);
+      if(salaryStaff.some(person=>person.payrollOnly&&person.displayName.toLowerCase()===displayName.toLowerCase()))return json({error:"已有同名领薪档案，请从名单选择"},409);
+      const id="demo-payroll-"+crypto.randomUUID();
+      const employee={id,displayName,username:id,role:"assistant",isActive:false,payrollOnly:true};
+      salaryStaff.push(employee);
+      return json({employee},201);
+    }
     if(path==="/api/auth/me")return json({user:currentUser(),...meta});
     if(path==="/api/auth/meta")return json(meta);
     if(path==='/api/demo/reimbursements'){

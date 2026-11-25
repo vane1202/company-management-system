@@ -12,6 +12,27 @@ export function createFinanceRouter(db:Pool, config:AppConfig) {
   const router=Router();
   router.use((req,_res,next)=>["boss","finance"].includes(req.actor!.role)?next():next(new HttpError(403,"无财务权限")));
   router.use('/live-performance',createPaidPerformanceRouter(db,config));
+  router.get("/commission-inputs", async (req, res, next) => {
+    try {
+      const month = String(req.query.month ?? "");
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || month.startsWith("0000")) {
+        throw new HttpError(400, "请选择有效核算月份");
+      }
+      const { rows } = await db.query(`
+        SELECT json_build_object('id', o.id, 'business_date', o.business_date::text,
+          'order_ref', o.order_ref, 'status', o.status, 'material_cost_cny', o.material_cost_cny::text,
+          'cancelled', EXISTS (SELECT 1 FROM order_cancellations x WHERE x.order_id=o.id AND x.voided_at IS NULL)) AS "order",
+          json_build_object('hostName', d.host_name, 'operatorName', d.operator_name) AS details,
+          COALESCE(d.deal_channel, 'live') AS channel,
+          COALESCE((SELECT json_agg(json_build_object('price_cny', i.price_cny::text, 'buying_fee_cny', i.buying_fee_cny::text)) FROM order_items i WHERE i.order_id=o.id), '[]'::json) AS items,
+          COALESCE((SELECT json_agg(json_build_object('amount_cny', a.amount_cny::text)) FROM order_charges a WHERE a.order_id=o.id AND a.voided_at IS NULL), '[]'::json) AS charges,
+          COALESCE((SELECT json_agg(json_build_object('category', e.category, 'amount_cny', e.amount_cny::text)) FROM order_expenses e WHERE e.order_id=o.id AND e.voided_at IS NULL), '[]'::json) AS expenses
+        FROM orders o LEFT JOIN order_details d ON d.order_id=o.id
+        WHERE o.business_date >= $1::date AND o.business_date < $1::date + interval '1 month'
+        ORDER BY o.business_date, o.id`, [month + "-01"]);
+      res.set("Cache-Control", "private, no-store").json({ records: rows });
+    } catch (error) { next(error); }
+  });
   const mutate=(handler:(c:PoolClient,req:Request)=>Promise<unknown>)=>(req:Request,res:Response,next:NextFunction)=>{
     if(req.actor!.role!=="finance"){next(new HttpError(403,"仅财务可登记结算"));return;}
     void withTransaction(db, (client) => handler(client, req))

@@ -6,7 +6,7 @@ import { Field } from "../OrderWorkspace";
 import "./boss-priority.css";
 import "../finance-menu.css";
 
-const labels = {rent:"房租",utilities:"水电",hospitality:"接待费用",other:"其他费用"};
+const labels = {rent:"房租",utilities:"水电",hospitality:"招待费用",other:"其他费用"};
 type Expense = {id:string;date:string;category:keyof typeof labels;amount:string;operator:string;purpose:string;proof:string};
 const demo = import.meta.env.MODE === "demo";
 async function request(body?:object):Promise<{records:Expense[]}> {
@@ -36,7 +36,7 @@ export default function DailyOperatingExpenses({today}:{today:string}) {
   useEffect(()=>{void load();},[]);
   const filtered = records.filter(r => (!categoryFilter || r.category === categoryFilter) && `${r.purpose} ${r.operator} ${r.proof} ${labels[r.category]}`.toLowerCase().includes(query.trim().toLowerCase()));
   return <section>
-    <p className="notice">登记房租、水电、接待及其他日常费用。工资、投流和售后成本分别沿用各自台账。{demo&&"演示记录仅保留在当前浏览器会话。"}</p>
+    <p className="notice">登记房租、水电、招待及其他日常费用。工资、投流和售后成本分别沿用各自台账。{demo&&"演示记录仅保留在当前浏览器会话。"}</p>
     {error&&<p role="alert" className="error">{error}</p>}
     {notice&&<p role="status">{notice}</p>}
     <section className="card">
