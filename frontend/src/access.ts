@@ -38,7 +38,16 @@ export function navItems(role: Role): { id: Page; label: string }[] {
   if (role === "finance") return [{id:"home",label:"财务首页"},{id:"finance",label:"收款与结算"},{id:"financeOut",label:"付款与工资"},{id:"salaries",label:"工资核算"}];
   if (role === "admin") return [{ id: "home", label: "系统管理" }, { id: "people", label: "账号与小组" }, { id: "modules", label: "模块管理" }];
   if (role === "boss") return bossDemoNav();
-  if (role === "cs_supervisor") return [{ id: "home", label: "工作台首页" }, { id: "summary", label: "本组加粉" }, { id: "orders", label: "本组业绩" }, { id: "assessment", label: "客服考核" }, { id: "customerReview", label: "无效客资复核" }, { id: "csAccounts", label: "客服账号管理" }, { id: "teamReimbursements", label: "本组报销" }, { id: "reportHistory", label: "填报历史管理" }];
+  if (role === "cs_supervisor") return [
+    { id: "home", label: "工作台首页" },
+    { id: "summary", label: "本组加粉" },
+    { id: "orders", label: "本组业绩" },
+    { id: "assessment", label: "客服考核" },
+    { id: "teamReimbursements", label: "本组报销" },
+    { id: "customerReview", label: "无效粉复核" },
+    { id: "csAccounts", label: "账号管理" },
+    { id: "reportHistory", label: "填报历史管理" }
+  ];
   const items: { id: Page; label: string }[] = [{ id: "home", label: "首页" }];
   if (role === "cs") items.push({ id: "fans", label: "加粉填报" }, { id: "orders", label: "订单填报" });
   if (role === "ops") return [
