@@ -49,7 +49,13 @@ button.sidebar-brand { border: 0; background: transparent; color: inherit; paddi
 .commerce-total strong { font-size: 24px; margin-left: 12px; }
 .commerce-total small { display: block; margin-top: 8px; color: var(--muted); font-size: 12px; }
 .commerce-list { display: grid; gap: 0; }
+.commerce-list:has(> button.commerce-record.secondary) { gap: 10px; }
 .commerce-record { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 16px 0; border: 0; border-bottom: 1px solid var(--line); background: transparent; border-radius: 0; width: 100%; text-align: left; color: var(--ink); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+:root button.commerce-record.secondary { padding: 16px 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--card, #fff); transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease; }
+:root button.commerce-record.secondary:hover { background: #f6faf8; border-color: #c5d4cb; box-shadow: 0 2px 10px rgba(14, 44, 39, 0.05); }
+.order-card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.order-status-pill { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; line-height: 1.4; background: #eef5f2; color: var(--jade, #154d42); }
+.order-status-pill.is-cancelled { background: #f3f4f6; color: var(--muted, #64748b); }
 button.commerce-record:hover { background: #f1f5f1; }
 .commerce-record > span { min-width: 0; }
 .commerce-record small, .commerce-amount small { display: block; font-size: 12px; color: var(--muted); line-height: 1.6; font-weight: 400; margin-top: 4px; }
@@ -814,7 +820,7 @@ progress::-moz-progress-bar { background: #4c7954; border-radius: 14px; }
 .live-staff-details small{display:block;font-size:12px}
 .live-pending{color:#8f4d16;font-weight:650}
 .live-cost-source{display:block;margin-top:2px;font-size:12px;color:var(--muted);line-height:1.35;overflow-wrap:anywhere}
-.order-jade-cost{border:1px dashed #c5d4cb;background:#f6faf6}
+.order-jade-cost{padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--bg, #f7f9f8)}
 .order-jade-cost strong{display:block}
 label.row small.hint,label.row>small{display:block;margin-top:4px;color:var(--muted);font-weight:400;line-height:1.45;overflow-wrap:anywhere}
 .commerce-item .text-action{white-space:normal;display:inline;padding:0;min-height:0;font-size:12px;vertical-align:baseline}
