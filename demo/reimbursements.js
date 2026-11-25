@@ -25,10 +25,31 @@
 
    if(next.claims.some(c=>c.status!=='rejected'&&c.claimant===claimant&&c.receiptRef===receipt))fail('该报销人与凭证已有报销单，请核对');
    const expenseDate=date(input.expenseDate,today),claimDate=date(input.claimDate,today);if(expenseDate>claimDate)fail('费用日期不能晚于报销登记日期');
-   next.claims.push({id,requestKey,claimant,department:staff?'演示客服组':typeof input.department==='string'?input.department.slice(0,64):'',category:input.category,purpose:text(input.purpose,'报销事由',500),amount:money(amount),expenseDate,claimDate,expenseId:source?.id||'',receiptRef:receipt,proofs,stage:staff?'supervisor':'finance',ownerRole:ctx.role,note:typeof input.note==='string'?input.note.slice(0,1000):'',status:'pending',version:1,createdBy:actor,createdAt:now,history:[]});return next;
+  const teams=Array.isArray(ctx.teams)?ctx.teams:[];
+  const orders=Array.isArray(ctx.orders)?ctx.orders:[];
+  let pickedTeam=null;
+  if(staff){
+   if(typeof input.teamId==='string'&&input.teamId.trim()){
+    pickedTeam=teams.find(t=>t.id===input.teamId)||null;
+    if(!pickedTeam)fail('请选择当前客服所属的小组');
+   }else if(teams.length===1){pickedTeam=teams[0];}
+   else if(teams.length>1){fail('请选择本次报销所属客服组别');}
+  }else if(typeof input.teamId==='string'&&input.teamId.trim()){
+   pickedTeam=teams.find(t=>t.id===input.teamId)||null;
+  }
+  const linkedOrder=staff&&typeof input.orderId==='string'&&input.orderId.trim()?orders.find(o=>o.id===input.orderId):null;
+  if(staff&&typeof input.orderId==='string'&&input.orderId.trim()&&!linkedOrder)fail('所选订单不存在或不属于当前客服');
+  next.claims.push({id,requestKey,claimant,teamId:pickedTeam?.id||'',department:pickedTeam?pickedTeam.name:(staff?'演示客服组':typeof input.department==='string'?input.department.slice(0,64):''),orderId:linkedOrder?.id||'',orderRef:linkedOrder?.orderRef||'',customerLabel:linkedOrder?.customerLabel||'',orderDate:linkedOrder?.businessDate||'',category:input.category,purpose:text(input.purpose,'报销事由',500),amount:money(amount),expenseDate,claimDate,expenseId:source?.id||'',receiptRef:receipt,proofs,stage:staff?'supervisor':'finance',ownerRole:ctx.role,note:typeof input.note==='string'?input.note.slice(0,1000):'',status:'pending',version:1,createdBy:actor,createdAt:now,history:[]});return next;
   }
   const claim=next.claims.find(c=>c.id===input.id);if(!claim)fail('报销单不存在',404);
   if(input.version!==claim.version)fail('报销单已更新，请刷新后重试',409);
+ if(input.action==='updateTeam'){
+  if(ctx.role==='cs'&&!['supervisor','supervisor_returned'].includes(claim.stage))fail('该报销单已提交财务，不能由客服修改组别',409);
+  const teams=Array.isArray(ctx.teams)?ctx.teams:[];
+  const pickedTeam=teams.find(t=>t.id===input.teamId);
+  if(!pickedTeam)fail('所选客服组别无效或无权限');
+  claim.teamId=pickedTeam.id;claim.department=pickedTeam.name;claim.history.push({action:'updateTeam',actor,at:now,version:claim.version});claim.version++;return next;
+ }
   if(ctx.role==='cs')fail('客服只能发起报销',403);
   if(ctx.role==='cs_supervisor'){
    if(claim.stage!=='supervisor')fail('该报销单已处理',409);

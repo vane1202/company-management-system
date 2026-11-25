@@ -6,8 +6,9 @@ import { HttpError } from "../types.js";
 import { businessToday, isIsoDate } from "../lib/dates.js";
 import { centsToMoney, moneyToCents, parseMoney } from "../lib/money.js";
 import { writeAudit } from "../audit.js";
-import { managedTeamIds, membershipOnDate, type Actor } from "../users.js";
+import { managedTeamIds, type Actor } from "../users.js";
 import { uuid } from "../lib/commerce.js";
+import { teamOrderSql } from "../lib/teamOrder.js";
 
 function reimbursementActor(actor: Actor | undefined): Actor {
   if (actor?.role === "finance" || actor?.role === "cs_supervisor" ||
@@ -160,7 +161,7 @@ export function createOperatingFinanceRouter(db: Pool, config: AppConfig): Route
       await client.query("BEGIN");
       const scope = await managedTeamIds(client, actor);
       if (req.method === "POST") await applyReimbursement(client, req.body ?? {}, { actor, scope, actorId: actor.id, today, ip: req.ip });
-      const payload = await reimbursementSnapshot(client, actor, scope);
+      const payload = await reimbursementSnapshot(client, actor, scope, today);
       await client.query("COMMIT");
       res.set("Cache-Control", "private, no-store").json(payload);
     } catch (error) {
@@ -172,7 +173,36 @@ export function createOperatingFinanceRouter(db: Pool, config: AppConfig): Route
   return router;
 }
 
-async function reimbursementSnapshot(client: PoolClient, actor: Actor, scope: string[]) {
+async function staffTeamsOnDate(client: PoolClient, userId: string, date: string) {
+  const { rows } = await client.query<{ id: string; name: string }>(
+    `SELECT t.id::text AS id, t.name
+       FROM team_memberships m
+       JOIN teams t ON t.id = m.team_id
+      WHERE m.user_id = $1
+        AND m.start_date <= $2::date
+        AND (m.end_date IS NULL OR m.end_date >= $2::date)
+        AND t.is_active
+      ORDER BY ${teamOrderSql("t")}`,
+    [userId, date]
+  );
+  return [...new Map(rows.map((team) => [team.id, team])).values()];
+}
+
+async function allActiveTeams(client: PoolClient) {
+  return (await client.query<{ id: string; name: string }>(
+    `SELECT id::text AS id, name FROM teams WHERE is_active ORDER BY ${teamOrderSql("teams")}`
+  )).rows;
+}
+
+async function scopedActiveTeams(client: PoolClient, scope: string[]) {
+  if (!scope.length) return [];
+  return (await client.query<{ id: string; name: string }>(
+    `SELECT id::text AS id, name FROM teams WHERE is_active AND id = ANY($1::uuid[]) ORDER BY ${teamOrderSql("teams")}`,
+    [scope]
+  )).rows;
+}
+
+async function reimbursementSnapshot(client: PoolClient, actor: Actor, scope: string[], today: string) {
   const { where, args } = claimScope(actor, scope);
   const claims = (await client.query(
     `SELECT c.id::text AS id, claimant, department, category, purpose, amount_cny::text AS amount,
@@ -180,15 +210,49 @@ async function reimbursementSnapshot(client: PoolClient, actor: Actor, scope: st
             COALESCE(expense_id::text, '') AS "expenseId", receipt_ref AS "receiptRef", note, status, version,
             u.display_name AS "createdBy", c.review_note AS "reviewNote", reviewer.display_name AS "reviewedBy",
             c.workflow_stage AS stage,c.supervisor_note AS "supervisorNote", supervisor.display_name AS "forwardedBy",
+            COALESCE(c.team_id::text, '') AS "teamId",
+            COALESCE(c.order_id::text, '') AS "orderId",
+            COALESCE(o.order_ref, '') AS "orderRef",
+            COALESCE(o.customer_label, '') AS "customerLabel",
+            COALESCE(o.business_date::text, '') AS "orderDate",
             coalesce((SELECT sum(p.amount_cny) FROM reimbursement_payments p WHERE p.claim_id=c.id),0)::text AS "paidAmount",
             ARRAY(SELECT id FROM reimbursement_proofs WHERE claim_id=c.id ORDER BY position) AS "proofIds"
        FROM reimbursement_claims c JOIN users u ON c.created_by=u.id
        LEFT JOIN users reviewer ON c.reviewed_by=reviewer.id
        LEFT JOIN users supervisor ON c.forwarded_by=supervisor.id
+       LEFT JOIN orders o ON c.order_id = o.id
       WHERE ${where}
       ORDER BY c.created_at, c.id`, args
   )).rows;
-  if (actor.role !== "finance") return { state: { claims, payments: [] }, categories: CLAIM_CATEGORIES, expenses: [] };
+  const teams = actor.role === "cs"
+    ? await staffTeamsOnDate(client, actor.id, today)
+    : actor.role === "cs_supervisor"
+      ? await scopedActiveTeams(client, scope)
+      : await allActiveTeams(client);
+  const orders = actor.role === "cs"
+    ? (await client.query(
+      `SELECT o.id::text AS id,
+              o.order_ref AS "orderRef",
+              COALESCE(o.customer_label, '') AS "customerLabel",
+              o.business_date::text AS "businessDate",
+              o.amount::text AS amount,
+              COALESCE(o.performance_team_id::text, mem.team_id::text, '') AS "teamId",
+              COALESCE(t.name, '') AS "teamName"
+         FROM orders o
+         LEFT JOIN LATERAL (
+           SELECT m.team_id FROM team_memberships m
+            WHERE m.user_id = o.user_id AND m.start_date <= o.business_date
+              AND (m.end_date IS NULL OR m.end_date >= o.business_date)
+            ORDER BY m.start_date DESC LIMIT 1
+         ) mem ON TRUE
+         LEFT JOIN teams t ON t.id = COALESCE(o.performance_team_id, mem.team_id)
+        WHERE o.user_id = $1
+        ORDER BY o.business_date DESC, o.created_at DESC
+        LIMIT 200`,
+      [actor.id]
+    )).rows
+    : [];
+  if (actor.role !== "finance") return { state: { claims, payments: [] }, categories: CLAIM_CATEGORIES, expenses: [], teams, orders };
   const payments = (await client.query(
     `SELECT id::text AS id, claim_id::text AS "claimId", amount_cny::text AS amount, paid_on::text AS date,
             payee, account, reference
@@ -207,7 +271,7 @@ async function reimbursementSnapshot(client: PoolClient, actor: Actor, scope: st
     if (pending <= 0n) return [];
     return [{ id: row.id, order_ref: row.order_ref, label: row.label, pending_cny: centsToMoney(pending) }];
   });
-  return { state: { claims, payments }, categories: CLAIM_CATEGORIES, expenses };
+  return { state: { claims, payments }, categories: CLAIM_CATEGORIES, expenses, teams, orders };
 }
 
 async function applyReimbursement(client: PoolClient, input: Record<string, unknown>, ctx: { actor: Actor; scope: string[]; actorId: string; today: string; ip?: string }) {
@@ -225,8 +289,31 @@ async function applyReimbursement(client: PoolClient, input: Record<string, unkn
       throw new HttpError(400,"请上传 1 至 3 张付款截图或账单截图");
     }
     const proofs = input.proofs.map(readProof);
-    const team = staff ? await membershipOnDate(client,ctx.actorId,ctx.today) : undefined;
-    if (staff && !team) throw new HttpError(409,"当前客服账号未分配小组，请联系管理员");
+    let team: { id: string; name: string } | undefined;
+    if (staff) {
+      const memberTeams = await staffTeamsOnDate(client, ctx.actorId, ctx.today);
+      if (!memberTeams.length) throw new HttpError(409, "当前客服账号未分配小组，请联系管理员");
+      const requestedTeamId = typeof input.teamId === "string" && input.teamId.trim() ? uuid(input.teamId) : "";
+      if (requestedTeamId) {
+        team = memberTeams.find((item) => item.id === requestedTeamId);
+        if (!team) throw new HttpError(400, "请选择当前客服所属的小组");
+      } else if (memberTeams.length === 1) {
+        team = memberTeams[0];
+      } else {
+        throw new HttpError(400, "请选择本次报销所属客服组别");
+      }
+    } else if (typeof input.teamId === "string" && input.teamId.trim()) {
+      const activeTeams = await allActiveTeams(client);
+      team = activeTeams.find((item) => item.id === uuid(input.teamId));
+      if (!team) throw new HttpError(400, "所选客服组别无效");
+    }
+    let orderId: string | null = null;
+    if (staff && typeof input.orderId === "string" && input.orderId.trim()) {
+      const candidateOrderId = uuid(input.orderId);
+      const owned = (await client.query("SELECT id FROM orders WHERE id = $1 AND user_id = $2", [candidateOrderId, ctx.actorId])).rows[0];
+      if (!owned) throw new HttpError(400, "所选订单不存在或不属于当前客服");
+      orderId = candidateOrderId;
+    }
     if (!staff && !Object.hasOwn(CLAIM_CATEGORIES, String(input.category))) throw new HttpError(400, "报销类别无效");
     const amount = parseMoney(input.amount, "报销金额");
     if (moneyToCents(amount) <= 0n) throw new HttpError(400, "报销金额必须大于0");
@@ -248,31 +335,63 @@ async function applyReimbursement(client: PoolClient, input: Record<string, unkn
     const note = typeof input.note === "string" ? input.note.trim().slice(0, 1000) : "";
     const saved = (await client.query(
       `INSERT INTO reimbursement_claims
-        (request_key, claimant, department, category, purpose, amount_cny, expense_date, claim_date, expense_id, receipt_ref, note, status, created_by, workflow_stage, team_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pending',$12,$13,$14)
+        (request_key, claimant, department, category, purpose, amount_cny, expense_date, claim_date, expense_id, receipt_ref, note, status, created_by, workflow_stage, team_id, order_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pending',$12,$13,$14,$15)
        RETURNING id`,
-      [requestKey, claimant, department, staff ? "advance" : input.category, text(input.purpose, "报销事由", 500), amount, expenseDate, claimDate, expenseId, receipt, note, ctx.actorId, staff ? "supervisor" : "finance", team?.team_id ?? null]
+      [requestKey, claimant, department, staff ? "advance" : input.category, text(input.purpose, "报销事由", 500), amount, expenseDate, claimDate, expenseId, receipt, note, ctx.actorId, staff ? "supervisor" : "finance", team?.id ?? null, orderId]
     )).rows[0];
     for (const [position,proof] of proofs.entries()) {
       await client.query("INSERT INTO reimbursement_proofs(claim_id,position,mime_type,image_bytes) VALUES($1,$2,$3,$4)",
         [saved.id,position,proof.mime,proof.bytes]);
     }
-    await writeAudit(client, { actorId: ctx.actorId, action: "reimbursement_create", entityType: "reimbursement_claim", entityId: saved.id, after: { proofCount: proofs.length, stage: staff ? "supervisor" : "finance" }, ip: ctx.ip });
+    await writeAudit(client, { actorId: ctx.actorId, action: "reimbursement_create", entityType: "reimbursement_claim", entityId: saved.id, after: { proofCount: proofs.length, stage: staff ? "supervisor" : "finance", teamId: team?.id ?? null, orderId }, ip: ctx.ip });
     return;
   }
 
-  if (ctx.actor.role === "cs") throw new HttpError(403,"客服只能发起报销");
   const id = uuid(input.id);
-  const claim = (await client.query<{ id: string; status: string; version: number; amount_cny: string; expense_id: string | null; expense_date: string; claimant: string; team_id: string | null; workflow_stage: string }>(
-    `SELECT id::text, status, version, amount_cny::text, expense_id::text, expense_date::text, claimant, team_id, workflow_stage
+  const claim = (await client.query<{ id: string; status: string; version: number; amount_cny: string; expense_id: string | null; expense_date: string; claimant: string; department: string; team_id: string | null; workflow_stage: string; created_by: string }>(
+    `SELECT id::text, status, version, amount_cny::text, expense_id::text, expense_date::text, claimant, department, team_id::text, workflow_stage, created_by::text
        FROM reimbursement_claims WHERE id = $1 FOR UPDATE`,
     [id]
   )).rows[0];
-  if (!claim || (ctx.actor.role === "cs_supervisor" && (!claim.team_id || !ctx.scope.includes(claim.team_id)))) {
+  if (
+    !claim ||
+    (ctx.actor.role === "cs_supervisor" && (!claim.team_id || !ctx.scope.includes(claim.team_id))) ||
+    (ctx.actor.role === "cs" && claim.created_by !== ctx.actorId)
+  ) {
     throw new HttpError(404, "报销单不存在");
   }
   if (Number(input.version) !== claim.version) throw new HttpError(409, "报销单已更新，请刷新后重试");
 
+  if (input.action === "updateTeam") {
+    if (ctx.actor.role === "cs" && !["supervisor", "supervisor_returned"].includes(claim.workflow_stage)) {
+      throw new HttpError(409, "该报销单已提交财务，不能由客服修改组别");
+    }
+    const allowedTeams = ctx.actor.role === "cs"
+      ? await staffTeamsOnDate(client, ctx.actorId, ctx.today)
+      : ctx.actor.role === "cs_supervisor"
+        ? await scopedActiveTeams(client, ctx.scope)
+        : await allActiveTeams(client);
+    const nextTeamId = uuid(input.teamId);
+    const nextTeam = allowedTeams.find((item) => item.id === nextTeamId);
+    if (!nextTeam) throw new HttpError(400, "所选客服组别无效或无权限");
+    await client.query(
+      "UPDATE reimbursement_claims SET team_id = $2, department = $3, version = version + 1 WHERE id = $1",
+      [claim.id, nextTeam.id, nextTeam.name]
+    );
+    await writeAudit(client, {
+      actorId: ctx.actorId,
+      action: "reimbursement_update_team",
+      entityType: "reimbursement_claim",
+      entityId: claim.id,
+      before: { teamId: claim.team_id, department: claim.department },
+      after: { teamId: nextTeam.id, department: nextTeam.name },
+      ip: ctx.ip
+    });
+    return;
+  }
+
+  if (ctx.actor.role === "cs") throw new HttpError(403,"客服只能发起报销或修改待审组别");
   if (ctx.actor.role === "cs_supervisor") {
     const forward = input.action === "forward";
     const returned = input.action === "supervisorReturn";
