@@ -239,6 +239,7 @@
 :root main.customer-fill .fill-account-bar .fill-identity-fields { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
 :root main.customer-fill .fill-account-bar .fill-identity-fields > label { min-width:min(280px,100%); }
 :root main.customer-fill .fill-nav, .order-detail-tabs { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:4px; padding:4px; border-radius:12px; background:var(--line); margin-block:12px; }
+.fill-nav-icon, .fill-nav-short { display:none; }
 .order-detail-tabs { grid-template-columns:repeat(3,minmax(0,1fr)); }
 :root main.customer-fill :is(.fill-nav,.fill-pills,.overview-segments) button[aria-pressed="true"],
 :root .order-detail-tabs button[aria-pressed="true"] { background:var(--jade-dark) !important; color:white !important; border-color:var(--jade-dark) !important; }
@@ -264,7 +265,28 @@
 .fill-order-panel:not([hidden]) { display:grid; gap:12px; }
 .fill-order-panel[hidden] { display:none; }
 @media(max-width:700px) {
-  :root main.customer-fill .fill-nav,.fill-progress { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  :root main.customer-fill { padding-bottom:calc(82px + env(safe-area-inset-bottom, 0px)); }
+  :root main.customer-fill .fill-progress { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  :root main.customer-fill .fill-nav {
+    position:fixed; left:0; right:0; bottom:0; z-index:40; margin:0;
+    padding:6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
+    border-radius:0; background:rgba(255,255,255,0.96); backdrop-filter:blur(10px);
+    border-top:1px solid var(--line); box-shadow:0 -4px 16px rgba(14,44,39,0.06);
+    grid-template-columns:repeat(auto-fit,minmax(0,1fr)); gap:2px;
+  }
+  :root main.customer-fill .fill-nav button {
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+    min-height:48px; padding:4px 2px; border:0 !important; border-radius:10px;
+    background:transparent !important; box-shadow:none !important; color:var(--muted) !important;
+    font-size:11px; font-weight:500; line-height:1.2;
+  }
+  :root main.customer-fill .fill-nav button[aria-pressed="true"] {
+    background:#eef5f2 !important; color:var(--jade-dark) !important; font-weight:650;
+  }
+  :root main.customer-fill .fill-nav .fill-nav-icon { display:inline-flex; }
+  :root main.customer-fill .fill-nav .fill-nav-icon .dashboard-icon { width:19px; height:19px; }
+  :root main.customer-fill .fill-nav .fill-nav-full { display:none; }
+  :root main.customer-fill .fill-nav .fill-nav-short { display:block; white-space:nowrap; }
   .fill-home-grid { grid-template-columns:minmax(0,1fr); }
   .order-detail-tabs button { padding-inline:4px; font-size:12px; }
   .fill-drawer-body { padding:12px; }

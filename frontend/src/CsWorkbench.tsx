@@ -18,10 +18,10 @@ import "./fill-ui.css";
 import "./demo/role-workbenches.css";
 
 const modules = [
-  { id: "leads", title: "新增客资登记", detail: "加粉详情·需求记录", icon: "fans" },
-  { id: "library", title: "开单与售后", detail: "客户开单/售后记录", icon: "orders" },
-  { id: "performance", title: "个人业绩查询", detail: "直播间/私推业绩", icon: "summary" },
-  { id: "reimbursements", title: "售后垫付报销", detail: "上传凭证并提交主管", icon: "orders" }
+  { id: "leads", title: "新增客资登记", shortTitle: "客资", detail: "加粉详情·需求记录", icon: "fans" },
+  { id: "library", title: "开单与售后", shortTitle: "开单", detail: "客户开单/售后记录", icon: "orders" },
+  { id: "performance", title: "个人业绩查询", shortTitle: "业绩", detail: "直播间/私推业绩", icon: "summary" },
+  { id: "reimbursements", title: "售后垫付报销", shortTitle: "报销", detail: "上传凭证并提交主管", icon: "teamReimbursements" }
 ] as const;
 
 type ModuleId = (typeof modules)[number]["id"];
@@ -222,8 +222,8 @@ export function CsWorkbench({
       </section>
 
       <nav className="fill-nav" aria-label="客服工作台导航">
-        <button type="button" className="secondary" aria-pressed={page==="home"} onClick={()=>navigate("home")}>工作台首页</button>
-        {modules.filter(item=>isEmployeeAccount||item.id!=="reimbursements").map(item=><button key={item.id} type="button" className="secondary" aria-pressed={page===item.id} onClick={()=>{setSelectedOrderId("");navigate(item.id);}}>{item.title}</button>)}
+        <button type="button" className="secondary" aria-pressed={page==="home"} onClick={()=>navigate("home")}><span className="fill-nav-icon"><DashboardIcon name="home" /></span><span className="fill-nav-full">工作台首页</span><span className="fill-nav-short">首页</span></button>
+        {modules.filter(item=>isEmployeeAccount||item.id!=="reimbursements").map(item=><button key={item.id} type="button" className="secondary" aria-pressed={page===item.id} onClick={()=>{setSelectedOrderId("");navigate(item.id);}}><span className="fill-nav-icon"><DashboardIcon name={item.icon} /></span><span className="fill-nav-full">{item.title}</span><span className="fill-nav-short">{item.shortTitle}</span></button>)}
       </nav>
 
       {page === "home" && <>
