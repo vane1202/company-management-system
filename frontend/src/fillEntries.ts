@@ -19,3 +19,19 @@ export function fillLink(origin: string, entry: FillEntry): string {
 export function isLocalOnlyOrigin(origin: string): boolean {
   return ["127.0.0.1", "localhost", "[::1]"].includes(new URL(origin).hostname);
 }
+
+export const csFillPages = {
+  leads: {path: fillEntries.fans.path, title: "新增客资登记", shortTitle: "客资", icon: "fans"},
+  library: {path: fillEntries.orders.path, title: "开单与售后", shortTitle: "开单", icon: "orders"},
+  performance: {path: "/fill/performance", title: "个人业绩查询", shortTitle: "业绩", icon: "summary"},
+  reimbursements: {path: "/fill/reimbursements", title: "售后垫付报销", shortTitle: "报销", icon: "teamReimbursements"},
+} as const;
+export type CsFillPage = keyof typeof csFillPages;
+export const csFillPageIds = Object.keys(csFillPages) as CsFillPage[];
+
+export function csFillPageFromPath(pathname: string, allowReimbursements = true): CsFillPage {
+  const path = pathname.replace(/\/$/, "");
+  if (path === "/fill/after-sales") return "library";
+  return csFillPageIds.find(page => csFillPages[page].path === path
+    && (allowReimbursements || page !== "reimbursements")) ?? "leads";
+}

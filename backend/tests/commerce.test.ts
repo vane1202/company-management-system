@@ -181,6 +181,21 @@ describe("成交、客户付款与财务结算隔离",()=>{
  });
  afterAll(async()=>{await db?.end();});
 
+ it("客服订单列表按约定币种判断是否仍有尾款", async () => {
+  const id=await order();
+  const listed=async()=> (await get("cashier","/api/orders").expect(200)).body.orders
+    .find((row:{id:string})=>row.id===id);
+  expect((await listed()).hasOpenBalance).toBe(true);
+  const receipt=await payment(id,{currency:"USD",amount:"100.00",creditAmount:"3000.00"});
+  expect((await listed()).hasOpenBalance).toBe(false);
+  const detail=(await get("cashier","/api/order-records/"+id).expect(200)).body;
+  expect(detail.balance).toBe("0.00");
+  await post("cashier",`/api/order-records/${id}/payments/${receipt}/void`,{reason:"演练纠错"}).expect(200);
+  expect((await listed()).hasOpenBalance).toBe(true);
+  const bossRow=(await get("boss","/api/orders").expect(200)).body.orders.find((row:{id:string})=>row.id===id);
+  expect(bossRow.hasOpenBalance).toBeUndefined();
+ });
+
  it("合并直播间旧名，且仅允许本组主管更正未关联资金的订单", async () => {
     const personaCode = randomUUID();
     const old = await order({personaCode,liveRoomCode:"文强直播间",hostName:"文强",customerCurrency:"CNY"});

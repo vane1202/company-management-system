@@ -1,9 +1,9 @@
 import ReimbursementWorkspace from "./demo/ReimbursementWorkspace";
 import { useEffect, useState } from "react";
-import { leadApi } from "./leadApi";
 import { api, type CsAccount, type Order, type User } from "./api";
 import { cents, money } from "./commerceUi";
 import { yuan } from "./dashboardDisplay";
+import { csFillPageFromPath, csFillPageIds, csFillPages, type CsFillPage } from "./fillEntries";
 import { DashboardIcon } from "./DashboardIcon";
 import { dashboardPresetRange } from "./dates";
 import { toErrorMessage } from "./errors";
@@ -17,32 +17,6 @@ import "./demo/customer-fill.css";
 import "./fill-ui.css";
 import "./demo/role-workbenches.css";
 
-const modules = [
-  { id: "leads", title: "新增客资登记", shortTitle: "客资", detail: "加粉详情·需求记录", icon: "fans" },
-  { id: "library", title: "开单与售后", shortTitle: "开单", detail: "客户开单/售后记录", icon: "orders" },
-  { id: "performance", title: "个人业绩查询", shortTitle: "业绩", detail: "直播间/私推业绩", icon: "summary" },
-  { id: "reimbursements", title: "售后垫付报销", shortTitle: "报销", detail: "上传凭证并提交主管", icon: "teamReimbursements" }
-] as const;
-
-type ModuleId = (typeof modules)[number]["id"];
-type FillPage = "home" | ModuleId;
-
-const titles: Record<FillPage, string> = {
-  home: "客服工作台",
-  leads: "新增客资登记",
-  library: "开单与售后",
-  performance: "个人业绩查询", reimbursements: "售后垫付报销"
-};
-
-function resolvePage(): FillPage {
-  const tail = window.location.pathname.replace(/\/$/, "").split("/").pop();
-  if (tail === "fans") return "leads";
-  if (tail === "orders" || tail === "after-sales") return "library";
-  if (tail === "performance") return "performance";
-  if (tail === "reimbursements") return "reimbursements";
-  return "home";
-}
-
 export function CsWorkbench({
   today,
   user,
@@ -55,7 +29,7 @@ export function CsWorkbench({
   onDeviceActivated: (user: User) => void | Promise<void>;
 }) {
   const isEmployeeAccount = !isServiceAccount(user.accountKind);
-  const [page, setPage] = useState<FillPage>(resolvePage);
+  const [page, setPage] = useState<CsFillPage>(() => csFillPageFromPath(window.location.pathname, isEmployeeAccount));
   const [accounts, setAccounts] = useState<CsAccount[]>([]);
   const [accountId, setAccountId] = useState("");
   const [loadingAccounts, setLoadingAccounts] = useState(true);
@@ -84,7 +58,9 @@ export function CsWorkbench({
         if (active) setLoadingAccounts(false);
       });
     const onPop = () => {
-      setPage(resolvePage());
+      setPage(csFillPageFromPath(window.location.pathname, isEmployeeAccount));
+      setQuickCreate(false);
+      setCustomerName("");
       setSelectedOrderId("");
     };
     window.addEventListener("popstate", onPop);
@@ -96,51 +72,11 @@ export function CsWorkbench({
 
   const selectedAccount = accounts.find(item => item.id === accountId) ?? null;
 
-  const [progress,setProgress]=useState<{ leads:number|null; orders:number|null; tails:number|null; checked:boolean }>({leads:null,orders:null,tails:null,checked:false});
-  const [checking,setChecking]=useState(false);
-  useEffect(()=>{
-    if(page!=="home")return;
-    let active=true;
-    void leadApi.zeroStatus(today).then(result=>{if(active)setProgress(current=>({...current,leads:result.leadCount,checked:result.zeroCheckedIn}));}).catch(()=>{});
-    void api.orders("",{}).then(async ({orders})=>{
-      const valid=orders.filter(o=>!o.cancelled&&o.status!=="refunded");
-      if(active)setProgress(current=>({...current,orders:valid.filter(o=>o.businessDate.startsWith(today.slice(0,7))).length}));
-      const eligible=valid.filter(o=>o.workflowEnabled);
-      let tails=0;
-      for(let i=0;i<eligible.length&&active;i+=8){
-        const details=await Promise.all(eligible.slice(i,i+8).map(o=>api.orderRecord(o.id)));
-        tails+=details.filter(d=>!d.legacy&&Number(d.balance)>0).length;
-      }
-      if(active)setProgress(current=>({...current,tails}));
-    }).catch(()=>{if(active)setProgress(current=>({...current,tails:null}));});
-    return ()=>{active=false;};
-  },[page,today,user.id]);
-
-  async function checkIn(){
-    if(checking||progress.leads!==0||progress.checked)return;
-    setChecking(true);
-    try {
-      const result=await leadApi.submitZeroReport(today);
-      setProgress(current=>({...current,leads:result.leadCount,checked:result.zeroCheckedIn}));
-    } catch(error) {
-      setAccountError(toErrorMessage(error));
-    } finally {
-      setChecking(false);
-    }
-  }
-
-  function navigate(next: FillPage, create=false, name="") {
+  function navigate(next: CsFillPage, create = false, name = "") {
     setQuickCreate(create);
     setCustomerName(name);
-    const path =
-      next === "leads"
-        ? "/fill/fans"
-        : next === "library"
-          ? "/fill/orders"
-          : next === "performance"
-            ? "/fill/performance"
-            : next === "reimbursements" ? "/fill/reimbursements" : "/fill";
-    window.history.pushState({}, "", path);
+    const path = csFillPages[next].path;
+    if (window.location.pathname !== path) window.history.pushState({}, "", path);
     setPage(next);
     if (next !== "library") setSelectedOrderId("");
     window.scrollTo({ top: 0, behavior: "instant" });
@@ -151,18 +87,9 @@ export function CsWorkbench({
       <header className="desk-heading">
         <div>
           <p className="eyebrow">日常填报</p>
-          <h1>{titles[page]}</h1>
+          <h1>{csFillPages[page].title}</h1>
         </div>
         <div className="actions">
-          {page !== "home" && (
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => (selectedOrderId ? setSelectedOrderId("") : navigate("home"))}
-            >
-              {selectedOrderId ? "返回订单列表" : "返回工作台"}
-            </button>
-          )}
           <button type="button" className="secondary" onClick={onLogout}>
             退出
           </button>
@@ -212,7 +139,7 @@ export function CsWorkbench({
             </select>
           </Field>}
         </div>
-        {page === "home" && isEmployeeAccount && selectedAccount &&
+        {page === "leads" && isEmployeeAccount && selectedAccount &&
           <RequestCsBinding key={selectedAccount.id} accountId={selectedAccount.id} onActivate={onDeviceActivated} />}
         {accountError && (
           <p className="error" role="alert">
@@ -222,29 +149,18 @@ export function CsWorkbench({
       </section>
 
       <nav className="fill-nav" aria-label="客服工作台导航">
-        <button type="button" className="secondary" aria-pressed={page==="home"} onClick={()=>navigate("home")}><span className="fill-nav-icon"><DashboardIcon name="home" /></span><span className="fill-nav-full">工作台首页</span><span className="fill-nav-short">首页</span></button>
-        {modules.filter(item=>isEmployeeAccount||item.id!=="reimbursements").map(item=><button key={item.id} type="button" className="secondary" aria-pressed={page===item.id} onClick={()=>{setSelectedOrderId("");navigate(item.id);}}><span className="fill-nav-icon"><DashboardIcon name={item.icon} /></span><span className="fill-nav-full">{item.title}</span><span className="fill-nav-short">{item.shortTitle}</span></button>)}
+        {csFillPageIds.filter(id => isEmployeeAccount || id !== "reimbursements").map(id => {
+          const item = csFillPages[id];
+          return <button key={id} type="button" className="secondary" aria-pressed={page === id} aria-label={item.title} onClick={() => { setSelectedOrderId(""); navigate(id); }}>
+            <span className="fill-nav-icon" aria-hidden="true"><DashboardIcon name={item.icon} /></span>
+            <span className="fill-nav-full">{item.title}</span><span className="fill-nav-short">{item.shortTitle}</span>
+          </button>;
+        })}
       </nav>
-
-      {page === "home" && <>
-        <section className="card fill-progress" aria-label="今日填报进度">
-          {[["今日已登记客资",progress.leads],["本月有效开单",progress.orders],["待收尾款单数",progress.tails]].map(([label,value])=><div key={label}><small>{label}</small><strong>{value??"—"}</strong></div>)}
-          <button type="button" className="secondary" disabled={checking||progress.checked||progress.leads!==0} onClick={()=>void checkIn()}>{progress.checked?"今日已打卡":"今日 0 粉打卡"}</button>
-        </section>
-        <div className="fill-home-grid" aria-label="客服业务入口">
-          {modules.filter(item=>isEmployeeAccount||item.id!=="reimbursements").map((item,index)=><article className={`card fill-home-card ${index===1?"fill-hero":""}`} key={item.id}>
-            <h2><DashboardIcon name={item.icon}/>{item.title}</h2>
-            <strong>{item.id==="reimbursements"?"报销":([progress.leads,progress.orders,progress.tails][index]??"—")}</strong>
-            <small>{item.id==="reimbursements"?`售后垫付 · ${item.detail}`:`${["今日已登记客资","本月有效开单","待收尾款单数"][index]} · ${item.detail}`}</small>
-            <button type="button" className="secondary" onClick={()=>navigate(item.id,item.id==="leads"||item.id==="library")}>{["+ 登记新客资","+ 登记一笔成交","查看个人业绩 →","+ 申请售后报销"][index]}</button>
-          </article>)}
-        </div>
-      </>}
 
       {page === "leads" && (
         <LeadWorkspace
           today={today}
-          createOnMount={quickCreate}
           onOpenOrder={(_,name)=>navigate("library",true,name)}
           editable
           platform={selectedAccount?.platform ?? user.servicePlatform}
@@ -339,6 +255,7 @@ function CsPersonalPerformance({
           {error}
         </p>
       )}
+      <p className="fill-page-count" role="status">{!customRange && preset === "month" ? "本月有效开单" : "区间有效开单"} <strong>{loading || error ? "—" : validOrders.length}</strong> 单</p>
       <div className="commerce-kpis fill-performance-kpis">
         <div className="fill-hero"><small>直播间成交（{liveOrders.length} 单）</small><strong>{yuan(sumAmount(liveOrders))}</strong></div>
         <div><small>客服私推（{privateOrders.length} 单）</small><strong>{yuan(sumAmount(privateOrders))}</strong></div>

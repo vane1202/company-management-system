@@ -33,9 +33,15 @@ export function createOrderRouter(db: Pool, config: AppConfig): Router {
       const userFilter = actor.role === "cs" ? actor.id : targetId;
       const scopes = actor.role === "cs_supervisor" ? await managedTeamIds(db, actor) : null;
       const filters = readFilters(req.query);
+      // The clerk's list uses the same agreed-currency balance as the order detail.
+      const balanceColumn = actor.role === "cs" ? `,
+        (d.customer_due + COALESCE((SELECT sum(c.customer_amount) FROM order_charges c
+          WHERE c.order_id=o.id AND c.voided_at IS NULL),0)
+          > COALESCE((SELECT sum(p.credit_amount) FROM customer_payments p
+          WHERE p.order_id=o.id AND p.voided_at IS NULL),0)) AS has_open_balance` : "";
       const rows = await query(
         db,
-        `SELECT o.*,EXISTS(SELECT 1 FROM order_cancellations x WHERE x.order_id=o.id AND x.voided_at IS NULL) AS cancelled,EXISTS(SELECT 1 FROM order_items i WHERE i.order_id=o.id AND i.sourcing_no_settle) AS has_sourcing_no_settle,(CASE WHEN d.order_id IS NULL THEN o.amount ELSE COALESCE((SELECT sum(i.price_cny+i.buying_fee_cny) FROM order_items i WHERE i.order_id=o.id),o.amount) END)::numeric(14,2)::text AS booking_amount,d.persona_code,d.persona_name,${liveRoomSql("d.live_room_code")} AS live_room_code,d.host_name,d.customer_code,d.operator_name,d.deal_channel,d.project_line,u.display_name,u.service_account_label AS wechat_id,u.account_kind,t.id::text AS team_id,t.name AS team_name,EXISTS(SELECT 1 FROM order_details d WHERE d.order_id=o.id) AS workflow_enabled FROM orders o JOIN users u ON u.id=o.user_id LEFT JOIN order_details d ON d.order_id=o.id LEFT JOIN LATERAL (SELECT m.team_id FROM team_memberships m WHERE m.user_id=o.user_id AND m.start_date<=o.business_date AND (m.end_date IS NULL OR m.end_date>=o.business_date) ORDER BY m.start_date DESC LIMIT 1) mem ON TRUE LEFT JOIN teams t ON t.id=COALESCE(o.performance_team_id,mem.team_id)
+        `SELECT o.*${balanceColumn},EXISTS(SELECT 1 FROM order_cancellations x WHERE x.order_id=o.id AND x.voided_at IS NULL) AS cancelled,EXISTS(SELECT 1 FROM order_items i WHERE i.order_id=o.id AND i.sourcing_no_settle) AS has_sourcing_no_settle,(CASE WHEN d.order_id IS NULL THEN o.amount ELSE COALESCE((SELECT sum(i.price_cny+i.buying_fee_cny) FROM order_items i WHERE i.order_id=o.id),o.amount) END)::numeric(14,2)::text AS booking_amount,d.persona_code,d.persona_name,${liveRoomSql("d.live_room_code")} AS live_room_code,d.host_name,d.customer_code,d.operator_name,d.deal_channel,d.project_line,u.display_name,u.service_account_label AS wechat_id,u.account_kind,t.id::text AS team_id,t.name AS team_name,EXISTS(SELECT 1 FROM order_details d WHERE d.order_id=o.id) AS workflow_enabled FROM orders o JOIN users u ON u.id=o.user_id LEFT JOIN order_details d ON d.order_id=o.id LEFT JOIN LATERAL (SELECT m.team_id FROM team_memberships m WHERE m.user_id=o.user_id AND m.start_date<=o.business_date AND (m.end_date IS NULL OR m.end_date>=o.business_date) ORDER BY m.start_date DESC LIMIT 1) mem ON TRUE LEFT JOIN teams t ON t.id=COALESCE(o.performance_team_id,mem.team_id)
           WHERE ($1 = '' OR o.user_id::text = $1)
             AND ($2::date IS NULL OR o.business_date >= $2)
             AND ($3::date IS NULL OR o.business_date <= $3)
@@ -310,6 +316,7 @@ function serializeOrder(row: Record<string, unknown> | undefined) {
   return {
     id: row.id,
     workflowEnabled: Boolean(row.workflow_enabled),
+    hasOpenBalance: typeof row.has_open_balance === "boolean" ? row.has_open_balance : undefined,
     userId: row.user_id,
     personaCode:row.persona_code,personaName:row.persona_name,liveRoomCode:row.live_room_code,hostName:row.host_name,customerCode:row.customer_code,operatorName:row.operator_name,dealChannel:row.deal_channel,projectLine:row.project_line,materialCostCny:row.material_cost_cny==null?null:money(row.material_cost_cny),materialLotNo:row.material_lot_no??"",hasSourcingNoSettle:Boolean(row.has_sourcing_no_settle),
     displayName: row.display_name,

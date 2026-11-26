@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { canUseFillEntry, fillEntryFromPath, fillLink, isLocalOnlyOrigin } from "./fillEntries";
+import { canUseFillEntry, csFillPageFromPath, csFillPageIds, fillEntryFromPath, fillLink, isLocalOnlyOrigin } from "./fillEntries";
 import { navItems } from "./access";
 
 describe("客服固定填报入口", () => {
+  it("旧首页链接打开客资登记，保留已有业务链接和报销权限", () => {
+    expect(csFillPageIds).toEqual(["leads", "library", "performance", "reimbursements"]);
+    for (const path of ["/", "/fill", "/fill/", "/fill/fans"]) expect(csFillPageFromPath(path)).toBe("leads");
+    for (const path of ["/fill/orders", "/fill/after-sales/"]) expect(csFillPageFromPath(path)).toBe("library");
+    expect(csFillPageFromPath("/fill/performance")).toBe("performance");
+    expect(csFillPageFromPath("/fill/reimbursements")).toBe("reimbursements");
+    expect(csFillPageFromPath("/fill/reimbursements", false)).toBe("leads");
+  });
   it("识别两个独立入口和尾斜线，不接受任意外部跳转", () => {
     expect(fillEntryFromPath("/fill/fans")).toBe("fans");
     expect(fillEntryFromPath("/fill/orders/")).toBe("orders");

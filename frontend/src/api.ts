@@ -320,6 +320,7 @@ export type Order = {
   bookingAmount?:string;
   id: string;
   workflowEnabled?: boolean;
+  hasOpenBalance?: boolean;
   dealChannel?:"live"|"private";projectLine?:string;personaCode?:string;personaName?:string;liveRoomCode?:string;hostName?:string;customerCode?:string;operatorName?:string;
   userId?: string;
   displayName?: string;
