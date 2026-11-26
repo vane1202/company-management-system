@@ -12,7 +12,7 @@ import { LeadWorkspace } from "./LeadWorkspace";
 import { Field, OrderDetail } from "./OrderWorkspace";
 import { CsCustomerBook } from "./CsCustomerBook";
 import { CsFillOverview } from "./CsFillOverview";
-import { leadApi, type PersonalFillOverview, type ZeroStatus } from "./leadApi";
+import { leadApi, type PersonalFillOverview, type PersonalFanPreset, type PersonalFans } from "./leadApi";
 import { PeriodToolbar, type StandardPreset } from "./PeriodToolbar";
 import { RequestCsBinding } from "./CsBindingControls";
 import { isServiceAccount } from "./serviceAccounts";
@@ -157,7 +157,7 @@ export function CsWorkbench({
       </nav>
 
       <div hidden={Boolean(detail)}>
-        {page==="home"&&<PersonalHome today={today} onPerformance={()=>navigate("performance")}/>}
+        {page==="home"&&<PersonalHome today={today}/>}
         {page==="leads"&&<LeadWorkspace today={today} editable
           platform={selectedAccount?.platform ?? user.servicePlatform} defaultOperatorName={user.displayName}
           directory={(onEdit,revision)=><CsCustomerBook today={today} user={user} revision={revision}
@@ -174,36 +174,26 @@ export function CsWorkbench({
   );
 }
 
-function PersonalHome({today,onPerformance}:{today:string;onPerformance:()=>void}) {
+function PersonalHome({today}:{today:string}) {
   const [data,setData]=useState<PersonalFillOverview|null>(null);
-  const [zero,setZero]=useState<ZeroStatus|null>(null);
   const [error,setError]=useState("");
-  const [zeroError,setZeroError]=useState("");
-  const [busy,setBusy]=useState(false);
-  const [revision,setRevision]=useState(0);
+  const [preset,setPreset]=useState<PersonalFanPreset>("day");
+  const [fans,setFans]=useState<PersonalFans|null>(null);
+  const [fanError,setFanError]=useState("");
   useEffect(()=>{
     let active=true;
-    setError("");setZeroError("");
     leadApi.personalOverview().then(result=>{if(active)setData(result);}).catch(cause=>{if(active)setError(toErrorMessage(cause));});
-    leadApi.zeroStatus(today).then(result=>{if(active)setZero(result);}).catch(cause=>{if(active)setZeroError(toErrorMessage(cause));});
     return ()=>{active=false;};
-  },[today,revision]);
-  async function checkIn(){
-    setBusy(true);setZeroError("");
-    try {
-      const result=await leadApi.submitZeroReport(today);
-      setZero({...result,checkedInAt:null});
-      setRevision(value=>value+1);
-    } catch(cause) { setZeroError(toErrorMessage(cause)); }
-    finally { setBusy(false); }
-  }
+  },[today]);
+  useEffect(()=>{
+    let active=true;
+    setFans(null);setFanError("");
+    leadApi.personalFans(preset).then(result=>{if(active)setFans(result);}).catch(cause=>{if(active)setFanError(toErrorMessage(cause));});
+    return ()=>{active=false;};
+  },[today,preset]);
   return <div>
-    <div className="commerce-line"><h2>个人看板</h2><button type="button" className="secondary" onClick={()=>setRevision(v=>v+1)}>刷新</button></div>
     {error&&<p className="error" role="alert">{error}</p>}
-    {zeroError&&<p className="error" role="alert">{zeroError}</p>}
-    <CsFillOverview data={data} onPerformance={onPerformance} checkIn={zero?.leadCount===0
-      ?zero.zeroCheckedIn?<small role="status">今日已打卡</small>:<button className="secondary" type="button" disabled={busy} onClick={()=>void checkIn()}>今日 0 粉打卡</button>
-      :undefined}/>
+    <CsFillOverview data={data} fans={fans} preset={preset} onPreset={setPreset} fanError={fanError}/>
   </div>;
 }
 

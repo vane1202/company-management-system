@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type { Pool } from 'pg';
 import type { AppConfig } from '../config.js';
-import { businessToday, diffDays, isIsoDate, toDateOnly } from '../lib/dates.js';
+import { businessToday, diffDays, isIsoDate, resolvePeriod, toDateOnly } from '../lib/dates.js';
 import { leadMetrics, leadPayload, type Lead } from '../lib/fanLeads.js';
 import { parseAccountId,assertServiceChannel } from '../lib/csAccounts.js';
 import { managedTeamIds, membershipOnDate, type Actor } from '../users.js';
@@ -64,6 +64,23 @@ export function createFanLeadsRouter(db:Pool,config:AppConfig){
       ORDER BY l.received_on DESC,l.created_at DESC,l.id LIMIT 31 OFFSET $3`,[actor.id,term,page*30]);
     res.set('Cache-Control','private, no-store').json({rows:rows.slice(0,30).map(r=>({...serialize(r),
       reviewedAt:invalid?r.invalid_reviewed_at:null,lastOrderStatus:r.status??null,lastOrderCancelled:Boolean(r.cancelled)})),hasMore:rows.length>30});
+  }catch(e){next(e);}});
+  router.get('/personal-fans',async(req,res,next)=>{try{
+    const actor=req.actor!;
+    if(actor.role!=='cs')throw new HttpError(403,'仅客服本人可查看加粉数据');
+    const preset=req.query.preset??'day';
+    if(preset!=='day'&&preset!=='week'&&preset!=='month')throw new HttpError(400,'周期须为今日、本周或本月');
+    const today=businessToday(new Date(),config.businessTimezone);
+    const {from,to}=resolvePeriod(preset,undefined,undefined,today);
+    const {rows:[counts]}=await db.query(`SELECT count(*)::int AS added,
+        count(*) FILTER (WHERE l.replied_on<=$3 AND l.invalid_review_status<>'approved')::int AS replied,
+        count(*) FILTER (WHERE EXISTS (
+          SELECT 1 FROM orders o WHERE o.customer_lead_id=l.id AND o.user_id=l.user_id
+            AND o.business_date<=$3 AND o.status<>'refunded'
+            AND NOT EXISTS(SELECT 1 FROM order_cancellations x WHERE x.order_id=o.id AND x.voided_at IS NULL)
+        ))::int AS booked
+      FROM fan_leads l WHERE l.user_id=$1 AND l.received_on BETWEEN $2 AND $3 AND l.voided_at IS NULL`,[actor.id,from,to]);
+    res.set('Cache-Control','private, no-store').json({from,to,...counts});
   }catch(e){next(e);}});
   router.get('/personal-overview',async(req,res,next)=>{try{
     const actor=req.actor!;

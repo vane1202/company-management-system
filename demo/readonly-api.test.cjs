@@ -760,3 +760,11 @@ test('本组主管可在当前标签页更正直播间并保持订单明细',asy
  assert.equal((await environment('cs_supervisor').json(path)).body.details.liveRoomCode,before.details.liveRoomCode);
  assert.equal(sup.network(),0);
 });
+
+test('客服演示只读获取拍剪人设选项',async()=>{
+ const cs=environment('cs');
+ const result=await cs.json('/api/order-records/persona-options');
+ assert.equal(result.status,200);
+ assert.ok(result.body.personas.includes('演示人设 A'));
+ assert.equal((await cs.json('/api/order-records/demo-order-1')).status,403);
+});

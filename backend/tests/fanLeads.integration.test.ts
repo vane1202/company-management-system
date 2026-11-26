@@ -94,6 +94,16 @@ describe('线索隔离与归属集成',()=>{
   expect((await get('cs',overview).expect(200)).body).toMatchObject({commission:'0.00',commissionEstimate:null});
   expect((await get('other',overview).expect(200)).body.commission).toBeNull();
   await get('boss',overview).expect(403);
+  const fanPath='/api/fan-leads/personal-fans?preset=';
+  expect((await get('cs',fanPath+'day').expect(200)).body.booked).toBe(2);
+  await post('cs','/api/order-records',{...sale,requestKey:randomUUID(),customerLeadId:a}).expect(200);
+  expect((await get('cs',fanPath+'day').expect(200)).body.booked).toBe(2);
+  await db.query("UPDATE orders SET status='refunded' WHERE id=$1",[unlinked]);
+  expect((await get('cs',fanPath+'day').expect(200)).body.booked).toBe(1);
+  expect((await get('cs',fanPath+'week').expect(200)).body.booked).toBe(1);
+  expect((await get('cs',fanPath+'month').expect(200)).body.booked).toBe(1);
+  await get('cs',fanPath+'year').expect(400);
+  await get('boss',fanPath+'day').expect(403);
  });
  it('作废需说明和版本，保留审计、从分母剔除，未来和超范围日期拒绝',async()=>{
   const id=(await post('cs','/api/fan-leads',body()).expect(200)).body.id;await patch('cs',id,{version:1,void:true}).expect(400);await patch('cs',id,{version:1,void:true,reason:'重复客户，保留另一主记录'}).expect(200);expect((await get('cs').expect(200)).body.leads.find((l:any)=>l.id===id).voidReason).toContain('重复');await patch('cs',id,{version:2,void:true,reason:'再次'}).expect(409);

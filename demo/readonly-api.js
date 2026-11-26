@@ -827,7 +827,7 @@
     if(path==="/api/assessment/foundation"){if(!window.CmsAssessmentFoundation)return json({error:"考核数据基础未加载"},503);const view=window.CmsAssessmentFoundation.present({role,today,accounts:visibleAccounts().map((a)=>({id:a.id,holderName:a.holderName,teamId:a.teamId,teamName:a.teamName})),orders:orders.filter((o)=>o.dealChannel!=='private').map((o)=>({id:o.id,accountId:o.userId,businessDate:o.businessDate,customerLabel:o.customerLabel,cancelled:!!o.cancelled,status:o.status}))});if(view&&role==='ops'){view.invalid=[];view.sourceAds=[];view.note="广告户与客资来源的负责关系待补，暂不计算个人范围的无效粉汇总。";}if(view)view.privateSales=orders.filter((o)=>o.dealChannel==='private').map((o)=>({id:o.id,businessDate:o.businessDate,operatorName:o.operatorName||'',customerLabel:o.customerLabel,amount:bookingAmount(o),cancelled:!!o.cancelled}));return view?json(view):json({error:"当前身份不能查看考核数据基础"},403);}
     if(path==="/api/modules")return json({version:1,modules:{fans:true,ops:true,editor:true,orders:true},labels:{fans:"客服加粉",ops:"运营投放",editor:"拍剪",orders:"订单"}});
     if(role==='warehouse')return json({error:'Warehouse access is limited to settlement bills'},403);
-    if(role==='cs'&&path!=="/api/cs-accounts")return json({error:"客服填报演示仅提供虚构账号选择与本页试填，不开放管理数据"},403);
+    if(role==='cs'&&!["/api/cs-accounts","/api/order-records/persona-options"].includes(path))return json({error:"客服填报演示仅提供虚构账号选择与本页试填，不开放管理数据"},403);
     if(role==='editor')return json({error:"拍剪填报演示仅提供预置姓名选择与本页试填，不开放管理数据"},403);
     if(path==='/api/demo/boss-overview')return role==='boss'?bossOverview(q):json({error:'仅BOSS可查看演示经营总览'},403);
     if(path==='/api/demo/ops-analysis'){

@@ -7,6 +7,8 @@ import { toErrorMessage } from "../errors";
 import { csFillPageFromPath, csFillPageIds, csFillPages, type CsFillPage } from "../fillEntries";
 import { DashboardIcon } from "../DashboardIcon";
 import { commissionLine, estimateCsCommission } from "./commissionCalc";
+import { dashboardPresetRange } from "../dates";
+import type { PersonalFanPreset } from "../leadApi";
 import { CsFillOverview } from "../CsFillOverview";
 import { InfoTip } from "../InfoTip";
 import ReportTextImport from "./ReportTextImport";
@@ -83,7 +85,13 @@ export default function CustomerFillWorkspace({ today }: { today: string }) {
   }));
   const customer = mine.find(item => item.id === customerId);
   const monthOrders=crm.state.orders.filter(order=>order.employeeId===actor?.employeeId&&!order.cancelled&&order.businessDate.startsWith(today.slice(0,7)));
-  const monthFans=mine.filter(row=>row.createdOn.startsWith(today.slice(0,7))).length;
+  const [fanPreset,setFanPreset]=useState<PersonalFanPreset>("day");
+  const fanRange=dashboardPresetRange(today,fanPreset);
+  const fanCohort=mine.filter(row=>row.createdOn>=fanRange.from&&row.createdOn<=fanRange.to);
+  const bookedCustomers=new Set(crm.state.orders.filter(row=>row.employeeId===actor?.employeeId&&!row.cancelled&&row.businessDate<=today).map(row=>row.customerId));
+  const fanCounts={...fanRange,added:fanCohort.length,
+    replied:fanCohort.filter(row=>row.contact==="replied"&&!customerTags(crm.state,row).includes("无效")).length,
+    booked:fanCohort.filter(row=>bookedCustomers.has(row.id)).length};
   const monthAmount=(kind:"live"|"private")=>centsToYuan(monthOrders.filter(row=>row.channel===kind).reduce((sum,row)=>sum+effectiveOrderCents(row),0)).replaceAll(",","");
   const leadDrawer=useRef<HTMLDialogElement>(null);
   const leadCount = mine.filter(row => row.createdOn === today).length;
@@ -118,8 +126,8 @@ export default function CustomerFillWorkspace({ today }: { today: string }) {
       })}
     </nav>
 
-    {page==="home"&&<CsFillOverview data={actor?{todayLeads:leadCount,todayReplied:mine.filter(row=>row.createdOn===today&&row.contact==="replied"&&!confirmed.has(row.id)).length,monthFans,orderCount:monthOrders.length,liveAmount:monthAmount("live"),privateAmount:monthAmount("private"),commission:null,commissionEstimate:demoCommissionEstimate(monthOrders)}:null}
-      onPerformance={()=>navigate("performance")} checkIn={actor&&leadCount===0&&(checked?<small role="status">今日已打卡（演练）</small>:<button type="button" className="secondary" onClick={()=>setCheckins(values=>[...values,checkinKey])}>今日 0 粉打卡</button>)}/>}
+    {page==="home"&&<CsFillOverview data={actor?{orderCount:monthOrders.length,liveAmount:monthAmount("live"),privateAmount:monthAmount("private"),commission:null,commissionEstimate:demoCommissionEstimate(monthOrders)}:null}
+      fans={actor?fanCounts:null} preset={fanPreset} onPreset={setFanPreset}/> }
     {!actor && page !== "reimbursements" && page !== "home" && <section className="card"><h2>{loading ? "正在读取客服" : "暂无可用客服"}</h2><p>请选择可用的接待账号。</p></section>}
     {actor && page === "leads" && !customer && <section className="card">
       <div className="commerce-line"><p className="fill-page-count" role="status">今日已登记客资 <strong>{leadCount}</strong> 条</p>
@@ -187,15 +195,13 @@ const demoPerformanceTeams = [
 
 function OrderPractice({ today, operator, room, onPractice, customerName }: { customerName:string; today: string; operator: string; room?: { name: string; host: string }; onPractice: (value: CrmOrderDraft) => void }) {
   const drawer=useRef<HTMLDialogElement>(null);
-  const [channel, setChannel] = useState<"live" | "private">("live");
   const [error, setError] = useState("");
   return <div>
     <button type="button" onClick={()=>drawer.current?.showModal()}>＋ 登记一笔成交</button>
     <dialog className="fill-drawer fill-order-drawer" ref={drawer} aria-label="登记一笔成交"><div className="fill-drawer-body">
     <header className="commerce-line"><h2>登记一笔成交</h2><button type="button" className="secondary" onClick={()=>drawer.current?.close()}>关闭</button></header>
-    <div className="fill-history-mode" role="group" aria-label="成交渠道"><button type="button" aria-pressed={channel === "live"} onClick={() => setChannel("live")}>直播间开单</button><button type="button" aria-pressed={channel === "private"} onClick={() => setChannel("private")}>私推成交</button></div>
     {error && <p className="error" role="alert">{error}</p>}
-    <CreateOrder customerName={customerName} practiceTeams={demoPerformanceTeams} key={channel} channel={channel} today={today} operator={operator} registeredRoom={channel === "live" ? room : undefined} previewOnly onSaved={() => {}} onPractice={draft => { try { onPractice({ ...draft, channel }); setError(""); drawer.current?.close(); } catch (cause) { setError(toErrorMessage(cause)); } }} />
+    <CreateOrder customerName={customerName} practiceTeams={demoPerformanceTeams} today={today} operator={operator} registeredRoom={room} previewOnly onSaved={() => {}} onPractice={draft => { try { onPractice(draft); setError(""); drawer.current?.close(); } catch (cause) { setError(toErrorMessage(cause)); } }} />
     </div></dialog>
   </div>;
 }

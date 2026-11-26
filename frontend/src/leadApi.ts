@@ -8,7 +8,9 @@ export type InvalidReasonCode = '' | keyof typeof INVALID_REASON_PRESETS | 'cust
 export type InvalidReviewStatus = '' | 'pending' | 'approved' | 'rejected' | 'restored';
 export type Lead={id:string;accountId:string;wechatId:string;teamId:string;teamName:string;receivedOn:string;pageName:string;personaCode:string;operatorName:string;sourceAdAccountId?:string;channel:'ms'|'ws';customerLabel:string;customerRef:string;contactStatus:'unread'|'read_no_reply'|'replied';repliedOn:string|null;qualifiedOn:string|null;needSummary:string;invalidReason:string;invalidReasonCode?:InvalidReasonCode;invalidReviewStatus?:InvalidReviewStatus;invalidReviewNote?:string;attemptContact?:boolean;lossReason:string;nextFollowup:string|null;note:string;version:number;voidedAt:string|null;voidReason:string|null};
 export type CustomerLead = Lead & {reviewedAt:string|null;lastOrderStatus:string|null;lastOrderCancelled:boolean};
-export type PersonalFillOverview = {todayLeads:number;todayReplied:number;monthFans:number;orderCount:number;liveAmount:string;privateAmount:string;commission:string|null;commissionEstimate?:{amount:string|null;pendingCount:number}|null};
+export type PersonalFanPreset = "day" | "week" | "month";
+export type PersonalFans = {from:string;to:string;added:number;replied:number;booked:number};
+export type PersonalFillOverview = {orderCount:number;liveAmount:string;privateAmount:string;commission:string|null;commissionEstimate?:{amount:string|null;pendingCount:number}|null};
 export type LeadReport={accountId:string;pageName:string;businessDate:string;msToday:number|null;wsToday:number|null;addedCount:number};
 export type ZeroStatus={date:string;leadCount:number;zeroCheckedIn:boolean;checkedInAt:string|null};
 export function isConfirmedInvalidLead(lead:Pick<Lead,'invalidReason'|'invalidReviewStatus'>):boolean{
@@ -18,6 +20,7 @@ export function isConfirmedInvalidLead(lead:Pick<Lead,'invalidReason'|'invalidRe
 export const leadApi={
   customerBook:(search:string,page:number,invalid:boolean)=>requestInner<{rows:CustomerLead[];hasMore:boolean}>(
     `/api/fan-leads/customer-book?${new URLSearchParams({search,page:String(page),invalid:String(invalid)})}`),
+  personalFans:(preset:PersonalFanPreset)=>requestInner<PersonalFans>(`/api/fan-leads/personal-fans?preset=${preset}`),
   personalOverview:()=>requestInner<PersonalFillOverview>('/api/fan-leads/personal-overview'),
   list:(from:string,to:string)=>requestInner<{from:string;to:string;today:string;leads:Lead[];reports:LeadReport[]}>(`/api/fan-leads?${new URLSearchParams({from,to})}`),
   create:(payload:Record<string,unknown>)=>requestInner<{id:string}>('/api/fan-leads',{method:'POST',body:JSON.stringify(payload)}),
