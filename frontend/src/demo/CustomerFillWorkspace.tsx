@@ -6,17 +6,21 @@ import { cents, currencies, expenseLabels } from "../commerceUi";
 import { toErrorMessage } from "../errors";
 import { csFillPageFromPath, csFillPageIds, csFillPages, type CsFillPage } from "../fillEntries";
 import { DashboardIcon } from "../DashboardIcon";
+import { CsFillOverview } from "../CsFillOverview";
 import { InfoTip } from "../InfoTip";
 import ReportTextImport from "./ReportTextImport";
 import { afterSaleTotals, emptyAfterSale, parseAfterSaleText, signedMoney, type AfterSaleExpense, type AfterSaleFields } from "./afterSalesText";
 import FanFillForm from "./FanFillForm";
 import { loadServiceDirectory, type FillAccount } from "./serviceDirectory";
-import { orderFunds, effectiveOrderCents, type CrmOrderDraft, centsToYuan, customerTags, invalidReasons, personalPerformance, useCustomerCrm, type CrmActor, type CrmCustomer, type SpendTier } from "./customerCrm";
+import { effectiveOrderCents, type CrmOrderDraft, centsToYuan, customerTags, invalidReasons, personalPerformance, latestCustomerReview, useCustomerCrm, type CrmActor, type CrmCustomer, type SpendTier } from "./customerCrm";
 import CrmOrderHistory from "./CrmOrderHistory";
 import "./customer-fill.css";
 import "../fill-ui.css";
 import "./role-workbenches.css";
 
+function personKey(account: FillAccount) {
+  return account.registeredHolderId || (account.id==="demo-wechat-1"?"demo-cs-a":account.holderName || account.id);
+}
 export default function CustomerFillWorkspace({ today }: { today: string }) {
   const crm = useCustomerCrm(today);
   const [page, setPage] = useState<CsFillPage>(() => csFillPageFromPath(window.location.pathname));
@@ -25,7 +29,6 @@ export default function CustomerFillWorkspace({ today }: { today: string }) {
   const [accountId, setAccountId] = useState("");
   const [identityExpanded, setIdentityExpanded] = useState(true);
   const [customerId, setCustomerId] = useState("");
-  const [openOrderForm, setOpenOrderForm] = useState(false);
   const [checkins, setCheckins] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -36,24 +39,32 @@ export default function CustomerFillWorkspace({ today }: { today: string }) {
       if (!live) return;
       const rows: FillAccount[] = (directory.enabled ? directory.accounts : data.accounts).filter(item => item.isActive);
       setAccounts(rows);
-      const firstPerson = rows[0] ? (rows[0].registeredHolderId || rows[0].holderName || rows[0].id) : "";
+      const firstPerson = rows[0] ? personKey(rows[0]) : "";
       setPersonId(current => current || firstPerson);
       setError("");
     }).catch(cause => { if (live) setError(toErrorMessage(cause)); }).finally(() => { if (live) setLoading(false); });
-    const onPop = () => { setPage(csFillPageFromPath(window.location.pathname)); setCustomerId(""); setOpenOrderForm(false); };
+    const onPop = () => { setPage(csFillPageFromPath(window.location.pathname)); setCustomerId(""); };
     window.addEventListener("popstate", onPop);
     return () => { live = false; window.removeEventListener("popstate", onPop); };
   }, [today]);
   const people = [...new Map(accounts.map(account => {
-    const id = account.registeredHolderId || account.holderName || account.id;
+    const id = personKey(account);
     return [id, { id, name: account.holderName || account.wechatId }];
   })).values()];
   const selectedPerson = people.find(person => person.id === personId);
-  const personAccounts = accounts.filter(account => (account.registeredHolderId || account.holderName || account.id) === personId);
+  const personAccounts = accounts.filter(account => personKey(account) === personId);
   const selected = personAccounts.find(account => account.id === accountId);
   const actor: CrmActor | null = selectedPerson ? { role: "cs", employeeId: selectedPerson.id, employeeName: selectedPerson.name, teamIds: [selected?.teamId || personAccounts[0]?.teamId || ""] } : null;
   const mine = actor ? crm.state.customers.filter(customer => customer.employeeId === actor.employeeId) : [];
+  const confirmed = new Map(mine.flatMap(item => {
+    const review=latestCustomerReview(crm.state,item.id);
+    return review?.status==="approved"&&review.reviewedAt&&review.reviewer&&review.reviewer!=="预设规则自动确认"
+      ?[[item.id,review] as const]:[];
+  }));
   const customer = mine.find(item => item.id === customerId);
+  const monthOrders=crm.state.orders.filter(order=>order.employeeId===actor?.employeeId&&!order.cancelled&&order.businessDate.startsWith(today.slice(0,7)));
+  const monthFans=mine.filter(row=>row.createdOn.startsWith(today.slice(0,7))).length;
+  const monthAmount=(kind:"live"|"private")=>centsToYuan(monthOrders.filter(row=>row.channel===kind).reduce((sum,row)=>sum+effectiveOrderCents(row),0)).replaceAll(",","");
   const leadDrawer=useRef<HTMLDialogElement>(null);
   const leadCount = mine.filter(row => row.createdOn === today).length;
   const checkinKey = `${today}:${actor?.employeeId ?? ""}`;
@@ -61,16 +72,16 @@ export default function CustomerFillWorkspace({ today }: { today: string }) {
   function navigate(next: CsFillPage) {
     const path = csFillPages[next].path;
     if (window.location.pathname !== path) window.history.pushState({}, "", path + "?role=cs");
-    setPage(next); setCustomerId(""); setOpenOrderForm(false);
+    setPage(next); setCustomerId("");
     window.scrollTo({ top: 0, behavior: "instant" });
   }
   return <main className="customer-fill role-desk">
-    <header className="desk-heading"><div><p className="eyebrow">日常填报</p><h1>{customer ? customer.name : csFillPages[page].title}</h1></div>{customer && <button type="button" className="secondary" onClick={() => {setCustomerId("");setOpenOrderForm(false);}}>返回客资库</button>}</header>
+    <header className="desk-heading"><div><p className="eyebrow">日常填报</p><h1>{customer ? customer.name : csFillPages[page].title}</h1></div>{customer && <button type="button" className="secondary" onClick={() => setCustomerId("")}>返回客资库</button>}</header>
     <section className="card fill-account fill-account-bar" aria-label="填报身份">
       {selected && !identityExpanded ? <div className="fill-identity-summary"><div><span className="fill-avatar" aria-hidden="true">{(selectedPerson?.name || "客").slice(0, 1)}</span><span className="fill-identity-text"><strong>{selectedPerson?.name}</strong><span>{selected.platform === "whatsapp" ? "WhatsApp" : selected.platform === "messenger" ? "Messenger" : "接待账号"} · 尾号{(selected.accountIdentifier || selected.wechatId).slice(-4)}</span></span></div><button type="button" className="secondary" aria-expanded={false} onClick={() => setIdentityExpanded(true)}>更换</button></div> : <div id="fill-identity-fields" className="fill-identity-fields">
       {selectedPerson && <div className="fill-identity-summary"><div><span className="fill-avatar" aria-hidden="true">{(selectedPerson.name || "客").slice(0, 1)}</span><span className="fill-identity-text"><strong>{selectedPerson.name}</strong><span>当前登录客服 · 演示模式</span></span></div></div>}
       <div className="fill-identity-selectors">
-        <Field label="接待账号"><select aria-label="选择接待账号" value={accountId} disabled={loading || !personId} onChange={event => { setAccountId(event.target.value); setCustomerId(""); setOpenOrderForm(false); if (event.target.value) setIdentityExpanded(false); }}><option value="">{loading ? "正在读取接待账号…" : "请选择 WhatsApp 或 Messenger"}</option>{personAccounts.map(account => <option key={account.id} value={account.id}>{account.wechatId}</option>)}</select></Field>
+        <Field label="接待账号"><select aria-label="选择接待账号" value={accountId} disabled={loading || !personId} onChange={event => { setAccountId(event.target.value); setCustomerId(""); if (event.target.value) setIdentityExpanded(false); }}><option value="">{loading ? "正在读取接待账号…" : "请选择 WhatsApp 或 Messenger"}</option>{personAccounts.map(account => <option key={account.id} value={account.id}>{account.wechatId}</option>)}</select></Field>
       </div>
       {selected && <div className="fill-identity-context"><span>{selected.teamName || "未分组"} · {selectedPerson?.name}</span><button type="button" className="text-action" onClick={() => setIdentityExpanded(false)}>收起</button></div>}
       <details className="fill-login-help"><summary>登录说明</summary><p className="hint">个人登录将在服务器部署后启用，首次登录须改密。演示阶段按所选客服区分数据。</p></details></div>}
@@ -87,8 +98,10 @@ export default function CustomerFillWorkspace({ today }: { today: string }) {
       })}
     </nav>
 
-    {!actor && page !== "reimbursements" && <section className="card"><h2>{loading ? "正在读取客服" : "暂无可用客服"}</h2><p>请选择可用的接待账号。</p></section>}
-    {actor && page === "leads" && <section className="card">
+    {page==="home"&&<CsFillOverview data={actor?{todayLeads:leadCount,todayReplied:mine.filter(row=>row.createdOn===today&&row.contact==="replied"&&!confirmed.has(row.id)).length,monthFans,orderCount:monthOrders.length,liveAmount:monthAmount("live"),privateAmount:monthAmount("private"),commission:null}:null}
+      onPerformance={()=>navigate("performance")} checkIn={actor&&leadCount===0&&(checked?<small role="status">今日已打卡（演练）</small>:<button type="button" className="secondary" onClick={()=>setCheckins(values=>[...values,checkinKey])}>今日 0 粉打卡</button>)}/>}
+    {!actor && page !== "reimbursements" && page !== "home" && <section className="card"><h2>{loading ? "正在读取客服" : "暂无可用客服"}</h2><p>请选择可用的接待账号。</p></section>}
+    {actor && page === "leads" && !customer && <section className="card">
       <div className="commerce-line"><p className="fill-page-count" role="status">今日已登记客资 <strong>{leadCount}</strong> 条</p>
         <div className="actions fill-lead-actions">{leadCount===0 && (checked ? <span className="fill-status">今日已打卡（演练）</span> : <button className="secondary" type="button" onClick={()=>setCheckins(values=>[...values,checkinKey])}>今日 0 粉打卡</button>)}
         <button type="button" disabled={!selected} onClick={()=>leadDrawer.current?.showModal()}>＋ 登记新客资</button></div>
@@ -96,53 +109,45 @@ export default function CustomerFillWorkspace({ today }: { today: string }) {
       {selected ? <dialog className="fill-drawer" ref={leadDrawer} aria-label="登记新客资"><div className="fill-drawer-body"><header className="commerce-line"><h2>登记新客资</h2><button type="button" className="secondary" onClick={()=>leadDrawer.current?.close()}>关闭</button></header><FanFillForm key={selected.id} today={today} account={selected} employees={[]} tenures={[]} onRegister={(leads, source) => {
       try {
         if (selected.holderSince && source.businessDate < selected.holderSince) throw Error("该填报日期早于当前客服接手日期，请由主管核对历史归属");
-        crm.dispatch({ type: "registerLeads", leads: leads.filter(lead => lead.customer.trim()).map(lead => ({ name: lead.customer, accountId: selected.id, employeeId: actor.employeeId, employeeName: actor.employeeName, teamId: selected.teamId || actor.teamIds[0], teamName: selected.teamName || "", source: source.pageName, createdOn: source.businessDate, adAccountId: source.adAccountId, need: lead.summary, contact: lead.contact, invalidReason: lead.invalidReason, invalidNote: lead.invalidNote })) });
+        crm.dispatch({ type: "registerLeads", leads: leads.filter(lead => lead.customer.trim()).map(lead => ({ name: lead.customer, accountId: selected.id, employeeId: actor.employeeId, employeeName: actor.employeeName, teamId: selected.teamId || actor.teamIds[0], teamName: selected.teamName || "", source: source.pageName, createdOn: source.businessDate, adAccountId: source.adAccountId, need: lead.summary, channel: lead.channel, contact: lead.contact, invalidReason: lead.invalidReason, invalidNote: lead.invalidNote })) });
         setNotice("已登记到本次客资库。无效申请要等主管确认后，才标记为无效。");
         leadDrawer.current?.close();
-        navigate("library");
+
       } catch (cause) { setNotice(""); setError(toErrorMessage(cause)); }
     }} />{error&&<p role="alert" className="error">{error}</p>}</div></dialog> : <p className="notice">请先选择 WhatsApp 或 Messenger 接待账号，再登记客资。</p>}
     </section>}
-    {actor && page === "library" && (customer ? <CustomerDetail today={today} customer={customer} actor={actor} crm={crm} account={selected} openOrderForm={openOrderForm} onMessage={setNotice} /> : <CustomerLibrary employeeId={actor.employeeId} people={mine} state={crm.state} onOpen={setCustomerId} onCreate={id=>{setCustomerId(id);setOpenOrderForm(true);}} />)}
+    {actor&&page==="leads"&&(customer
+      ?<CustomerDetail key={customer.id} today={today} customer={customer} actor={actor} crm={crm} account={selected} onMessage={setNotice}/>
+      :<DemoCustomerRows people={mine.filter(row=>!confirmed.has(row.id))} state={crm.state} onOpen={setCustomerId}/>)}
+    {actor&&page==="invalid"&&<DemoCustomerRows people={mine.filter(row=>confirmed.has(row.id))} state={crm.state} invalid/>}
     {page === "reimbursements" && <ReimbursementWorkspace today={today} mode="staff" />}
-    {actor && page === "performance" && <Performance today={today} employeeId={actor.employeeId} state={crm.state} onOpen={id=>{navigate("library");setCustomerId(id);}} />}
+    {actor && page === "performance" && <Performance today={today} employeeId={actor.employeeId} state={crm.state} onOpen={id=>{navigate("leads");setCustomerId(id);}} />}
   </main>;
 }
 
-function CustomerLibrary({ employeeId, people, state, onOpen, onCreate }: { employeeId: string; people: CrmCustomer[]; state: ReturnType<typeof useCustomerCrm>["state"]; onOpen: (id: string) => void; onCreate: (id: string) => void }) {
-  const createPicker = useRef<HTMLDialogElement>(null);
-  const [orderCustomer,setOrderCustomer] = useState("");
-  const [onlyOutstanding,setOnlyOutstanding] = useState(false);
-  const balances = new Map<string, number>();
-  for (const order of state.orders) {
-    if (order.employeeId === employeeId && !order.cancelled && orderFunds(order).balance > 0) balances.set(order.customerId, (balances.get(order.customerId) ?? 0) + 1);
-  }
-  const [status, setStatus] = useState("");
-  const [tier, setTier] = useState("");
-  const [addedFrom, setAddedFrom] = useState("");
-  const [addedTo, setAddedTo] = useState("");
-  const [query, setQuery] = useState("");
-  const matching = people.filter(customer => {
-    const tags = customerTags(state, customer).join(" ");
-    const tierLabel = customer.spendTier ? customer.spendTier + "档" : "未分档";
-    return (!status || tags.includes(status))
-      && (!tier || tierLabel === tier)
-      && (!addedFrom || customer.createdOn >= addedFrom)
-      && (!addedTo || customer.createdOn <= addedTo)
-      && (customer.name + customer.need + (customer.adAccountId || "")).toLowerCase().includes(query.trim().toLowerCase());
-  }).sort((a, b) => b.createdOn.localeCompare(a.createdOn) || a.name.localeCompare(b.name, "zh"));
-  const outstanding = matching.reduce((sum,customer)=>sum+(balances.get(customer.id) ?? 0),0);
-  const rows = onlyOutstanding ? matching.filter(customer=>balances.has(customer.id)) : matching;
-  return <section className="card" aria-label="开单与售后">
-    <div className="commerce-line"><div className="fill-pills"><button className="secondary" type="button" aria-pressed={onlyOutstanding} onClick={()=>setOnlyOutstanding(value=>!value)}>待收尾款 {outstanding} 单</button></div><button type="button" disabled={!people.length} onClick={()=>createPicker.current?.showModal()}>＋ 登记一笔成交</button></div>
-    <dialog className="fill-drawer" aria-label="选择开单客户" ref={createPicker}><div className="fill-drawer-body">
-      <header className="commerce-line"><h2>选择开单客户</h2><button type="button" className="secondary" onClick={()=>createPicker.current?.close()}>关闭</button></header>
-      <Field label="客户"><select required value={orderCustomer} onChange={e=>setOrderCustomer(e.target.value)}><option value="">请选择已登记的客户</option>{people.map(customer=><option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></Field>
-      <button type="button" disabled={!orderCustomer} onClick={()=>{createPicker.current?.close();onCreate(orderCustomer);}}>继续开单</button>
-    </div></dialog><p className="notice">开单和售后进客户档案。带“演练样本”的记录只供本次浏览器演练，不是正式业绩。当前 {rows.length} 位。</p><div className="grid two fill-filter-grid"><label className="row fill-search">搜索<input aria-label="搜索客户" type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="客户名、需求或广告户" /></label><Field label="标签"><select aria-label="客户标签筛选" value={status} onChange={event => setStatus(event.target.value)}><option value="">全部标签</option>{["有效", "已成交", "无效", "待复核", "尝试沟通", "复购"].map(tag => <option key={tag}>{tag}</option>)}</select></Field><Field label="消费档位"><select aria-label="消费档位筛选" value={tier} onChange={event => setTier(event.target.value)}><option value="">全部档位</option>{["A档", "B档", "C档"].map(tag => <option key={tag}>{tag}</option>)}<option value="未分档">未分档</option></select></Field><Field label="添加开始"><input aria-label="添加开始日期" type="date" max={addedTo || undefined} value={addedFrom} onChange={event => setAddedFrom(event.target.value)} /></Field><Field label="添加结束"><input aria-label="添加结束日期" type="date" min={addedFrom || undefined} value={addedTo} onChange={event => setAddedTo(event.target.value)} /></Field></div>{rows.length ? <div className="crm-list">{rows.map(customer => <button type="button" key={customer.id} onClick={() => onOpen(customer.id)}><span><strong>{customer.name}</strong><small>{customer.createdOn} · 下粉广告户 {customer.adAccountId || "来源待补"} · {customer.need || "未填写需求"}</small></span><span className="crm-tags">{customerTags(state, customer).map(tag => <em key={tag} className={tag === "无效" ? "is-invalid" : tag === "待复核" ? "is-pending" : ""}>{tag}</em>)}{onlyOutstanding && <em>待收尾款 {balances.get(customer.id)} 单</em>}{customer.sample && <em>演练样本</em>}</span></button>)}</div> : <p className="empty-state">{onlyOutstanding ? "当前筛选范围内没有待收尾款订单。" : "没有符合条件的客户。可先做新增客资登记。"}</p>}</section>;
+function DemoCustomerRows({people,state,onOpen,invalid=false}:{people:CrmCustomer[];state:ReturnType<typeof useCustomerCrm>["state"];onOpen?:(id:string)=>void;invalid?:boolean}) {
+  const [search,setSearch]=useState("");
+  const rows=people.filter(row=>row.name.toLowerCase().includes(search.trim().toLowerCase()))
+    .sort((a,b)=>b.createdOn.localeCompare(a.createdOn)||a.name.localeCompare(b.name,"zh"));
+  return <section className="card cs-customer-book"><Field label="查找客户"><input type="search" value={search} onChange={e=>setSearch(e.target.value)}/></Field>
+    {!rows.length&&<p className="notice">{invalid?"没有符合条件的已复核无效粉。":"没有符合条件的客户。"}</p>}
+    <div className="commerce-list cs-customer-rows">{rows.map(row=>{
+      const review=latestCustomerReview(state,row.id);
+      const latest=state.orders.filter(order=>order.customerId===row.id).sort((a,b)=>b.businessDate.localeCompare(a.businessDate))[0];
+      const subtitle=[row.createdOn,row.channel==="ws"?"WhatsApp":row.channel==="ms"?"Messenger":row.source].filter(Boolean).join(" · ");
+      if(invalid)return <article className="commerce-record" key={row.id}>
+        <span><strong>{row.name}</strong><small>{subtitle}</small><small>{review?.note|| (review&&invalidReasons[review.reason])}</small></span>
+        <small>复核 {review?.reviewedAt?.slice(0,10)}</small>
+      </article>;
+      return <button type="button" className="secondary commerce-record" key={row.id} onClick={()=>onOpen?.(row.id)}>
+        <span><strong>{row.name}</strong><small>{subtitle} · {customerTags(state,row).join(" · ")}</small></span>
+        <small>{latest?latest.cancelled?"最近订单已冲抵":"有历史订单":"暂无订单"} ›</small>
+      </button>;
+    })}</div>
+  </section>;
 }
 
-function CustomerDetail({ today, customer, actor, crm, account, openOrderForm, onMessage }: { today: string; customer: CrmCustomer; actor: CrmActor; crm: ReturnType<typeof useCustomerCrm>; account?: FillAccount; openOrderForm:boolean; onMessage: (value: string) => void }) {
+function CustomerDetail({ today, customer, actor, crm, account, onMessage }: { today: string; customer: CrmCustomer; actor: CrmActor; crm: ReturnType<typeof useCustomerCrm>; account?: FillAccount; onMessage: (value: string) => void }) {
   const tags = customerTags(crm.state, customer);
   const pending = crm.state.reviews.some(review => review.customerId === customer.id && review.status === "pending");
   return <div>
@@ -150,9 +155,8 @@ function CustomerDetail({ today, customer, actor, crm, account, openOrderForm, o
       <Field label="消费能力"><select aria-label="消费能力" value={customer.spendTier} onChange={event => { try { crm.dispatch({ type: "setTier", actor, customerId: customer.id, tier: event.target.value as SpendTier }); } catch (cause) { onMessage(toErrorMessage(cause)); } }}><option value="">未分档</option><option value="A">A档</option><option value="B">B档</option><option value="C">C档</option></select></Field>
       <p className="hint">有效、已成交、无效由订单和复核结果决定。复购在有效订单超过两笔时自动出现。消费能力由客服手工选择。</p>
     </section>
-    <section className="card"><h2>开单记录</h2><CrmOrderHistory state={crm.state} customerId={customer.id} today={today} actor={actor} dispatch={crm.dispatch} room={account?.registeredRoomName ? {name:account.registeredRoomName,host:account.registeredHostName||""}:undefined} onMessage={onMessage}/><OrderPractice openOnMount={openOrderForm} customerName={customer.name} today={today} operator={actor.employeeName} room={account?.registeredRoomName ? { name: account.registeredRoomName, host: account.registeredHostName || "" } : undefined} onPractice={values => { crm.dispatch({ type: "addOrder", actor, customerId: customer.id, ...values }); onMessage("已按开单卡记入本次演练业绩。正式收款仍由财务登记。"); }} /></section>
+    <section className="card"><h2>开单记录</h2><CrmOrderHistory state={crm.state} customerId={customer.id} today={today} actor={actor} dispatch={crm.dispatch} room={account?.registeredRoomName ? {name:account.registeredRoomName,host:account.registeredHostName||""}:undefined} onMessage={onMessage} onAfterSales={order=><details><summary>办理售后</summary><AfterSalesFill today={today} operator={actor.employeeName} linkedOrder={order.id} /></details>}/><OrderPractice customerName={customer.name} today={today} operator={actor.employeeName} room={account?.registeredRoomName ? { name: account.registeredRoomName, host: account.registeredHostName || "" } : undefined} onPractice={values => { crm.dispatch({ type: "addOrder", actor, customerId: customer.id, ...values }); onMessage("已按开单卡记入本次演练业绩。正式收款仍由财务登记。"); }} /></section>
     {!pending && !tags.includes("无效") && <InvalidRequest onSubmit={(reason, note) => { crm.dispatch({ type: "requestInvalid", actor, customerId: customer.id, reason, note }); onMessage(reason === "custom" ? "已提交主管复核。确认前客户仍不是无效客资；若驳回会自动打上「尝试沟通」标识。" : "已按预设规则标记为无效客资。"); }} />}
-    <details className="card"><summary>售后费用试填</summary><AfterSalesFill today={today} operator={actor.employeeName} registeredRoom={account?.registeredRoomName ? { name: account.registeredRoomName, host: account.registeredHostName || "" } : undefined} /></details>
   </div>;
 }
 
@@ -161,9 +165,8 @@ const demoPerformanceTeams = [
   {id:"practice-team-zw", name:"志伟组"}
 ];
 
-function OrderPractice({ today, operator, room, onPractice, customerName, openOnMount }: { openOnMount:boolean; customerName:string; today: string; operator: string; room?: { name: string; host: string }; onPractice: (value: CrmOrderDraft) => void }) {
+function OrderPractice({ today, operator, room, onPractice, customerName }: { customerName:string; today: string; operator: string; room?: { name: string; host: string }; onPractice: (value: CrmOrderDraft) => void }) {
   const drawer=useRef<HTMLDialogElement>(null);
-  useEffect(()=>{if(openOnMount && !drawer.current?.open)drawer.current?.showModal();},[openOnMount]);
   const [channel, setChannel] = useState<"live" | "private">("live");
   const [error, setError] = useState("");
   return <div>
@@ -213,13 +216,13 @@ function PreviewFields({ fields, labels }: { fields: Record<string, string | und
 }
 
 
-function AfterSalesFill({ today, operator, registeredRoom }: { today: string; operator: string; registeredRoom?: { name: string; host: string } }) {
-  const [form, setForm] = useState(() => ({...emptyAfterSale(), operatorName:operator})), [expenses, setExpenses] = useState<AfterSaleExpense[]>([]), [reviewed, setReviewed] = useState(false);
+function AfterSalesFill({ today, operator, registeredRoom, linkedOrder }: { today: string; operator: string; linkedOrder?:string; registeredRoom?: { name: string; host: string } }) {
+  const [form, setForm] = useState(() => ({...emptyAfterSale(), operatorName:operator,orderRef:linkedOrder??""})), [expenses, setExpenses] = useState<AfterSaleExpense[]>([]), [reviewed, setReviewed] = useState(false);
   const dirty = Object.entries(form).some(([key, value]) => !!value && (key !== "operatorName" || value !== operator)) || expenses.length > 0, totals = afterSaleTotals(form, expenses);
   const example = `人设：演示主页甲\n客服：演示客服甲\n客户：demo_customer_A\n卖价：600人民币\n实收：600人民币\n付款方式：演示支付宝账户\n付款日期：${today}\n备注：直播间\n发货日期：${today}\n关公：400人民币\n证书支出：6元\n盒子支出：9元\n运费支出：30元\n合计：445元`;
   const patchExpense = (index: number, patch: Partial<AfterSaleExpense>) => setExpenses(expenses.map((e, i) => i === index ? { ...e, ...patch } : e));
-  const input = (key: keyof AfterSaleFields, type = "text", required = true) => <Field key={key} label={afterLabels[key]}><input required={required} type={type} max={type === "date" ? today : undefined} inputMode={key === "chargeCny" || key === "paidAmount" ? "decimal" : undefined} pattern={key === "chargeCny" || key === "paidAmount" ? "[0-9]{1,12}(\\.[0-9]{1,2})?" : undefined} maxLength={128} value={form[key]} onChange={e => setForm({ ...form, [key]: e.target.value })} /></Field>;
-  return <div className="card"><h2>售后费用填报</h2><ReportTextImport name="售后费用" example={example} dirty={dirty} parse={text => parseAfterSaleText(text, today)} preview={r => <><PreviewFields fields={r.fields} labels={afterLabels} /><ul>{r.expenses.map((e, i) => <li key={i}>{e.label}：¥{e.amountCny} · {expenseLabels[e.category] || "费用类别待确认"}</li>)}</ul><p>成本合计 ¥{afterSaleTotals(r.fields, r.expenses).cost === null ? "—" : signedMoney(afterSaleTotals(r.fields, r.expenses).cost!)}{afterSaleTotals(r.fields, r.expenses).difference !== null ? ` · 本笔差额 ¥${signedMoney(afterSaleTotals(r.fields, r.expenses).difference!)}` : ""}</p></>} onApply={r => { setForm(f => ({ ...f, ...r.fields })); setExpenses(r.expenses); setReviewed(false); }} />
+  const input = (key: keyof AfterSaleFields, type = "text", required = true) => <Field key={key} label={afterLabels[key]}><input required={required} type={type} max={type === "date" ? today : undefined} inputMode={key === "chargeCny" || key === "paidAmount" ? "decimal" : undefined} pattern={key === "chargeCny" || key === "paidAmount" ? "[0-9]{1,12}(\\.[0-9]{1,2})?" : undefined} maxLength={128} value={form[key]} readOnly={key==="orderRef"&&Boolean(linkedOrder)} onChange={e => setForm({ ...form, [key]: e.target.value })} /></Field>;
+  return <div className="card"><h2>售后费用填报</h2><ReportTextImport name="售后费用" example={example} dirty={dirty} parse={text => parseAfterSaleText(text, today)} preview={r => <><PreviewFields fields={r.fields} labels={afterLabels} /><ul>{r.expenses.map((e, i) => <li key={i}>{e.label}：¥{e.amountCny} · {expenseLabels[e.category] || "费用类别待确认"}</li>)}</ul><p>成本合计 ¥{afterSaleTotals(r.fields, r.expenses).cost === null ? "—" : signedMoney(afterSaleTotals(r.fields, r.expenses).cost!)}{afterSaleTotals(r.fields, r.expenses).difference !== null ? ` · 本笔差额 ¥${signedMoney(afterSaleTotals(r.fields, r.expenses).difference!)}` : ""}</p></>} onApply={r => { setForm(f => ({ ...f, ...r.fields,...(linkedOrder?{orderRef:linkedOrder}:{}) })); setExpenses(r.expenses); setReviewed(false); }} />
     <form onSubmit={e => { e.preventDefault(); setReviewed(true); }} onChange={() => setReviewed(false)}><h3>关联客户与订单</h3><p className="notice">填写原订单编号，避免同一客户多笔订单串单；演示不自动匹配或生成原订单。人设与直播间不作固定搭配。</p><div className="grid two">{(["orderRef", "customerCode", "personaName", "personaCode", "liveRoomCode", "hostName", "operatorName"] as const).filter(key => !registeredRoom || key !== "liveRoomCode" && key !== "hostName").map(k => input(k))}{registeredRoom && <Field label="主播 / 直播间"><input readOnly value={registeredRoom.host + " · " + registeredRoom.name} /><small className="hint">按接待小组绑定；正式编号待补，当前仅试填。</small></Field>}{input("businessDate", "date")}</div>
       <h3>客户收费与本次收款</h3><p className="notice">客户收费与公司实际成本分别录入。此处新增售后应收，不重复计入原开单营业额。实收不代表第三方已结算给公司。</p><div className="grid two">{input("chargeLabel")}{input("chargeCny")}{input("paidAmount", "text", false)}<Field label="实收币种"><select required={!!form.paidAmount} value={form.paidCurrency} onChange={e => setForm({ ...form, paidCurrency: e.target.value as AfterSaleFields["paidCurrency"] })}><option value="">请选择币种</option>{Object.entries(currencies).map(([key, label]) => <option key={key} value={key}>{label}（{key}）</option>)}</select></Field>{input("channel", "text", !!form.paidAmount)}{input("paymentDate", "date", !!form.paidAmount)}</div>
       <h3>公司成本</h3><p className="notice">客服登记业务费用；实际付款、扣点及第三方结汇由财务登记。商品名「关公」无法决定费用类型，请选择真实类别。</p>{expenses.map((expense, index) => <fieldset key={index} className="fill-line"><legend>费用 {index + 1}</legend><div className="grid two"><Field label="商品 / 费用名称"><input required maxLength={128} value={expense.label} onChange={e => patchExpense(index, { label: e.target.value })} /></Field><Field label="费用类别"><select required value={expense.category} onChange={e => patchExpense(index, { category: e.target.value })}><option value="">请确认真实费用类别</option>{Object.entries(expenseLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Field><Field label="成本 · 人民币"><input required inputMode="decimal" pattern="[0-9]{1,12}(\.[0-9]{1,2})?" value={expense.amountCny} onChange={e => patchExpense(index, { amountCny: e.target.value })} /></Field><Field label="服务提供方 / 商家（可后补）"><input maxLength={128} value={expense.counterparty} onChange={e => patchExpense(index, { counterparty: e.target.value })} /></Field></div><button type="button" className="secondary" onClick={() => setExpenses(expenses.filter((_, i) => i !== index))}>移除此项</button></fieldset>)}

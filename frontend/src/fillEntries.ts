@@ -21,17 +21,18 @@ export function isLocalOnlyOrigin(origin: string): boolean {
 }
 
 export const csFillPages = {
-  leads: {path: fillEntries.fans.path, title: "新增客资登记", shortTitle: "客资", icon: "fans"},
-  library: {path: fillEntries.orders.path, title: "开单与售后", shortTitle: "开单", icon: "orders"},
-  performance: {path: "/fill/performance", title: "个人业绩查询", shortTitle: "业绩", icon: "summary"},
-  reimbursements: {path: "/fill/reimbursements", title: "售后垫付报销", shortTitle: "报销", icon: "teamReimbursements"},
+  home: {path: "/fill", title: "首页", shortTitle: "首页", icon: "home"},
+  leads: {path: fillEntries.fans.path, title: "客资登记", shortTitle: "客资", icon: "fans"},
+  performance: {path: "/fill/performance", title: "个人业绩", shortTitle: "业绩", icon: "summary"},
+  reimbursements: {path: "/fill/reimbursements", title: "垫付报销", shortTitle: "报销", icon: "teamReimbursements"},
+  invalid: {path: "/fill/invalid", title: "无效粉库", shortTitle: "无效粉", icon: "customerReview"},
 } as const;
 export type CsFillPage = keyof typeof csFillPages;
 export const csFillPageIds = Object.keys(csFillPages) as CsFillPage[];
 
 export function csFillPageFromPath(pathname: string, allowReimbursements = true): CsFillPage {
   const path = pathname.replace(/\/$/, "");
-  if (path === "/fill/after-sales") return "library";
+  if (path === "/fill/after-sales" || path === fillEntries.orders.path) return "leads";
   return csFillPageIds.find(page => csFillPages[page].path === path
-    && (allowReimbursements || page !== "reimbursements")) ?? "leads";
+    && (allowReimbursements || page !== "reimbursements")) ?? "home";
 }

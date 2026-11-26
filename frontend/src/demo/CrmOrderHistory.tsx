@@ -1,10 +1,10 @@
-import {useState} from 'react';
+import {useState,type ReactNode} from 'react';
 import {CreateOrder,Field} from '../OrderWorkspace';
 import {toErrorMessage} from '../errors';
 import {centsToYuan,effectiveOrderCents,orderFunds,type CrmAction,type CrmActor,type CrmOrder,type CrmState} from './customerCrm';
 import './crm-order-history.css';
 
-export default function CrmOrderHistory({state,customerId,today,actor,dispatch,room,onMessage}:{state:CrmState;customerId:string;today:string;actor?:CrmActor;dispatch?:(action:CrmAction)=>void;room?:{name:string;host:string};onMessage?:(text:string)=>void}) {
+export default function CrmOrderHistory({state,customerId,today,actor,dispatch,room,onMessage,onAfterSales}:{state:CrmState;customerId:string;today:string;actor?:CrmActor;dispatch?:(action:CrmAction)=>void;room?:{name:string;host:string};onMessage?:(text:string)=>void;onAfterSales?:(order:CrmOrder)=>ReactNode}) {
   const [transferId,setTransferId]=useState(''),[reason,setReason]=useState(''),[error,setError]=useState('');
   const orders=state.orders.filter(order=>order.customerId===customerId);
   const transferring=orders.find(order=>order.id===transferId);
@@ -26,6 +26,7 @@ export default function CrmOrderHistory({state,customerId,today,actor,dispatch,r
           <ReceiptForm key={order.id} today={today} order={order} onSave={values=>{dispatch({type:'recordReceipt',actor,orderId:order.id,...values});onMessage?.('已记录客户付款报送。财务实际到账与第三方结算仍需分别核实。');}}/>
           {!order.receipts?.some(row=>row.purpose==='balance')&&funds.allocated>0&&<button type="button" className="secondary" onClick={()=>{setTransferId(order.id);setReason('');setError('');}}>换料／定金转单</button>}
         </>}
+        {onAfterSales&&!order.cancelled&&onAfterSales(order)}
       </div>
     </details>;})}
     {transferring&&actor&&dispatch&&<section className="card crm-transfer" aria-label="换料转单">

@@ -299,3 +299,22 @@
 :root main.customer-fill .fill-history-mode button[aria-pressed="true"] {
   background:var(--jade-dark) !important; color:white !important; border-color:var(--jade-dark) !important;
 }
+
+:root main.customer-fill .cs-fill-overview { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+:root main.customer-fill .cs-fill-overview .card { display:grid; align-content:start; align-items:start; gap:6px; min-width:0; margin:0; }
+:root main.customer-fill .cs-fill-overview h2 { margin:0; font-size:16px; }
+:root main.customer-fill .cs-fill-overview .card > strong { font:700 26px var(--font-mono,monospace); overflow-wrap:anywhere; }
+:root main.customer-fill .cs-fill-overview dl { display:grid; gap:8px; margin:10px 0; }
+:root main.customer-fill .cs-fill-overview dl > div { display:flex; justify-content:space-between; gap:8px; }
+:root main.customer-fill .cs-fill-overview dd { margin:0; font-family:var(--font-mono,monospace); overflow-wrap:anywhere; }
+:root main.customer-fill .cs-fill-overview button { justify-self:start; }
+:root main.customer-fill .cs-customer-book { display:grid; gap:12px; }
+:root main.customer-fill .cs-customer-book .commerce-line { flex-wrap:wrap; gap:10px; }
+:root main.customer-fill .cs-customer-book .commerce-line .row { flex:1 1 200px; }
+:root main.customer-fill .cs-customer-book .actions { flex-wrap:wrap; }
+:root main.customer-fill .cs-customer-rows .commerce-record { width:100%; text-align:left; gap:10px; }
+:root main.customer-fill .cs-unlinked { max-height:360px; overflow:auto; padding:12px; border-radius:10px; background:var(--bg); }
+@media(max-width:700px) {
+  :root main.customer-fill .cs-fill-overview { grid-template-columns:minmax(0,1fr); }
+  :root main.customer-fill .cs-customer-book .commerce-record { flex-wrap:wrap; }
+}

@@ -23,6 +23,14 @@ const ROOM_LINKS_SQL = `SELECT (
       AND ${liveRoomSql("live_room_code")}=ANY($3::text[]))
   ) AS locked`;
 
+async function ownedCustomer(db:PoolClient, actorId:string, id:string) {
+  const {rows:[customer]}=await db.query(
+    "SELECT id,customer_label FROM fan_leads WHERE id=$1 AND user_id=$2 AND voided_at IS NULL FOR UPDATE",
+    [id,actorId]);
+  if(!customer)throw new HttpError(404,"客资不存在或不在本人登记范围");
+  return customer as {id:string; customer_label:string};
+}
+
 async function orderTeams(db: Pool | PoolClient, userId: string, date: string, lock = false) {
   const {rows} = await db.query<{id: string; name: string}>(`
     SELECT t.id,t.name FROM team_memberships m JOIN teams t ON t.id=m.team_id
@@ -76,19 +84,21 @@ export function createOrderRecordsRouter(db: Pool, config: AppConfig) {
     const projectLine=textField(b.projectLine??"","项目线",64,false);
     const body={owner:req.actor!.id,businessDate,orderRef,customerLabel:textField(b.customerLabel,"客户称呼",64),personaName:textField(b.personaName,"人设"),...orderIdentity(b),operatorName:textField(b.operatorName,"经办客服"),dealChannel,projectLine,materialCostCny,materialLotNo,source:textField(b.source??"","来源",128,false),note:textField(b.note??"","备注",500,false),customerCurrency:cur,customerDue:cur==="CNY"?total:amount(b.customerDue,"客户约定总应收",true),items};
     const requestedTeam = b.performanceTeamId ? uuid(b.performanceTeamId) : null;
-    const hash=hashPayload(requestedTeam ? {...body,performanceTeamId:requestedTeam} : body);
+    const customerLeadId=b.customerLeadId?uuid(b.customerLeadId):null;
+    const hash=hashPayload({...body,...(requestedTeam?{performanceTeamId:requestedTeam}:{}),...(customerLeadId?{customerLeadId}:{})});
     const old=await replay(c,"order_details",key,hash);
     if(old)return {id:old.order_id,replayed:true};
+    const customer=customerLeadId?await ownedCustomer(c,body.owner,customerLeadId):null;
     const teams=await orderTeams(c,body.owner,businessDate,true);
     if(!teams.length)throw new HttpError(409,"开单日没有可用的所属小组，请联系管理员分配");
     const team=requestedTeam ? teams.find(item=>item.id===requestedTeam) : teams.length===1 ? teams[0] : undefined;
     if(!team)throw new HttpError(400,requestedTeam?"请选择开单日所属的有效小组":"请选择这笔成交的业绩归属小组");
-    const o=(await c.query(`INSERT INTO orders(user_id,business_date,order_ref,customer_label,amount,status,is_custom,note,last_submitted_by,material_cost_cny,material_lot_no,performance_team_id) VALUES($1,$2,$3,$4,$5,'placed',FALSE,$6,$1,$7,$8,$9) RETURNING id`,[body.owner,body.businessDate,body.orderRef,body.customerLabel,total,body.note,body.materialCostCny,body.materialLotNo,team.id])).rows[0];
+    const o=(await c.query(`INSERT INTO orders(user_id,business_date,order_ref,customer_label,amount,status,is_custom,note,last_submitted_by,material_cost_cny,material_lot_no,performance_team_id,customer_lead_id) VALUES($1,$2,$3,$4,$5,'placed',FALSE,$6,$1,$7,$8,$9,$10) RETURNING id`,[body.owner,body.businessDate,body.orderRef,customer?.customer_label??body.customerLabel,total,body.note,body.materialCostCny,body.materialLotNo,team.id,customerLeadId])).rows[0];
     await c.query(`INSERT INTO order_details(order_id,persona_name,operator_name,source,customer_currency,customer_due,request_key,payload_hash,deal_channel,project_line) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,[o.id,body.personaName,body.operatorName,body.source,cur,body.customerDue,key,hash,body.dealChannel,body.projectLine]);
     await c.query("UPDATE order_details SET persona_code=$2,live_room_code=$3,host_name=$4,customer_code=$5 WHERE order_id=$1",[o.id,body.personaCode,body.liveRoomCode,body.hostName,body.customerCode]);
     const itemIds:string[]=[];
     for(const i of items){const ins=(await c.query("INSERT INTO order_items(order_id,label,material_ref,kind,price_cny,buying_fee_cny,sourcing_no_settle) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id",[o.id,i.label,i.materialRef,i.kind,i.priceCny,i.buyingFeeCny,i.sourcingNoSettle])).rows[0];itemIds.push(ins.id);}
-    await audit(c,req,"order_record_create",o.id,{...body,performanceTeamId:team.id});
+    await audit(c,req,"order_record_create",o.id,{...body,customerLabel:customer?.customer_label??body.customerLabel,performanceTeamId:team.id,customerLeadId});
     return {id:o.id,itemIds};
   }));
   router.get("/:id", (req, res, next) => {
@@ -203,6 +213,18 @@ export function createOrderRecordsRouter(db: Pool, config: AppConfig) {
       before: {liveRoomCode: details.live_room_code, hostName: details.host_name, version},
       after: {liveRoomCode, hostName, version: version + 1, reason},
     });
+    return {id};
+  }));
+  router.post("/:id/customer",mutate(async(c,req)=>{
+    if(req.actor!.role!=="cs")throw new HttpError(403,"仅经办客服可补关联订单");
+    const id=uuid(req.params.id),target=uuid(req.body?.customerLeadId);
+    const reason=textField(req.body?.reason,"关联原因",500);
+    const order=await visibleOrder(c,req.actor!,id,true);
+    if(order.customer_lead_id===target)return {id};
+    if(order.customer_lead_id)throw new HttpError(409,"订单已关联客户，请刷新核对");
+    const customer=await ownedCustomer(c,req.actor!.id,target);
+    await c.query("UPDATE orders SET customer_lead_id=$2, updated_at=now() WHERE id=$1",[id,customer.id]);
+    await audit(c,req,"order_customer_link",id,{customerLeadId:customer.id,reason});
     return {id};
   }));
   router.patch("/:id",mutate(async(c,req)=>{

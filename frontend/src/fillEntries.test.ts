@@ -3,13 +3,14 @@ import { canUseFillEntry, csFillPageFromPath, csFillPageIds, fillEntryFromPath, 
 import { navItems } from "./access";
 
 describe("客服固定填报入口", () => {
-  it("旧首页链接打开客资登记，保留已有业务链接和报销权限", () => {
-    expect(csFillPageIds).toEqual(["leads", "library", "performance", "reimbursements"]);
-    for (const path of ["/", "/fill", "/fill/", "/fill/fans"]) expect(csFillPageFromPath(path)).toBe("leads");
-    for (const path of ["/fill/orders", "/fill/after-sales/"]) expect(csFillPageFromPath(path)).toBe("library");
+  it("旧首页链接打开个人看板，已有订单入口进入客资登记", () => {
+    expect(csFillPageIds).toEqual(["home", "leads", "performance", "reimbursements", "invalid"]);
+    for (const path of ["/", "/fill", "/fill/"]) expect(csFillPageFromPath(path)).toBe("home");
+    for (const path of ["/fill/fans", "/fill/orders", "/fill/after-sales/"]) expect(csFillPageFromPath(path)).toBe("leads");
     expect(csFillPageFromPath("/fill/performance")).toBe("performance");
     expect(csFillPageFromPath("/fill/reimbursements")).toBe("reimbursements");
-    expect(csFillPageFromPath("/fill/reimbursements", false)).toBe("leads");
+    expect(csFillPageFromPath("/fill/reimbursements", false)).toBe("home");
+    expect(csFillPageFromPath("/fill/invalid")).toBe("invalid");
   });
   it("识别两个独立入口和尾斜线，不接受任意外部跳转", () => {
     expect(fillEntryFromPath("/fill/fans")).toBe("fans");

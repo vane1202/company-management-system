@@ -27,6 +27,8 @@ export type CrmCustomer = {
   createdOn: string;
   need: string;
   spendTier: SpendTier;
+  channel?: "ms" | "ws";
+  contact?: NewLead["contact"];
   sample: boolean;
 };
 
@@ -83,6 +85,7 @@ export type CrmReview = {
 
 export type CrmState = { customers: CrmCustomer[]; orders: CrmOrder[]; reviews: CrmReview[] };
 export type NewLead = {
+  channel?: "ms" | "ws";
   name: string;
   accountId: string;
   employeeId: string;
@@ -114,6 +117,9 @@ export function centsToYuan(value: number): string {
 
 function reviewsOf(state: CrmState, customerId: string): CrmReview[] {
   return state.reviews.filter(review => review.customerId === customerId).sort((a, b) => a.requestedAt.localeCompare(b.requestedAt) || a.id.localeCompare(b.id));
+}
+export function latestCustomerReview(state: CrmState, customerId: string): CrmReview | undefined {
+  return reviewsOf(state, customerId).at(-1);
 }
 export function customerStatus(state: CrmState, customer: CrmCustomer): CustomerStatus {
   const latest = reviewsOf(state, customer.id).at(-1);
@@ -163,9 +169,9 @@ function nextId(state: CrmState, prefix: string): string {
 }
 
 function buildSamples(today: string, owner: DirectorySample, prefix: string): CrmState {
-  const base = { teamId: owner.teamId, teamName: owner.teamName, employeeId: owner.personId, employeeName: owner.personName, accountId: owner.accountId, adAccountId: "", sample: true, spendTier: "" as SpendTier, source: "演练样本" };
+  const base = { channel:"ms" as const, teamId: owner.teamId, teamName: owner.teamName, employeeId: owner.personId, employeeName: owner.personName, accountId: owner.accountId, adAccountId: "", sample: true, spendTier: "" as SpendTier, source: "演练样本" };
   const customers: CrmCustomer[] = [
-    { ...base, id: prefix + "valid", customerRef: prefix.toUpperCase() + "001", name: "演练客户·未成交", createdOn: today, need: "想看手镯，尚未报价" },
+    { ...base, id: prefix + "valid", customerRef: prefix.toUpperCase() + "001", name: "演练客户·未成交", contact:"replied", createdOn: today, need: "想看手镯，尚未报价" },
     { ...base, id: prefix + "dealt", customerRef: prefix.toUpperCase() + "002", name: "演练客户·已成交", createdOn: shiftDate(today, -2), need: "白冰手镯", spendTier: "B" },
     { ...base, id: prefix + "repeat", customerRef: prefix.toUpperCase() + "003", name: "演练客户·复购", createdOn: shiftDate(today, -6), need: "多次购买原石", spendTier: "A" },
     { ...base, id: prefix + "pending", customerRef: prefix.toUpperCase() + "004", name: "演练客户·待复核", createdOn: today, need: "对方表示按错咨询" },
@@ -230,6 +236,7 @@ function registerLeads(state: CrmState, leads: NewLead[], today: string): CrmSta
     if (!datePattern.test(lead.createdOn) || lead.createdOn > today) throw Error("登记日期无效");
     if (!lead.employeeId || !lead.teamId || !lead.accountId) throw Error("请先选择客服和接待账号");
     const customer: CrmCustomer = {
+      channel:lead.channel, contact:lead.contact,
       id: nextId(next, "cust-"), customerRef: "C" + lead.createdOn.replaceAll("-", "") + "-" + String(next.customers.length + 1).padStart(3, "0"),
       name, teamId: lead.teamId, teamName: lead.teamName, employeeId: lead.employeeId, employeeName: lead.employeeName,
       accountId: lead.accountId, source: lead.source.trim().slice(0, 128), adAccountId: normalizeAdAccountId(lead.adAccountId), createdOn: lead.createdOn, need: lead.need.trim().slice(0, 1000),

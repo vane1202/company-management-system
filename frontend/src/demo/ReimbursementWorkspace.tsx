@@ -39,7 +39,7 @@ function Proofs({claim}:{claim:Claim}){
 
 export default function ReimbursementWorkspace({today,onBack,mode="finance"}:{today:string;onBack?:()=>void;mode?:Mode}){
  const finance=mode==="finance", staff=mode==="staff", supervisor=mode==="supervisor";
- const title=finance?"费用报销":staff?"售后垫付报销":"本组报销";
+ const title=finance?"费用报销":staff?"垫付报销":"本组报销";
  const [files,setFiles]=useState<File[]>([]);
  const [fileError,setFileError]=useState("");
  const [orderSearch,setOrderSearch]=useState("");

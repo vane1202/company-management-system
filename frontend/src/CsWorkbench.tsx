@@ -9,7 +9,10 @@ import { dashboardPresetRange } from "./dates";
 import { toErrorMessage } from "./errors";
 import { labelOrderStatus } from "./labels";
 import { LeadWorkspace } from "./LeadWorkspace";
-import { Field, OrderWorkspace } from "./OrderWorkspace";
+import { Field, OrderDetail } from "./OrderWorkspace";
+import { CsCustomerBook } from "./CsCustomerBook";
+import { CsFillOverview } from "./CsFillOverview";
+import { leadApi, type PersonalFillOverview, type ZeroStatus } from "./leadApi";
 import { PeriodToolbar, type StandardPreset } from "./PeriodToolbar";
 import { RequestCsBinding } from "./CsBindingControls";
 import { isServiceAccount } from "./serviceAccounts";
@@ -34,9 +37,8 @@ export function CsWorkbench({
   const [accountId, setAccountId] = useState("");
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [accountError, setAccountError] = useState("");
-  const [quickCreate,setQuickCreate]=useState(false);
-  const [customerName,setCustomerName]=useState("");
-  const [selectedOrderId, setSelectedOrderId] = useState("");
+  const [detail,setDetail]=useState<{id:string;tab?:"cost"|"payment"}|null>(null);
+  const [orderRevision,setOrderRevision]=useState(0);
 
   useEffect(() => {
     let active = true;
@@ -59,9 +61,7 @@ export function CsWorkbench({
       });
     const onPop = () => {
       setPage(csFillPageFromPath(window.location.pathname, isEmployeeAccount));
-      setQuickCreate(false);
-      setCustomerName("");
-      setSelectedOrderId("");
+      setDetail(null);
     };
     window.addEventListener("popstate", onPop);
     return () => {
@@ -72,13 +72,11 @@ export function CsWorkbench({
 
   const selectedAccount = accounts.find(item => item.id === accountId) ?? null;
 
-  function navigate(next: CsFillPage, create = false, name = "") {
-    setQuickCreate(create);
-    setCustomerName(name);
+  function navigate(next: CsFillPage) {
+    setDetail(null);
     const path = csFillPages[next].path;
     if (window.location.pathname !== path) window.history.pushState({}, "", path);
     setPage(next);
-    if (next !== "library") setSelectedOrderId("");
     window.scrollTo({ top: 0, behavior: "instant" });
   }
 
@@ -151,46 +149,62 @@ export function CsWorkbench({
       <nav className="fill-nav" aria-label="客服工作台导航">
         {csFillPageIds.filter(id => isEmployeeAccount || id !== "reimbursements").map(id => {
           const item = csFillPages[id];
-          return <button key={id} type="button" className="secondary" aria-pressed={page === id} aria-label={item.title} onClick={() => { setSelectedOrderId(""); navigate(id); }}>
+          return <button key={id} type="button" className="secondary" aria-pressed={page === id} aria-label={item.title} onClick={() => navigate(id)}>
             <span className="fill-nav-icon" aria-hidden="true"><DashboardIcon name={item.icon} /></span>
             <span className="fill-nav-full">{item.title}</span><span className="fill-nav-short">{item.shortTitle}</span>
           </button>;
         })}
       </nav>
 
-      {page === "leads" && (
-        <LeadWorkspace
-          today={today}
-          onOpenOrder={(_,name)=>navigate("library",true,name)}
-          editable
-          platform={selectedAccount?.platform ?? user.servicePlatform}
-          defaultOperatorName={user.displayName}
-        />
-      )}
-
-      {page === "library" && (
-        <OrderWorkspace
-          today={today}
-          user={user}
-          selectedId={selectedOrderId}
-          onSelectOrder={setSelectedOrderId}
-          createOnMount={quickCreate}
-          customerName={customerName}
-        />
-      )}
-
-      {isEmployeeAccount && page === "reimbursements" && <ReimbursementWorkspace today={today} mode="staff" />}
-      {page === "performance" && (
-        <CsPersonalPerformance
-          today={today}
-          onOpenOrder={id => {
-            setSelectedOrderId(id);
-            navigate("library");
-          }}
-        />
-      )}
+      <div hidden={Boolean(detail)}>
+        {page==="home"&&<PersonalHome today={today} onPerformance={()=>navigate("performance")}/>}
+        {page==="leads"&&<LeadWorkspace today={today} editable
+          platform={selectedAccount?.platform ?? user.servicePlatform} defaultOperatorName={user.displayName}
+          directory={(onEdit,revision)=><CsCustomerBook today={today} user={user} revision={revision}
+            orderRevision={orderRevision} onEdit={onEdit} onOrder={(id,tab)=>setDetail({id,tab})}/>}/>}
+        {page==="invalid"&&<section className="card"><CsCustomerBook invalid today={today} user={user}/></section>}
+        {isEmployeeAccount&&page==="reimbursements"&&<ReimbursementWorkspace today={today} mode="staff"/>}
+        {page==="performance"&&<CsPersonalPerformance today={today} onOpenOrder={id=>setDetail({id})}/>}
+      </div>
+      {detail&&<OrderDetail key={detail.id} id={detail.id} today={today} canFill canCancel canDelete={false} canCorrectRoom={false}
+        initialPayment={detail.tab==="payment"} initialAfterSales={detail.tab==="cost"}
+        backLabel={page==="performance"?"返回个人业绩":"返回客户档案"}
+        onBack={()=>{setDetail(null);setOrderRevision(value=>value+1);}} onDeleted={()=>setDetail(null)}/>}
     </main>
   );
+}
+
+function PersonalHome({today,onPerformance}:{today:string;onPerformance:()=>void}) {
+  const [data,setData]=useState<PersonalFillOverview|null>(null);
+  const [zero,setZero]=useState<ZeroStatus|null>(null);
+  const [error,setError]=useState("");
+  const [zeroError,setZeroError]=useState("");
+  const [busy,setBusy]=useState(false);
+  const [revision,setRevision]=useState(0);
+  useEffect(()=>{
+    let active=true;
+    setError("");setZeroError("");
+    leadApi.personalOverview().then(result=>{if(active)setData(result);}).catch(cause=>{if(active)setError(toErrorMessage(cause));});
+    leadApi.zeroStatus(today).then(result=>{if(active)setZero(result);}).catch(cause=>{if(active)setZeroError(toErrorMessage(cause));});
+    return ()=>{active=false;};
+  },[today,revision]);
+  async function checkIn(){
+    setBusy(true);setZeroError("");
+    try {
+      const result=await leadApi.submitZeroReport(today);
+      setZero({...result,checkedInAt:null});
+      setRevision(value=>value+1);
+    } catch(cause) { setZeroError(toErrorMessage(cause)); }
+    finally { setBusy(false); }
+  }
+  return <div>
+    <div className="commerce-line"><h2>个人看板</h2><button type="button" className="secondary" onClick={()=>setRevision(v=>v+1)}>刷新</button></div>
+    {error&&<p className="error" role="alert">{error}</p>}
+    {zeroError&&<p className="error" role="alert">{zeroError}</p>}
+    <CsFillOverview data={data} onPerformance={onPerformance} checkIn={zero?.leadCount===0
+      ?zero.zeroCheckedIn?<small role="status">今日已打卡</small>:<button className="secondary" type="button" disabled={busy} onClick={()=>void checkIn()}>今日 0 粉打卡</button>
+      :undefined}/>
+  </div>;
 }
 
 function CsPersonalPerformance({

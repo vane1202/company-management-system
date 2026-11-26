@@ -9,6 +9,11 @@ import { getBackfillDays } from '../settings.js';
 import { writeAudit } from '../audit.js';
 import { HttpError } from '../types.js';
 
+// Auto-approved presets have no supervisor confirmation for their current invalid state.
+const supervisorConfirmed = `(l.invalid_review_status='approved' AND l.invalid_reviewed_at IS NOT NULL
+  AND EXISTS (SELECT 1 FROM audit_logs a WHERE a.entity_type='fan_lead' AND a.entity_id=l.id::text
+    AND a.action='customer_review_approve' AND a.created_at=l.invalid_reviewed_at))`;
+
 function serialize(r:Record<string,any>):Lead{return {id:r.id,accountId:r.user_id,wechatId:r.wechat_id??r.display_name,teamId:r.team_id,teamName:r.team_name,receivedOn:toDateOnly(r.received_on),pageName:r.page_name,personaCode:r.persona_code,operatorName:r.operator_name,channel:r.channel,customerLabel:r.customer_label,customerRef:r.customer_ref,contactStatus:r.contact_status,repliedOn:r.replied_on?toDateOnly(r.replied_on):null,qualifiedOn:r.qualified_on?toDateOnly(r.qualified_on):null,needSummary:r.need_summary,invalidReason:r.invalid_reason,invalidReasonCode:(r.invalid_reason_code??'') as Lead['invalidReasonCode'],invalidReviewStatus:(r.invalid_review_status??'') as Lead['invalidReviewStatus'],invalidReviewNote:r.invalid_review_note??'',attemptContact:Boolean(r.attempt_contact),lossReason:r.loss_reason,nextFollowup:r.next_followup?toDateOnly(r.next_followup):null,note:r.note,version:r.version,voidedAt:r.voided_at,voidReason:r.void_reason};}
 const select=`SELECT l.*,u.service_account_label AS wechat_id,u.display_name,t.name AS team_name FROM fan_leads l JOIN users u ON u.id=l.user_id JOIN teams t ON t.id=l.team_id`;
 async function assertRead(db:Pool,actor:Actor,row:Record<string,any>){
@@ -40,6 +45,53 @@ export function createFanLeadsRouter(db:Pool,config:AppConfig){
       await c.query('COMMIT');res.json({from,to,today,totals:leadMetrics(rows,today),accounts:groups,leads:rows,reports});
     }catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}
   }catch(e){next(e);}});
+  router.get('/customer-book',async(req,res,next)=>{try{
+    const actor=req.actor!;
+    if(actor.role!=='cs')throw new HttpError(403,'仅客服本人可查看客资库');
+    const term=typeof req.query.search==='string'?req.query.search.trim().slice(0,128):'';
+    const page=Number(req.query.page??0);
+    if(!Number.isSafeInteger(page)||page<0||page>10000)throw new HttpError(400,'页码无效');
+    const invalid=req.query.invalid==='true';
+    const {rows}=await db.query(select.replace('SELECT l.*','SELECT l.*,latest.status,latest.cancelled')+`
+      LEFT JOIN LATERAL (SELECT o.status, EXISTS(SELECT 1 FROM order_cancellations x WHERE x.order_id=o.id AND x.voided_at IS NULL) AS cancelled
+        FROM orders o WHERE o.customer_lead_id=l.id AND o.user_id=l.user_id
+        ORDER BY o.business_date DESC,o.created_at DESC,o.id LIMIT 1) latest ON TRUE
+      WHERE l.user_id=$1 AND l.voided_at IS NULL AND ($2='' OR strpos(lower(l.customer_label),lower($2))>0)
+      AND ${invalid?supervisorConfirmed:`NOT ${supervisorConfirmed}`}
+      ORDER BY l.received_on DESC,l.created_at DESC,l.id LIMIT 31 OFFSET $3`,[actor.id,term,page*30]);
+    res.set('Cache-Control','private, no-store').json({rows:rows.slice(0,30).map(r=>({...serialize(r),
+      reviewedAt:invalid?r.invalid_reviewed_at:null,lastOrderStatus:r.status??null,lastOrderCancelled:Boolean(r.cancelled)})),hasMore:rows.length>30});
+  }catch(e){next(e);}});
+  router.get('/personal-overview',async(req,res,next)=>{try{
+    const actor=req.actor!;
+    if(actor.role!=='cs')throw new HttpError(403,'仅客服本人可查看个人看板');
+    const today=businessToday(new Date(),config.businessTimezone),month=today.slice(0,7)+'-01';
+    const {rows:[summary]}=await db.query(`WITH lead_days AS (
+        SELECT received_on AS date,count(*) AS added FROM fan_leads
+        WHERE user_id=$1 AND received_on BETWEEN $2 AND $3 AND voided_at IS NULL GROUP BY received_on
+      ), fan_counts AS (
+        SELECT added FROM lead_days
+        UNION ALL
+        SELECT CASE WHEN r.ms_today IS NULL AND r.ws_today IS NULL THEN r.added_count
+                    ELSE COALESCE(r.ms_today,0)+COALESCE(r.ws_today,0) END
+        FROM fan_reports r WHERE r.user_id=$1 AND r.business_date BETWEEN $2 AND $3
+          AND NOT EXISTS(SELECT 1 FROM lead_days l WHERE l.date=r.business_date)
+      ), own_orders AS (
+        SELECT COALESCE(d.deal_channel,'live') AS channel,
+          COALESCE((SELECT sum(i.price_cny+i.buying_fee_cny) FROM order_items i WHERE i.order_id=o.id),o.amount) AS booking
+        FROM orders o LEFT JOIN order_details d ON d.order_id=o.id
+        WHERE o.user_id=$1 AND o.business_date BETWEEN $2 AND $3 AND o.status<>'refunded'
+          AND NOT EXISTS(SELECT 1 FROM order_cancellations x WHERE x.order_id=o.id AND x.voided_at IS NULL)
+      )
+      SELECT (SELECT count(*)::int FROM fan_leads WHERE user_id=$1 AND received_on=$3 AND voided_at IS NULL) AS "todayLeads",
+        (SELECT count(*)::int FROM fan_leads WHERE user_id=$1 AND replied_on=$3 AND voided_at IS NULL AND invalid_review_status<>'approved') AS "todayReplied",
+        (SELECT COALESCE(sum(added),0)::int FROM fan_counts) AS "monthFans",
+        (SELECT count(*)::int FROM own_orders) AS "orderCount",
+        COALESCE((SELECT sum(booking) FROM own_orders WHERE channel<>'private'),0)::numeric(14,2)::text AS "liveAmount",
+        COALESCE((SELECT sum(booking) FROM own_orders WHERE channel='private'),0)::numeric(14,2)::text AS "privateAmount",
+        (SELECT locked_commission::text FROM payroll_months WHERE user_id=$1 AND pay_month=to_char($2::date,'YYYY-MM') AND status='locked') AS commission`,[actor.id,month,today]);
+    res.set('Cache-Control','private, no-store').json(summary);
+  }catch(e){next(e);}});
   router.get('/:id/history',async(req,res,next)=>{try{
     const id=parseAccountId(req.params.id),row=(await db.query(select+' WHERE l.id=$1',[id])).rows[0];if(!row)throw new HttpError(404,'线索不存在');await assertRead(db,req.actor!,row);
     const history=(await db.query("SELECT a.created_at,a.action,a.before_data,a.after_data,u.display_name AS actor_name FROM audit_logs a LEFT JOIN users u ON u.id=a.actor_id WHERE entity_type='fan_lead' AND entity_id=$1 ORDER BY a.created_at DESC",[id])).rows;
@@ -69,10 +121,15 @@ export function createFanLeadsRouter(db:Pool,config:AppConfig){
       else{
         const p=leadPayload(req.body,businessToday(new Date(),config.businessTimezone),toDateOnly(old.received_on));
         assertServiceChannel(actor.servicePlatform,p.channel);
-        const nextReviewStatus=p.invalidReviewStatus?p.invalidReviewStatus:(old.invalid_review_status==='rejected'||old.invalid_review_status==='restored'?old.invalid_review_status:'');
+        const keepReview=old.invalid_review_status==='approved'&&old.invalid_reviewed_at
+          &&p.invalidReason===old.invalid_reason&&p.invalidReasonCode===old.invalid_reason_code;
+        const nextReviewStatus=keepReview?'approved':p.invalidReviewStatus?p.invalidReviewStatus:(old.invalid_review_status==='rejected'||old.invalid_review_status==='restored'?old.invalid_review_status:'');
         const nextAttemptContact=p.invalidReviewStatus||p.qualifiedOn?false:Boolean(old.attempt_contact);
         const values=[p.pageName,p.personaCode,p.operatorName,p.channel,p.customerLabel,p.customerRef,p.contactStatus,p.repliedOn,p.qualifiedOn,p.needSummary,p.invalidReason,p.invalidReasonCode,nextReviewStatus,nextAttemptContact,p.lossReason,p.nextFollowup,p.note,actor.id,id];
-        await c.query(`UPDATE fan_leads SET page_name=$1,persona_code=$2,operator_name=$3,channel=$4,customer_label=$5,customer_ref=$6,contact_status=$7,replied_on=$8,qualified_on=$9,need_summary=$10,invalid_reason=$11,invalid_reason_code=$12,invalid_review_status=$13,attempt_contact=$14,loss_reason=$15,next_followup=$16,note=$17,updated_by=$18,updated_at=now(),version=version+1 WHERE id=$19`,values);
+        await c.query(`UPDATE fan_leads SET page_name=$1,persona_code=$2,operator_name=$3,channel=$4,customer_label=$5,customer_ref=$6,contact_status=$7,replied_on=$8,qualified_on=$9,need_summary=$10,invalid_reason=$11,invalid_reason_code=$12,invalid_review_status=$13,attempt_contact=$14,loss_reason=$15,next_followup=$16,note=$17,updated_by=$18,updated_at=now(),version=version+1,
+          invalid_reviewed_at=CASE WHEN $20 THEN invalid_reviewed_at ELSE NULL END,
+          invalid_reviewed_by=CASE WHEN $20 THEN invalid_reviewed_by ELSE NULL END
+          WHERE id=$19`,[...values,Boolean(keepReview)]);
       }
       const after=(await c.query('SELECT * FROM fan_leads WHERE id=$1',[id])).rows[0];await writeAudit(c,{actorId:actor.id,action:req.body?.void?'fan_lead_void':'fan_lead_followup',entityType:'fan_lead',entityId:id,before:old,after:{...after,reason},ip:req.ip});await c.query('COMMIT');res.json({id});
     }catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}

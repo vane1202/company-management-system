@@ -321,6 +321,9 @@ export type Order = {
   id: string;
   workflowEnabled?: boolean;
   hasOpenBalance?: boolean;
+  customerLeadId?: string | null;
+  customerBalance?: string;
+  customerCurrency?: Currency;
   dealChannel?:"live"|"private";projectLine?:string;personaCode?:string;personaName?:string;liveRoomCode?:string;hostName?:string;customerCode?:string;operatorName?:string;
   userId?: string;
   displayName?: string;

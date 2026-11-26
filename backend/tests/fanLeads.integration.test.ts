@@ -44,6 +44,49 @@ describe('线索隔离与归属集成',()=>{
   expect((await get('supervisor').expect(200)).body.leads.some((l:any)=>l.id===otherId)).toBe(false);await get('supervisor','/api/fan-leads/'+otherId+'/history').expect(403);expect((await get('unassigned').expect(200)).body.leads).toEqual([]);
   expect((await db.query('SELECT count(*) AS n FROM fan_reports')).rows[0].n).toBe('0');
  });
+ it('客资按记录关联订单，无效库只归集主管确认，提成只公开已核定本人金额',async()=>{
+  const search='核对同名客户';
+  const a=(await post('cs','/api/fan-leads',body({customerLabel:search})).expect(200)).body.id;
+  const b=(await post('cs','/api/fan-leads',body({customerLabel:search})).expect(200)).body.id;
+  const foreign=(await post('other','/api/fan-leads',body({customerLabel:search})).expect(200)).body.id;
+  const sale={requestKey:randomUUID(),businessDate:today,personaName:'演示主页',dealChannel:'private',
+    operatorName:'虚构客服',customerLabel:search,customerCurrency:'CNY',items:[{kind:'service',label:'虚构加工',priceCny:'200.00'}]};
+  const orderId=(await post('cs','/api/order-records',{...sale,customerLeadId:a}).expect(200)).body.id;
+  await post('cs','/api/order-records',{...sale,requestKey:randomUUID(),customerLeadId:foreign}).expect(404);
+  const unlinked=(await post('cs','/api/order-records',{...sale,requestKey:randomUUID()}).expect(200)).body.id;
+  await post('other',`/api/order-records/${unlinked}/customer`,{customerLeadId:foreign,reason:'校验隔离'}).expect(404);
+  await post('cs',`/api/order-records/${unlinked}/customer`,{customerLeadId:b,reason:'核对原单号'}).expect(200);
+  await post('cs',`/api/order-records/${unlinked}/customer`,{customerLeadId:a,reason:'不得覆盖关联'}).expect(409);
+  const orders=(await get('cs','/api/orders').expect(200)).body.orders;
+  expect(orders.find((row:any)=>row.id===orderId)).toMatchObject({customerLeadId:a,customerBalance:'200.00',customerCurrency:'CNY'});
+  expect(orders.find((row:any)=>row.id===unlinked).customerLeadId).toBe(b);
+  const book='/api/fan-leads/customer-book';
+  expect((await get('cs',book+'?search='+encodeURIComponent(search)).expect(200)).body.rows.map((r:any)=>r.id).sort()).toEqual([a,b].sort());
+  await get('supervisor',book).expect(403);
+
+  const invalidDraft=body({customerLabel:'待主管复核的客资',qualifiedOn:'',invalidReasonCode:'custom',invalidReason:'恶意测试广告'});
+  const pending=(await post('cs','/api/fan-leads',invalidDraft).expect(200)).body.id;
+  const preset=(await post('cs','/api/fan-leads',{...invalidDraft,requestKey:randomUUID(),customerRef:randomUUID(),invalidReasonCode:'misclick'}).expect(200)).body.id;
+  const archived=async()=> (await get('cs',book+'?invalid=true').expect(200)).body.rows;
+  expect(await archived()).toEqual([]);
+  await post('supervisor','/api/customer-reviews/'+pending,{decision:'approve',version:1}).expect(200);
+  expect(await archived()).toMatchObject([{id:pending,reviewedAt:expect.any(String)}]);
+  const customers=(await get('cs',book).expect(200)).body.rows.map((r:any)=>r.id);
+  expect(customers).not.toContain(pending);
+  expect(customers).toContain(preset);
+  await post('supervisor','/api/customer-reviews/'+pending,{decision:'restore',version:2,note:'恢复沟通'}).expect(200);
+  expect(await archived()).toEqual([]);
+
+  const overview='/api/fan-leads/personal-overview';
+  const current=(await get('cs',overview).expect(200)).body;
+  expect(current).toMatchObject({privateAmount:'400.00',orderCount:2,commission:null});
+  expect(current.monthFans).toBeGreaterThan(0);
+  await db.query(`INSERT INTO payroll_months(user_id,pay_month,status,locked_base,locked_commission,locked_bonus,locked_deduction,locked_net,locked_at,locked_by,updated_by)
+    VALUES ($1,$2,'locked',0,120,0,0,120,now(),$3,$3)`,[ids.cs,today.slice(0,7),ids.finance]);
+  expect((await get('cs',overview).expect(200)).body.commission).toBe('120.00');
+  expect((await get('other',overview).expect(200)).body.commission).toBeNull();
+  await get('boss',overview).expect(403);
+ });
  it('作废需说明和版本，保留审计、从分母剔除，未来和超范围日期拒绝',async()=>{
   const id=(await post('cs','/api/fan-leads',body()).expect(200)).body.id;await patch('cs',id,{version:1,void:true}).expect(400);await patch('cs',id,{version:1,void:true,reason:'重复客户，保留另一主记录'}).expect(200);expect((await get('cs').expect(200)).body.leads.find((l:any)=>l.id===id).voidReason).toContain('重复');await patch('cs',id,{version:2,void:true,reason:'再次'}).expect(409);
   await post('cs','/api/fan-leads',body({receivedOn:addDays(today,1)})).expect(400);await get('boss','/api/fan-leads?from=2020-01-01&to='+today).expect(400);
