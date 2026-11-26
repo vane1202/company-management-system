@@ -36,7 +36,7 @@
 .lr-board .lr-summary-cash strong { color:var(--jade); }
 .lr-board .lr-summary-cash .lr-receivable-summary { width:100%; padding:8px 0 0; border:0; border-top:1px solid var(--line); border-radius:0; background:transparent; flex-wrap:wrap; }
 .lr-board .lr-summary-cash .lr-receivable-summary b { color:var(--gold); }
-.lr-board .lr-sort { display:grid; grid-template-columns:repeat(4,1fr); padding:4px; gap:3px; border:1px solid var(--line); border-radius:10px; background:var(--card); }
+.lr-board .lr-sort { display:grid; grid-template-columns:repeat(5,1fr); padding:4px; gap:3px; border:1px solid var(--line); border-radius:10px; background:var(--card); }
 .lr-board .lr-sort button { white-space:nowrap; padding:6px 9px; min-height:36px; background:transparent; color:var(--muted); border:0; border-radius:7px; box-shadow:none; }
 .lr-board .lr-sort button[aria-pressed="true"] { background:var(--jade-dark); color:white; }
 .lr-board .lr-rooms { gap:10px; background:transparent; border:0; overflow:visible; }

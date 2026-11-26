@@ -10,6 +10,11 @@ import { RoomTrend } from './RoomTrend';
 
 const statusNames:Record<LivePaymentStatus,string>={unpaid:'未收款',partial:'部分收款',settled:'已结清',unknown:'待核对'};
 const statuses = ['settled', 'partial', 'unpaid', 'unknown'] as const;
+const roomSorts = [['room','按房号'],['performance','按业绩'],['orders','按新单'],['followup','按跟进'],['expense','按售后费']] as const;
+const roomNumber = new Map([['一号直播间',1],['二号直播间',2]]);
+function compareRoomNumbers(a: string, b: string) {
+  return (roomNumber.get(a) ?? 3) - (roomNumber.get(b) ?? 3) || a.localeCompare(b, 'zh-CN', {numeric:true});
+}
 const empty:LivePaymentProgress={unpaid:0,partial:0,settled:0,unknown:0,total:0,followupCount:0};
 const progressTip='本期开单的有效订单，按所选结束日之前已登记的客户付款逐单判断，含同单追加应收。使用客户约定币种的抵扣金额；第三方是否结汇不影响客户结清。跑单与退款源单排除。历史简版或资料不全列为待核对。不是开单营业额减去当日收款。';
 const costTip='所选区间按费用发生日汇总已登记的供货、加工、接待、配件、证书、包装和发货等售后费用，不是财务实际付款，也不是完整经营成本。人员提成与演员费用在成本与收益中单独查看，不重复并入这里。';
@@ -18,13 +23,15 @@ type Props={today:string;data:LiveBusinessData|null;loading:boolean;failed:boole
 
 // Cohort payment progress and all-age follow-ups use separate scopes.
 export default function LiveRoomBoard({today,data,loading,failed,onOpen,onOpenOrders}:Props){
-  const [sort,setSort]=useState('performance'),[expanded,setExpanded]=useState('');
+  const [sort,setSort]=useState<(typeof roomSorts)[number][0]>('room'),[expanded,setExpanded]=useState('');
   const op=data?.operations,t=data?.totals;
   const rooms=(data?.rooms??[]).filter(room=>room.key!=='__unassigned__').sort((a,b)=>{
-    if(sort==='followup')return (op?.rooms[b.key]?.followupCount??0)-(op?.rooms[a.key]?.followupCount??0)||a.roomCode.localeCompare(b.roomCode);
-    if(sort==='orders')return b.totals.newOrderCount-a.totals.newOrderCount||a.roomCode.localeCompare(b.roomCode);
+    const byRoom = compareRoomNumbers(a.roomCode, b.roomCode);
+    if(sort==='room')return byRoom;
+    if(sort==='followup')return (op?.rooms[b.key]?.followupCount??0)-(op?.rooms[a.key]?.followupCount??0)||byRoom;
+    if(sort==='orders')return b.totals.newOrderCount-a.totals.newOrderCount||byRoom;
     const field=sort==='expense'?'expenseCny':'performanceCny',x=signedCents(a.totals[field])??0n,y=signedCents(b.totals[field])??0n;
-    return x===y?a.roomCode.localeCompare(b.roomCode):x>y?-1:1;
+    return x===y?byRoom:x>y?-1:1;
   });
   const maximum=Math.max(0,...rooms.map(r=>Number(r.totals.performanceCny)||0));
   return <div className="lr-board" aria-label="直播间经营看板" aria-busy={loading}>
@@ -36,7 +43,7 @@ export default function LiveRoomBoard({today,data,loading,failed,onOpen,onOpenOr
     </section>
     <section className="lr-room-section" aria-label="直播间表现">
       <header className="lr-section-heading"><h2>直播间表现</h2><div className="lr-sort" role="group" aria-label="经营表现排序">
-        {([['performance','按业绩'],['orders','按新单'],['followup','按跟进'],['expense','按售后费']] as const).map(([key,label]) =>
+        {roomSorts.map(([key,label]) =>
           <button type="button" key={key} aria-pressed={sort===key} onClick={()=>setSort(key)}>{label}</button>)}
       </div></header>
       {loading?<p role="status">正在读取经营数据…</p>:failed?<p className="notice">数据读取失败，请重试后查看。</p>:!rooms.length?<p className="notice">所选范围暂无直播间经营记录。</p>:<div className="lr-rooms">{rooms.map((r,index)=>{
