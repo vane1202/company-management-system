@@ -9,8 +9,8 @@ export type InvalidReviewStatus = '' | 'pending' | 'approved' | 'rejected' | 're
 export type Lead={id:string;accountId:string;wechatId:string;teamId:string;teamName:string;receivedOn:string;pageName:string;personaCode:string;operatorName:string;sourceAdAccountId?:string;channel:'ms'|'ws';customerLabel:string;customerRef:string;contactStatus:'unread'|'read_no_reply'|'replied';repliedOn:string|null;qualifiedOn:string|null;needSummary:string;invalidReason:string;invalidReasonCode?:InvalidReasonCode;invalidReviewStatus?:InvalidReviewStatus;invalidReviewNote?:string;attemptContact?:boolean;lossReason:string;nextFollowup:string|null;note:string;version:number;voidedAt:string|null;voidReason:string|null};
 export type CustomerLead = Lead & {reviewedAt:string|null;lastOrderStatus:string|null;lastOrderCancelled:boolean};
 export type PersonalFanPreset = "day" | "week" | "month";
-export type PersonalFans = {from:string;to:string;added:number;replied:number;booked:number};
-export type PersonalFillOverview = {orderCount:number;liveAmount:string;privateAmount:string;commission:string|null;commissionEstimate?:{amount:string|null;pendingCount:number}|null};
+export type PersonalFans = {from:string;to:string;added:number;replied:number;invalid:number};
+export type PersonalFillOverview = {orderCount:number;liveCount:number;privateCount:number;liveAmount:string;privateAmount:string;commission:string|null;commissionEstimate?:{amount:string|null;pendingCount:number}|null};
 export type LeadReport={accountId:string;pageName:string;businessDate:string;msToday:number|null;wsToday:number|null;addedCount:number};
 export type ZeroStatus={date:string;leadCount:number;zeroCheckedIn:boolean;checkedInAt:string|null};
 export function isConfirmedInvalidLead(lead:Pick<Lead,'invalidReason'|'invalidReviewStatus'>):boolean{

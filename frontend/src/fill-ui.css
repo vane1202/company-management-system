@@ -301,13 +301,33 @@
 }
 
 :root main.customer-fill .cs-fill-overview { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
-:root main.customer-fill .cs-fill-overview .card { display:grid; align-content:start; align-items:start; gap:6px; min-width:0; margin:0; }
-:root main.customer-fill .cs-fill-overview h2 { margin:0; font-size:16px; }
-:root main.customer-fill .cs-fill-overview .card > strong { font:700 26px var(--font-mono,monospace); overflow-wrap:anywhere; }
-:root main.customer-fill .cs-fill-overview dl { display:grid; gap:8px; margin:10px 0; }
-:root main.customer-fill .cs-fill-overview dl > div { display:flex; justify-content:space-between; gap:8px; }
-:root main.customer-fill .cs-fill-overview dd { margin:0; font-family:var(--font-mono,monospace); overflow-wrap:anywhere; }
-:root main.customer-fill .cs-fill-overview button { justify-self:start; }
+:root main.customer-fill .cs-fill-overview .card {
+  display:grid; align-content:start; gap:6px; min-width:0; margin:0; padding:14px;
+}
+:root main.customer-fill .cs-fill-overview .cs-fans-heading {
+  display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:4px; min-height:36px;
+}
+:root main.customer-fill .cs-fill-overview .cs-fans-heading h2 {
+  margin:0; border:0; padding:0; font-size:16px;
+}
+:root main.customer-fill .cs-fill-overview .cs-fans-heading h2::before { content:none; }
+:root main.customer-fill .cs-overview-metric {
+  display:flex; align-items:baseline; flex-wrap:wrap; gap:4px 8px; font-size:14px;
+}
+:root main.customer-fill .cs-overview-metric strong {
+  font:700 clamp(21px, 4vw, 25px)/1.2 var(--font-mono,monospace); overflow-wrap:anywhere;
+}
+:root main.customer-fill .cs-fill-overview .hint { margin:0; }
+:root main.customer-fill .cs-fill-overview dl { display:grid; gap:6px; margin:2px 0 0; }
+:root main.customer-fill .cs-fill-overview dd { margin:0; font-variant-numeric:tabular-nums; }
+:root main.customer-fill .cs-sales-breakdown > div {
+  display:grid; grid-template-columns:minmax(0,1fr) max-content minmax(0,1fr); gap:6px; align-items:baseline; font-size:13px;
+}
+:root main.customer-fill .cs-sales-breakdown dd { text-align:right; }
+:root main.customer-fill .cs-sales-breakdown dd:last-child { overflow-wrap:anywhere; }
+:root main.customer-fill .cs-commission-status {
+  padding:2px 6px; border-radius:var(--r-pill); background:var(--bg); color:var(--jade-dark); font-size:12px;
+}
 :root main.customer-fill .cs-customer-book { display:grid; gap:12px; }
 :root main.customer-fill .cs-customer-book .commerce-line { flex-wrap:wrap; gap:10px; }
 :root main.customer-fill .cs-customer-book .commerce-line .row { flex:1 1 200px; }
@@ -324,11 +344,10 @@
 :root .order-channel button[aria-pressed="true"] { background:var(--jade-dark); color:#fff; }
 @media(max-width:380px) { :root .order-channel button { padding-inline:12px; } }
 
-:root main.customer-fill .cs-fans-heading { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:8px; }
 :root main.customer-fill .cs-fans-period { flex-wrap:nowrap; gap:3px; }
-:root main.customer-fill .cs-fans-period button { min-height:32px; padding:2px 7px; white-space:nowrap; font-size:12px; }
+:root main.customer-fill .cs-fans-period button { min-height:36px; min-width:36px; padding:2px 5px; white-space:nowrap; font-size:12px; }
 :root main.customer-fill .cs-fill-overview .cs-fans-breakdown { grid-template-columns:repeat(2,minmax(0,1fr)); }
-:root main.customer-fill .cs-fill-overview .cs-fans-breakdown > div { display:grid; gap:4px; padding:8px; border-radius:8px; background:var(--bg); }
+:root main.customer-fill .cs-fill-overview .cs-fans-breakdown > div { display:flex; flex-wrap:wrap; justify-content:space-between; gap:2px 5px; padding:5px 8px; border-radius:8px; background:var(--bg); font-size:13px; }
 :root main.customer-fill .cs-fill-overview .cs-fans-breakdown dd { font-weight:650; }
 
 .customer-fill .customer-profile > summary {
@@ -343,3 +362,7 @@
 .customer-fill .customer-profile:not([open]) {
   padding-block: 14px;
 }
+
+:root main.customer-fill #fill-identity-fields:not([hidden]) { margin-top:8px; }
+:root main.customer-fill .fill-identity-summary > button { white-space:nowrap; }
+:root main.customer-fill #fill-identity-fields .fill-login-help > summary { width:max-content; }

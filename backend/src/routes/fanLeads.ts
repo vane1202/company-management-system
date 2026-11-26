@@ -73,6 +73,7 @@ export function createFanLeadsRouter(db:Pool,config:AppConfig){
     const today=businessToday(new Date(),config.businessTimezone);
     const {from,to}=resolvePeriod(preset,undefined,undefined,today);
     const {rows:[counts]}=await db.query(`SELECT count(*)::int AS added,
+        count(*) FILTER (WHERE l.invalid_review_status='approved')::int AS invalid,
         count(*) FILTER (WHERE l.replied_on<=$3 AND l.invalid_review_status<>'approved')::int AS replied,
         count(*) FILTER (WHERE EXISTS (
           SELECT 1 FROM orders o WHERE o.customer_lead_id=l.id AND o.user_id=l.user_id
@@ -107,6 +108,8 @@ export function createFanLeadsRouter(db:Pool,config:AppConfig){
         (SELECT count(*)::int FROM fan_leads WHERE user_id=$1 AND replied_on=$3 AND voided_at IS NULL AND invalid_review_status<>'approved') AS "todayReplied",
         (SELECT COALESCE(sum(added),0)::int FROM fan_counts) AS "monthFans",
         (SELECT count(*)::int FROM own_orders) AS "orderCount",
+        (SELECT count(*)::int FROM own_orders WHERE channel<>'private') AS "liveCount",
+        (SELECT count(*)::int FROM own_orders WHERE channel='private') AS "privateCount",
         COALESCE((SELECT sum(booking) FROM own_orders WHERE channel<>'private'),0)::numeric(14,2)::text AS "liveAmount",
         COALESCE((SELECT sum(booking) FROM own_orders WHERE channel='private'),0)::numeric(14,2)::text AS "privateAmount",
         (SELECT locked_commission::text FROM payroll_months WHERE user_id=$1 AND pay_month=to_char($2::date,'YYYY-MM') AND status='locked') AS commission`,[actor.id,month,today]);

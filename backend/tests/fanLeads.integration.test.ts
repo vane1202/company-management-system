@@ -69,7 +69,10 @@ describe('线索隔离与归属集成',()=>{
   const preset=(await post('cs','/api/fan-leads',{...invalidDraft,requestKey:randomUUID(),customerRef:randomUUID(),invalidReasonCode:'misclick'}).expect(200)).body.id;
   const archived=async()=> (await get('cs',book+'?invalid=true').expect(200)).body.rows;
   expect(await archived()).toEqual([]);
+  const dailyFans='/api/fan-leads/personal-fans?preset=day';
+  expect((await get('cs',dailyFans).expect(200)).body).toMatchObject({added:4,invalid:1});
   await post('supervisor','/api/customer-reviews/'+pending,{decision:'approve',version:1}).expect(200);
+  expect((await get('cs',dailyFans).expect(200)).body.invalid).toBe(2);
   expect(await archived()).toMatchObject([{id:pending,reviewedAt:expect.any(String)}]);
   const customers=(await get('cs',book).expect(200)).body.rows.map((r:any)=>r.id);
   expect(customers).not.toContain(pending);
@@ -85,7 +88,7 @@ describe('线索隔离与归属集成',()=>{
 
   const overview='/api/fan-leads/personal-overview';
   const current=(await get('cs',overview).expect(200)).body;
-  expect(current).toMatchObject({privateAmount:'400.00',orderCount:2,commission:null,commissionEstimate:{amount:'13.00',pendingCount:1}});
+  expect(current).toMatchObject({privateAmount:'400.00',orderCount:2,privateCount:2,liveCount:0,commission:null,commissionEstimate:{amount:'13.00',pendingCount:1}});
   expect(current.monthFans).toBeGreaterThan(0);
   await db.query(`INSERT INTO payroll_months(user_id,pay_month,status,locked_base,locked_commission,locked_bonus,locked_deduction,locked_net,locked_at,locked_by,updated_by)
     VALUES ($1,$2,'locked',0,120,0,0,120,now(),$3,$3)`,[ids.cs,today.slice(0,7),ids.finance]);

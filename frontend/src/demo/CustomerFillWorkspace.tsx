@@ -15,7 +15,7 @@ import ReportTextImport from "./ReportTextImport";
 import { afterSaleTotals, emptyAfterSale, parseAfterSaleText, signedMoney, type AfterSaleExpense, type AfterSaleFields } from "./afterSalesText";
 import FanFillForm from "./FanFillForm";
 import { loadServiceDirectory, type FillAccount } from "./serviceDirectory";
-import { effectiveOrderCents, type CrmOrder, type CrmOrderDraft, centsToYuan, customerTags, invalidReasons, personalPerformance, latestCustomerReview, useCustomerCrm, type CrmActor, type CrmCustomer, type SpendTier } from "./customerCrm";
+import { effectiveOrderCents, type CrmOrder, type CrmOrderDraft, centsToYuan, customerStatus, customerTags, invalidReasons, personalPerformance, latestCustomerReview, useCustomerCrm, type CrmActor, type CrmCustomer, type SpendTier } from "./customerCrm";
 import CrmOrderHistory from "./CrmOrderHistory";
 import "./customer-fill.css";
 import "../fill-ui.css";
@@ -49,7 +49,7 @@ export default function CustomerFillWorkspace({ today }: { today: string }) {
   const [accounts, setAccounts] = useState<FillAccount[]>([]);
   const [personId, setPersonId] = useState("");
   const [accountId, setAccountId] = useState("");
-  const [identityExpanded, setIdentityExpanded] = useState(true);
+  const [identityExpanded, setIdentityExpanded] = useState(false);
   const [customerId, setCustomerId] = useState("");
   const [checkins, setCheckins] = useState<string[]>([]);
   const [error, setError] = useState("");
@@ -84,15 +84,17 @@ export default function CustomerFillWorkspace({ today }: { today: string }) {
       ?[[item.id,review] as const]:[];
   }));
   const customer = mine.find(item => item.id === customerId);
-  const monthOrders=crm.state.orders.filter(order=>order.employeeId===actor?.employeeId&&!order.cancelled&&order.businessDate.startsWith(today.slice(0,7)));
+  const monthOrders=crm.state.orders.filter(order=>order.employeeId===actor?.employeeId&&!order.cancelled&&order.businessDate<=today&&order.businessDate.startsWith(today.slice(0,7)));
   const [fanPreset,setFanPreset]=useState<PersonalFanPreset>("day");
   const fanRange=dashboardPresetRange(today,fanPreset);
   const fanCohort=mine.filter(row=>row.createdOn>=fanRange.from&&row.createdOn<=fanRange.to);
-  const bookedCustomers=new Set(crm.state.orders.filter(row=>row.employeeId===actor?.employeeId&&!row.cancelled&&row.businessDate<=today).map(row=>row.customerId));
-  const fanCounts={...fanRange,added:fanCohort.length,
-    replied:fanCohort.filter(row=>row.contact==="replied"&&!customerTags(crm.state,row).includes("无效")).length,
-    booked:fanCohort.filter(row=>bookedCustomers.has(row.id)).length};
-  const monthAmount=(kind:"live"|"private")=>centsToYuan(monthOrders.filter(row=>row.channel===kind).reduce((sum,row)=>sum+effectiveOrderCents(row),0)).replaceAll(",","");
+  const invalidFans=fanCohort.filter(row=>customerStatus(crm.state,row)==="invalid");
+  const invalidIds=new Set(invalidFans.map(row=>row.id));
+  const fanCounts={...fanRange,added:fanCohort.length,invalid:invalidFans.length,
+    replied:fanCohort.filter(row=>row.contact==="replied"&&!invalidIds.has(row.id)).length};
+  const liveOrders=monthOrders.filter(row=>row.channel==="live");
+  const privateOrders=monthOrders.filter(row=>row.channel==="private");
+  const monthAmount=(orders:CrmOrder[])=>centsToYuan(orders.reduce((sum,row)=>sum+effectiveOrderCents(row),0)).replaceAll(",","");
   const leadDrawer=useRef<HTMLDialogElement>(null);
   const leadCount = mine.filter(row => row.createdOn === today).length;
   const checkinKey = `${today}:${actor?.employeeId ?? ""}`;
@@ -106,13 +108,24 @@ export default function CustomerFillWorkspace({ today }: { today: string }) {
   return <main className="customer-fill role-desk">
     <header className="desk-heading"><div><p className="eyebrow">日常填报</p><h1>{customer ? customer.name : csFillPages[page].title}</h1></div>{customer && <button type="button" className="secondary" onClick={() => setCustomerId("")}>返回客资库</button>}</header>
     <section className="card fill-account fill-account-bar" aria-label="填报身份">
-      {selected && !identityExpanded ? <div className="fill-identity-summary"><div><span className="fill-avatar" aria-hidden="true">{(selectedPerson?.name || "客").slice(0, 1)}</span><span className="fill-identity-text"><strong>{selectedPerson?.name}</strong><span>{selected.platform === "whatsapp" ? "WhatsApp" : selected.platform === "messenger" ? "Messenger" : "接待账号"} · 尾号{(selected.accountIdentifier || selected.wechatId).slice(-4)}</span></span></div><button type="button" className="secondary" aria-expanded={false} onClick={() => setIdentityExpanded(true)}>更换</button></div> : <div id="fill-identity-fields" className="fill-identity-fields">
-      {selectedPerson && <div className="fill-identity-summary"><div><span className="fill-avatar" aria-hidden="true">{(selectedPerson.name || "客").slice(0, 1)}</span><span className="fill-identity-text"><strong>{selectedPerson.name}</strong><span>当前登录客服 · 演示模式</span></span></div></div>}
-      <div className="fill-identity-selectors">
-        <Field label="接待账号"><select aria-label="选择接待账号" value={accountId} disabled={loading || !personId} onChange={event => { setAccountId(event.target.value); setCustomerId(""); if (event.target.value) setIdentityExpanded(false); }}><option value="">{loading ? "正在读取接待账号…" : "请选择 WhatsApp 或 Messenger"}</option>{personAccounts.map(account => <option key={account.id} value={account.id}>{account.wechatId}</option>)}</select></Field>
+      <div className="fill-identity-summary">
+        <div><span className="fill-avatar" aria-hidden="true">{(selectedPerson?.name || "客").slice(0, 1)}</span>
+          <span className="fill-identity-text"><strong>{selectedPerson?.name || "客服填报"}</strong>
+            <span>{selected ? (selected.platform === "whatsapp" ? "WhatsApp" : selected.platform === "messenger" ? "Messenger" : "接待账号") + " · 尾号" + (selected.accountIdentifier || selected.wechatId).slice(-4) : loading ? "正在读取接待账号…" : "待选择接待账号"}</span>
+          </span>
+        </div>
+        <button type="button" className="secondary" aria-expanded={identityExpanded} aria-controls="fill-identity-fields" disabled={loading || !personId} onClick={() => setIdentityExpanded(open => !open)}>
+          {identityExpanded ? "收起" : selected ? "更换" : "选择接待账号"}
+        </button>
       </div>
-      {selected && <div className="fill-identity-context"><span>{selected.teamName || "未分组"} · {selectedPerson?.name}</span><button type="button" className="text-action" onClick={() => setIdentityExpanded(false)}>收起</button></div>}
-      <details className="fill-login-help"><summary>登录说明</summary><p className="hint">个人登录将在服务器部署后启用，首次登录须改密。演示阶段按所选客服区分数据。</p></details></div>}
+      <div id="fill-identity-fields" hidden={!identityExpanded}>
+        <div className="fill-identity-selectors"><Field label="接待账号">
+          <select aria-label="选择接待账号" value={accountId} onChange={event => { setAccountId(event.target.value); setCustomerId(""); if (event.target.value) setIdentityExpanded(false); }}>
+            <option value="">请选择接待账号</option>{personAccounts.map(account => <option key={account.id} value={account.id}>{account.wechatId}</option>)}
+          </select>
+        </Field></div>
+        <details className="fill-login-help"><summary aria-label="登录说明">ⓘ</summary><p className="hint">演示阶段按所选客服区分数据。</p></details>
+      </div>
       {error && <p className="error" role="alert">{error}</p>}
       {notice && <p className="notice" role="status">{notice}</p>}
     </section>
@@ -126,7 +139,7 @@ export default function CustomerFillWorkspace({ today }: { today: string }) {
       })}
     </nav>
 
-    {page==="home"&&<CsFillOverview data={actor?{orderCount:monthOrders.length,liveAmount:monthAmount("live"),privateAmount:monthAmount("private"),commission:null,commissionEstimate:demoCommissionEstimate(monthOrders)}:null}
+    {page==="home"&&<CsFillOverview data={actor?{orderCount:monthOrders.length,liveCount:liveOrders.length,privateCount:privateOrders.length,liveAmount:monthAmount(liveOrders),privateAmount:monthAmount(privateOrders),commission:null,commissionEstimate:demoCommissionEstimate(monthOrders)}:null}
       fans={actor?fanCounts:null} preset={fanPreset} onPreset={setFanPreset}/> }
     {!actor && page !== "reimbursements" && page !== "home" && <section className="card"><h2>{loading ? "正在读取客服" : "暂无可用客服"}</h2><p>请选择可用的接待账号。</p></section>}
     {actor && page === "leads" && !customer && <section className="card">
@@ -220,7 +233,7 @@ function Performance({ today, employeeId, state, onOpen }: { today:string; emplo
   const result = personalPerformance(state, employeeId);
   const rows = state.orders.filter(order => order.employeeId === employeeId);
   return <section className="card" aria-label="个人业绩"><h2>个人业绩 <InfoTip label="个人业绩口径" text="合计等于直播间料价加代购费，再加私推料价。跑单和换料取消的旧单不计入，换料新单归新开单日。业绩跟开单时的客服，换账号不改旧单。" /></h2>
-    <p className="fill-page-count">本月有效开单 <strong>{rows.filter(order=>!order.cancelled&&order.businessDate.startsWith(today.slice(0,7))).length}</strong> 单</p>
+    <p className="fill-page-count">本月有效开单 <strong>{rows.filter(order=>!order.cancelled&&order.businessDate<=today&&order.businessDate.startsWith(today.slice(0,7))).length}</strong> 单</p>
     <div className="commerce-kpis fill-performance-kpis">
       <div className="fill-hero"><small>直播间成交</small><strong>¥{centsToYuan(result.liveCents)}</strong></div>
       <div><small>客服私推</small><strong>¥{centsToYuan(result.privateCents)}</strong></div>
