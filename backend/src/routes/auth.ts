@@ -198,15 +198,20 @@ export function ensureCsrf(req: Request): string {
   return req.session.csrfToken;
 }
 
+const CS_SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
 export async function establishSession(req: Request, user: DbUser): Promise<void> {
   await new Promise<void>((resolve, reject) => req.session.regenerate((error) => error ? reject(error) : resolve()));
   req.session.userId = user.id;
   req.session.csrfToken = randomBytes(32).toString("hex");
   if (isDeviceAccount(user.account_kind)) {
     req.session.deviceVersion = user.device_version ?? 0;
-    req.session.cookie.maxAge = 30 * 24 * 60 * 60 * 1000;
+    req.session.cookie.maxAge = CS_SESSION_MAX_AGE_MS;
   } else {
     req.session.sessionVersion = user.session_version ?? 0;
+    if (user.role === "cs") {
+      req.session.cookie.maxAge = CS_SESSION_MAX_AGE_MS;
+    }
   }
 }
 
@@ -252,7 +257,12 @@ export function attachActor(loader: (id: string) => Promise<Actor | undefined>) 
         const actor = await loader(req.session.userId);
         const validDevice = actor ? (!isDeviceAccount(actor.accountKind) || req.session.deviceVersion === actor.deviceVersion) : false;
         const validEmployeeSession = actor ? (isDeviceAccount(actor.accountKind) || req.session.sessionVersion === (actor.sessionVersion ?? 0)) : false;
-        if (actor && actor.isActive && validDevice && validEmployeeSession) req.actor = actor;
+        if (actor && actor.isActive && validDevice && validEmployeeSession) {
+          req.actor = actor;
+          if (actor.role === "cs" && req.session.cookie.originalMaxAge !== CS_SESSION_MAX_AGE_MS) {
+            req.session.cookie.maxAge = CS_SESSION_MAX_AGE_MS;
+          }
+        }
         else { delete req.session.userId; delete req.session.deviceVersion; delete req.session.sessionVersion; }
       }
       next();
