@@ -96,6 +96,7 @@ export const api = {
   paidPerformance:()=>requestInner<{records:PaidPerformanceRecord[]}>('/api/finance/live-performance'),
   createOrderRecord: (payload: Record<string, unknown>) => requestInner<{id:string;itemIds?:string[]}>("/api/order-records", {method:"POST",body:JSON.stringify(payload)}),
   correctOrderRecord: (id: string, payload: Record<string, unknown>) => requestInner<{id:string;itemIds?:string[]}>(`/api/order-records/${encodeURIComponent(id)}`, {method:"PATCH",body:JSON.stringify(payload)}),
+  deleteOrderRecord: (id: string, reason: string) => requestInner<{ok:boolean;id:string}>(`/api/order-records/${encodeURIComponent(id)}`, {method:"DELETE",body:JSON.stringify({reason})}),
   orderAction: (id: string, action: string, payload: Record<string, unknown>) => requestInner<{id:string}>(`/api/order-records/${encodeURIComponent(id)}/${action}`, {method:"POST",body:JSON.stringify(payload)}),
   uploadOrderPhoto: async (id: string, file: File, itemId: string) => {
     const mime = await resolveImageMime(file);

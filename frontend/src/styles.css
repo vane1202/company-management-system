@@ -76,7 +76,10 @@ button.sidebar-brand { border: 0; background: transparent; color: inherit; paddi
 .order-hero-amount small { display: block; font-family: var(--font-sans, inherit); font-size: 11px; font-weight: 400; color: var(--muted); margin-top: 2px; }
 .order-hero-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px 12px; flex-wrap: wrap; padding-top: 10px; border-top: 1px solid var(--line); }
 .order-hero-tags { display: flex; flex-wrap: wrap; gap: 8px; }
+.order-hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .order-hero-cancel-btn { padding: 5px 12px; min-height: 32px; font-size: 12px; }
+.order-hero-delete-btn { color: var(--danger); border-color: #f3c4c0; background: #fff7f6; }
+.order-hero-delete-btn:hover:not(:disabled) { background: #fbe9e8; border-color: #e6a39d; }
 .order-hero-cancel-area { padding-top: 10px; border-top: 1px solid var(--line); display: grid; gap: 10px; }
 .order-meta-chip { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 999px; background: var(--bg, #f4f7f6); border: 1px solid var(--line); font-size: 12px; color: #3d4f4a; line-height: 1.4; }
 @media (max-width: 560px) {

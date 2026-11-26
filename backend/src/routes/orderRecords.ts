@@ -122,6 +122,47 @@ export function createOrderRecordsRouter(db: Pool, config: AppConfig) {
     await touch(c,id);await audit(c,req,'order_cancellation_void',id,{cancellationId:entry.id,reason,bookedOn:entry.booked_on,baseAmountCny:entry.base_amount_cny,actorRole:req.actor!.role});
     return{id:entry.id};
   }));
+  router.delete("/:id",mutate(async(c,req)=>{
+    if(!["boss","cs_supervisor"].includes(req.actor!.role))throw new HttpError(403,"仅 BOSS 或本组客服主管可删除订单");
+    const id=uuid(req.params.id);
+    const order=await visibleOrder(c,req.actor!,id,true);
+    const reason=textField(req.body?.reason,"删除原因",500);
+    const details=(await c.query("SELECT * FROM order_details WHERE order_id=$1",[id])).rows[0]??null;
+    if(["shipped","refunded"].includes(order.status)||details?.shipped_on)throw new HttpError(409,"已发货或已退款的订单不能删除");
+    if((await c.query("SELECT 1 FROM customer_payments WHERE order_id=$1 LIMIT 1",[id])).rowCount)throw new HttpError(409,"该订单已有收款记录，不能删除");
+    if((await c.query("SELECT 1 FROM order_expenses WHERE order_id=$1 LIMIT 1",[id])).rowCount)throw new HttpError(409,"该订单已有成本或业务费用记录，不能删除");
+    if((await c.query("SELECT 1 FROM order_charges WHERE order_id=$1 LIMIT 1",[id])).rowCount)throw new HttpError(409,"该订单已有售后追加记录，不能删除");
+    if((await c.query("SELECT 1 FROM warehouse_bills WHERE order_id=$1 LIMIT 1",[id])).rowCount)throw new HttpError(409,"该订单已有库房结账单，不能删除");
+    if((await c.query("SELECT 1 FROM reimbursement_claims WHERE order_id=$1 LIMIT 1",[id])).rowCount)throw new HttpError(409,"该订单已关联报销单，不能删除");
+    const itemCount=Number((await c.query("SELECT count(*) FROM order_items WHERE order_id=$1",[id])).rows[0].count);
+    const attachmentCount=Number((await c.query("SELECT count(*) FROM order_attachments WHERE order_id=$1",[id])).rows[0].count);
+    await c.query("DELETE FROM order_attachments WHERE order_id=$1",[id]);
+    await c.query("DELETE FROM order_cancellations WHERE order_id=$1",[id]);
+    await c.query("DELETE FROM order_items WHERE order_id=$1",[id]);
+    await c.query("DELETE FROM order_details WHERE order_id=$1",[id]);
+    await c.query("DELETE FROM orders WHERE id=$1",[id]);
+    await writeAudit(c,{
+      actorId:req.actor!.id,
+      action:"order_delete",
+      entityType:"order",
+      entityId:id,
+      before:{
+        order_ref:order.order_ref,
+        customer_label:order.customer_label,
+        business_date:order.business_date,
+        amount:order.amount,
+        status:order.status,
+        user_id:order.user_id,
+        performance_team_id:order.performance_team_id,
+        details:details?{persona_name:details.persona_name,live_room_code:details.live_room_code,deal_channel:details.deal_channel,operator_name:details.operator_name}:null,
+        item_count:itemCount,
+        attachment_count:attachmentCount
+      },
+      after:{deleted:true,reason,actorRole:req.actor!.role},
+      ip:req.ip
+    });
+    return{ok:true,id};
+  }));
   router.patch("/:id",mutate(async(c,req)=>{
     const id=uuid(req.params.id),{order,details}=await writeOrder(c,req.actor!,id),b=req.body??{};
     if(order.cancelled)throw new HttpError(409,'已登记跑单，请先撤销跑单后再更正开单卡');
