@@ -18,7 +18,6 @@ const STANDARD_LIVE_ROOMS=[
   { value: "一号直播间", label: "一号直播间（甜甜）", host: "甜甜" },
   { value: "二号直播间", label: "二号直播间（文强）", host: "文强" }
 ] as const;
-const DemoTextOrderImport=isDemo?lazy(()=>import("./demo/TextOrderImport")):null;
 const DemoOrderBasicFields=isDemo?lazy(()=>import("./demo/OrderBasicFields")):null;
 const freshItem=()=>({kind:"material",label:"",materialRef:"",priceCny:"",buyingFeeCny:"",feeManual:false,sourcingNoSettle:false});
 
@@ -98,11 +97,6 @@ export function CreateOrder({today,operator,onSaved,initial,previewOnly=false,re
   const photoChecks = useRef<symbol[]>([]);
   useEffect(() => () => { photoChecks.current = []; }, []);
 
-  function clearItemPhotos() {
-    photoChecks.current = [];
-    setPhotos([]);
-  }
-
   async function setItemPhoto(index: number, file: File | null) {
     const token = Symbol();
     photoChecks.current[index] = token;
@@ -166,7 +160,7 @@ export function CreateOrder({today,operator,onSaved,initial,previewOnly=false,re
       <button type="button" disabled={busy} aria-pressed={activeChannel==="live"} onClick={()=>{if(activeChannel!=="live")switchChannel("live");}}>直播间开单</button>
       <button type="button" disabled={busy} aria-pressed={activeChannel==="private"} onClick={()=>{if(activeChannel!=="private")switchChannel("private");}}>私推成交</button>
     </div>}
-    {DemoTextOrderImport&&<Suspense fallback={<p role="status">正在加载文字识别…</p>}><DemoTextOrderImport channel={activeChannel} today={today} currentFields={form} defaultFields={initial?{}:{businessDate:today,operatorName:operator,customerCurrency:"CNY"}} currentItems={items} onApply={result=>{setForm(current=>({...current,...result.fields,hostName:activeChannel==="private"?"":result.fields.hostName??"",liveRoomCode:activeChannel==="private"?"":result.fields.liveRoomCode??"",source:activeChannel==="private"?"客服私推":result.fields.source??current.source}));if(result.items.length){setItems(result.items.map(item=>activeChannel==="private"?{...item,buyingFeeCny:"0.00",feeManual:false,sourcingNoSettle:false}:{...item,sourcingNoSettle:false}));clearItemPhotos();}setError("");}}/></Suspense>}{DemoOrderBasicFields?<Suspense fallback={<p role="status">正在打开开单信息…</p>}><DemoOrderBasicFields lockedCustomer={customerName} channel={activeChannel} fields={form} registeredRoom={activeChannel==="live"?registeredRoom:undefined} personaOptions={personaOptions} personaLoading={personaLoading} today={today} editing={!!initial} onChange={patch=>setForm(current=>({...current,...patch}))}/></Suspense>:<div className="grid two">
+    {DemoOrderBasicFields?<Suspense fallback={<p role="status">正在打开开单信息…</p>}><DemoOrderBasicFields lockedCustomer={customerName} channel={activeChannel} fields={form} registeredRoom={activeChannel==="live"?registeredRoom:undefined} personaOptions={personaOptions} personaLoading={personaLoading} today={today} editing={!!initial} onChange={patch=>setForm(current=>({...current,...patch}))}/></Suspense>:<div className="grid two">
     {initial&&<Field label="销售方式"><select value={dealChannel} onChange={e=>switchChannel(e.target.value as "live"|"private")}><option value="live">直播间开单（原石默认 10% 代购费）</option><option value="private">客服私推（默认不收代购费）</option></select></Field>}
     {([["businessDate","开单卡日期","date"],["orderRef","订单编号","text"],["personaName","人设 / 主页","select"],["liveRoomCode","直播间编号","select"],["operatorName","经办客服姓名","text"],["customerLabel","客户称呼","text"]] as const).map(([k,label,type])=>{if(k==="orderRef"&&!initial)return null;const optional=k==="orderRef"||(activeChannel==="private"&&k==="liveRoomCode");if(k==="personaName"){const current=form.personaName.trim();const hasLegacy=Boolean(current&&!personaOptions.includes(current));return <Field key={k} label={label}><select aria-label="人设 / 主页" required value={form.personaName} onChange={e=>setForm({...form,personaName:e.target.value})}><option value="">{personaLoading?"正在加载拍剪人设…":personaOptions.length?"请选择人设 / 主页":"暂无拍剪人设记录"}</option>{personaOptions.map(p=><option key={p} value={p}>{p}</option>)}{hasLegacy&&<option value={current}>{current}（历史记录）</option>}</select></Field>;}if(k==="liveRoomCode"){const current=form.liveRoomCode.trim();const hasLegacy=Boolean(current&&!STANDARD_LIVE_ROOMS.some(r=>r.value===current));return <Field key={k} label={label}><select required={!optional} value={form.liveRoomCode} onChange={e=>{const nextRoom=e.target.value;const matched=STANDARD_LIVE_ROOMS.find(r=>r.value===nextRoom);const nextHost=matched?matched.host:nextRoom?(initial?.details?.hostName??form.hostName):"";setForm({...form,liveRoomCode:nextRoom,hostName:nextHost});}}><option value="">{activeChannel==="private"?"不选（私推可选）":"请选择直播间"}</option>{STANDARD_LIVE_ROOMS.map(r=><option key={r.value} value={r.value}>{r.label}</option>)}{hasLegacy&&<option value={current}>{current}{form.hostName?`（${form.hostName} · 历史记录）`:"（历史记录）"}</option>}</select></Field>;}return <Field key={k} label={label}><input required={!optional} maxLength={k==="orderRef"||k==="customerLabel"?64:128} type={type} max={type==="date"?today:undefined} value={form[k]} onChange={e=>setForm({...form,[k]:e.target.value})}/></Field>;})}
     {chooseTeam&&<Field label="业绩归属小组">
