@@ -5,6 +5,7 @@ COPY frontend/package.json frontend/package.json
 COPY backend/package.json backend/package.json
 RUN npm ci --workspace=frontend --include-workspace-root --ignore-scripts --no-audit --no-fund
 COPY frontend frontend
+COPY backend/src/lib/commissionCalc.ts backend/src/lib/commissionCalc.ts
 RUN npm run build -w frontend
 
 FROM node:22-alpine AS backend-build

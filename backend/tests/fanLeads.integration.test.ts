@@ -50,7 +50,7 @@ describe('线索隔离与归属集成',()=>{
   const b=(await post('cs','/api/fan-leads',body({customerLabel:search})).expect(200)).body.id;
   const foreign=(await post('other','/api/fan-leads',body({customerLabel:search})).expect(200)).body.id;
   const sale={requestKey:randomUUID(),businessDate:today,personaName:'演示主页',dealChannel:'private',
-    operatorName:'虚构客服',customerLabel:search,customerCurrency:'CNY',items:[{kind:'service',label:'虚构加工',priceCny:'200.00'}]};
+    operatorName:'虚构客服',customerLabel:search,customerCurrency:'CNY',materialCostCny:'50.00',items:[{kind:'service',label:'虚构加工',priceCny:'200.00'}]};
   const orderId=(await post('cs','/api/order-records',{...sale,customerLeadId:a}).expect(200)).body.id;
   await post('cs','/api/order-records',{...sale,requestKey:randomUUID(),customerLeadId:foreign}).expect(404);
   const unlinked=(await post('cs','/api/order-records',{...sale,requestKey:randomUUID()}).expect(200)).body.id;
@@ -77,13 +77,21 @@ describe('线索隔离与归属集成',()=>{
   await post('supervisor','/api/customer-reviews/'+pending,{decision:'restore',version:2,note:'恢复沟通'}).expect(200);
   expect(await archived()).toEqual([]);
 
+  const shipping={requestKey:randomUUID(),businessDate:today,label:'虚构发货费',category:'shipping',amountCny:'20.00',counterparty:'测试物流'};
+  await post('cs',`/api/order-records/${orderId}/expenses`,shipping).expect(200);
+  const another=(await post('other','/api/order-records',{...sale,requestKey:randomUUID(),customerLeadId:foreign}).expect(200)).body.id;
+  await post('other',`/api/order-records/${another}/expenses`,{...shipping,requestKey:randomUUID()}).expect(200);
+  await get('cs','/api/finance/commission-inputs?month='+today.slice(0,7)).expect(403);
+
   const overview='/api/fan-leads/personal-overview';
   const current=(await get('cs',overview).expect(200)).body;
-  expect(current).toMatchObject({privateAmount:'400.00',orderCount:2,commission:null});
+  expect(current).toMatchObject({privateAmount:'400.00',orderCount:2,commission:null,commissionEstimate:{amount:'13.00',pendingCount:1}});
   expect(current.monthFans).toBeGreaterThan(0);
   await db.query(`INSERT INTO payroll_months(user_id,pay_month,status,locked_base,locked_commission,locked_bonus,locked_deduction,locked_net,locked_at,locked_by,updated_by)
     VALUES ($1,$2,'locked',0,120,0,0,120,now(),$3,$3)`,[ids.cs,today.slice(0,7),ids.finance]);
-  expect((await get('cs',overview).expect(200)).body.commission).toBe('120.00');
+  expect((await get('cs',overview).expect(200)).body).toMatchObject({commission:'120.00',commissionEstimate:null});
+  await db.query("UPDATE payroll_months SET locked_commission=0,locked_net=0 WHERE user_id=$1",[ids.cs]);
+  expect((await get('cs',overview).expect(200)).body).toMatchObject({commission:'0.00',commissionEstimate:null});
   expect((await get('other',overview).expect(200)).body.commission).toBeNull();
   await get('boss',overview).expect(403);
  });

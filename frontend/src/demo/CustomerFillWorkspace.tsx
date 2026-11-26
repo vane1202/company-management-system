@@ -6,13 +6,14 @@ import { cents, currencies, expenseLabels } from "../commerceUi";
 import { toErrorMessage } from "../errors";
 import { csFillPageFromPath, csFillPageIds, csFillPages, type CsFillPage } from "../fillEntries";
 import { DashboardIcon } from "../DashboardIcon";
+import { commissionLine, estimateCsCommission } from "./commissionCalc";
 import { CsFillOverview } from "../CsFillOverview";
 import { InfoTip } from "../InfoTip";
 import ReportTextImport from "./ReportTextImport";
 import { afterSaleTotals, emptyAfterSale, parseAfterSaleText, signedMoney, type AfterSaleExpense, type AfterSaleFields } from "./afterSalesText";
 import FanFillForm from "./FanFillForm";
 import { loadServiceDirectory, type FillAccount } from "./serviceDirectory";
-import { effectiveOrderCents, type CrmOrderDraft, centsToYuan, customerTags, invalidReasons, personalPerformance, latestCustomerReview, useCustomerCrm, type CrmActor, type CrmCustomer, type SpendTier } from "./customerCrm";
+import { effectiveOrderCents, type CrmOrder, type CrmOrderDraft, centsToYuan, customerTags, invalidReasons, personalPerformance, latestCustomerReview, useCustomerCrm, type CrmActor, type CrmCustomer, type SpendTier } from "./customerCrm";
 import CrmOrderHistory from "./CrmOrderHistory";
 import "./customer-fill.css";
 import "../fill-ui.css";
@@ -21,6 +22,25 @@ import "./role-workbenches.css";
 function personKey(account: FillAccount) {
   return account.registeredHolderId || (account.id==="demo-wechat-1"?"demo-cs-a":account.holderName || account.id);
 }
+// These costs belong only to the seeded fictional orders.
+const sampleCommissionCosts = new Map([
+  ["sample-o1", { material: "760.00", shipping: "28.00" }],
+  ["sample-o6", { material: "400.00", shipping: "20.00" }]
+]);
+function demoCommissionEstimate(orders: CrmOrder[]) {
+  const estimate = estimateCsCommission(orders.map(row => {
+    const costs = sampleCommissionCosts.get(row.id);
+    return commissionLine({
+      order: {id:row.id, business_date:row.businessDate, order_ref:row.id, status:"placed", material_cost_cny:costs?.material},
+      details: {operatorName:row.employeeName},
+      items: row.items?.map(item=>({price_cny:item.priceCny,buying_fee_cny:item.buyingFeeCny}))
+        ?? [{price_cny:(row.materialCents/100).toFixed(2),buying_fee_cny:(row.feeCents/100).toFixed(2)}],
+      expenses: costs ? [{category:"shipping",amount_cny:costs.shipping}] : []
+    }, row.channel);
+  }));
+  return { amount: estimate.cents === null ? null : (estimate.cents/100).toFixed(2), pendingCount: estimate.pendingCount };
+}
+
 export default function CustomerFillWorkspace({ today }: { today: string }) {
   const crm = useCustomerCrm(today);
   const [page, setPage] = useState<CsFillPage>(() => csFillPageFromPath(window.location.pathname));
@@ -98,7 +118,7 @@ export default function CustomerFillWorkspace({ today }: { today: string }) {
       })}
     </nav>
 
-    {page==="home"&&<CsFillOverview data={actor?{todayLeads:leadCount,todayReplied:mine.filter(row=>row.createdOn===today&&row.contact==="replied"&&!confirmed.has(row.id)).length,monthFans,orderCount:monthOrders.length,liveAmount:monthAmount("live"),privateAmount:monthAmount("private"),commission:null}:null}
+    {page==="home"&&<CsFillOverview data={actor?{todayLeads:leadCount,todayReplied:mine.filter(row=>row.createdOn===today&&row.contact==="replied"&&!confirmed.has(row.id)).length,monthFans,orderCount:monthOrders.length,liveAmount:monthAmount("live"),privateAmount:monthAmount("private"),commission:null,commissionEstimate:demoCommissionEstimate(monthOrders)}:null}
       onPerformance={()=>navigate("performance")} checkIn={actor&&leadCount===0&&(checked?<small role="status">今日已打卡（演练）</small>:<button type="button" className="secondary" onClick={()=>setCheckins(values=>[...values,checkinKey])}>今日 0 粉打卡</button>)}/>}
     {!actor && page !== "reimbursements" && page !== "home" && <section className="card"><h2>{loading ? "正在读取客服" : "暂无可用客服"}</h2><p>请选择可用的接待账号。</p></section>}
     {actor && page === "leads" && !customer && <section className="card">

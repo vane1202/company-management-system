@@ -8,6 +8,9 @@ import { managedTeamIds, membershipOnDate, type Actor } from '../users.js';
 import { getBackfillDays } from '../settings.js';
 import { writeAudit } from '../audit.js';
 import { HttpError } from '../types.js';
+import { commissionInputs } from '../lib/commissionInputs.js';
+import { commissionLine, estimateCsCommission } from '../lib/commissionCalc.js';
+import { centsToMoney } from '../lib/money.js';
 
 // Auto-approved presets have no supervisor confirmation for their current invalid state.
 const supervisorConfirmed = `(l.invalid_review_status='approved' AND l.invalid_reviewed_at IS NOT NULL
@@ -90,7 +93,16 @@ export function createFanLeadsRouter(db:Pool,config:AppConfig){
         COALESCE((SELECT sum(booking) FROM own_orders WHERE channel<>'private'),0)::numeric(14,2)::text AS "liveAmount",
         COALESCE((SELECT sum(booking) FROM own_orders WHERE channel='private'),0)::numeric(14,2)::text AS "privateAmount",
         (SELECT locked_commission::text FROM payroll_months WHERE user_id=$1 AND pay_month=to_char($2::date,'YYYY-MM') AND status='locked') AS commission`,[actor.id,month,today]);
-    res.set('Cache-Control','private, no-store').json(summary);
+    let commissionEstimate = null;
+    if (summary.commission === null) {
+      const records = await commissionInputs(db,month,actor.id,today);
+      const estimate = estimateCsCommission(records.map(record=>commissionLine(record,record.channel)));
+      commissionEstimate = {
+        amount: estimate.cents === null ? null : centsToMoney(BigInt(estimate.cents)),
+        pendingCount: estimate.pendingCount
+      };
+    }
+    res.set('Cache-Control','private, no-store').json({...summary,commissionEstimate});
   }catch(e){next(e);}});
   router.get('/:id/history',async(req,res,next)=>{try{
     const id=parseAccountId(req.params.id),row=(await db.query(select+' WHERE l.id=$1',[id])).rows[0];if(!row)throw new HttpError(404,'线索不存在');await assertRead(db,req.actor!,row);
