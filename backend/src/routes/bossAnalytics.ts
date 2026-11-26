@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { liveRoomSql } from "../lib/liveRoomIdentity.js";
 import type { Pool, PoolClient } from "pg";
 import type { AppConfig } from "../config.js";
 import { HttpError } from "../types.js";
@@ -185,7 +186,7 @@ export function createBossAnalyticsRouter(db: Pool, config: AppConfig): Router {
                        ELSE COALESCE((SELECT SUM(i.price_cny + i.buying_fee_cny) FROM order_items i WHERE i.order_id = o.id), o.amount)
                   END::numeric(14,2)::text AS booking_amount,
                   COALESCE(NULLIF(trim(d.deal_channel), ''), 'live') AS deal_channel,
-                  COALESCE(NULLIF(trim(d.live_room_code), ''), 'unassigned') AS room_code,
+                  COALESCE(NULLIF(trim(${liveRoomSql("d.live_room_code")}), ''), 'unassigned') AS room_code,
                   COALESCE(NULLIF(trim(d.operator_name), ''), u.display_name, '') AS operator_name,
                   o.user_id::text AS user_id,
                   t.name AS team_name
@@ -400,7 +401,7 @@ const validOrders = orders.filter((row) => !row.cancelled && row.status !== "ref
                   COALESCE(d.customer_code, '') AS customer_code,
                   COALESCE(NULLIF(trim(d.operator_name), ''), u.display_name, '') AS operator_name,
                   COALESCE(u.service_account_label, '') AS service_account,
-                  COALESCE(NULLIF(trim(d.live_room_code), ''), '') AS live_room_code,
+                  COALESCE(NULLIF(trim(${liveRoomSql("d.live_room_code")}), ''), '') AS live_room_code,
                   COALESCE(d.host_name, '') AS host_name,
                   COALESCE(d.persona_name, '') AS persona_name,
                   o.business_date::text AS business_date,

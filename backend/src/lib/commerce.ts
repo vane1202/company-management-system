@@ -76,7 +76,7 @@ export async function cancellationOrder(db: DB, actor: PublicUser, id: string) {
   if(actor.role!=="cs"&&actor.role!=="cs_supervisor")throw new HttpError(403,"仅归属客服或本组主管可登记跑单");
   return lockedOrder(db,actor,id);
 }
-async function lockedOrder(db: DB, actor: PublicUser, id: string) {
+export async function lockedOrder(db: DB, actor: PublicUser, id: string) {
   const order=await visibleOrder(db,actor,id,true);
   // Read cancellation state after acquiring the order lock. A subquery in the
   // locking SELECT can retain its pre-wait snapshot when another writer commits.

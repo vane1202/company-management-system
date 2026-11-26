@@ -834,7 +834,7 @@ export default function SupervisorPerformance({
           )
         )}
       </div>
-      {selectedId && <OrderWorkspace today={today} user={user} selectedId={selectedId} onSelectOrder={onSelectOrder} onOrderDeleted={() => setVersion((v) => v + 1)} />}
+      {selectedId && <OrderWorkspace today={today} user={user} selectedId={selectedId} onSelectOrder={onSelectOrder} onOrdersChanged={() => setVersion((v) => v + 1)} />}
     </>
   );
                     }

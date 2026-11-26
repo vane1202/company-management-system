@@ -181,6 +181,56 @@ describe("成交、客户付款与财务结算隔离",()=>{
  });
  afterAll(async()=>{await db?.end();});
 
+ it("合并直播间旧名，且仅允许本组主管更正未关联资金的订单", async () => {
+    const personaCode = randomUUID();
+    const old = await order({personaCode,liveRoomCode:"文强直播间",hostName:"文强",customerCurrency:"CNY"});
+    const canonical = await order({personaCode,liveRoomCode:"二号直播间",hostName:"文强",customerCurrency:"CNY"});
+    const historical = await order({personaCode,liveRoomCode:"1",hostName:"甜甜",customerCurrency:"CNY"});
+    const dateFilter = "/api/dashboard/live-business?from=" + today + "&to=" + today + "&persona=" + personaCode;
+    for (const room of ["二号直播间","文强直播间"]) {
+      const result = (await get("boss",dateFilter + "&room=" + encodeURIComponent(room)).expect(200)).body;
+      expect(result.rooms.map((r: {roomCode:string})=>r.roomCode)).toEqual(["二号直播间"]);
+      expect(result.totals.newOrderCount).toBe(2);
+    }
+    expect((await get("supervisor","/api/order-records/"+old).expect(200)).body.details.liveRoomCode).toBe("二号直播间");
+
+    await db.query("UPDATE orders SET performance_team_id=NULL WHERE id=$1", [historical]);
+    const detailPath = "/api/order-records/" + historical;
+    const before = (await get("supervisor",detailPath).expect(200)).body;
+    const totalsBefore = (await get("boss",dateFilter).expect(200)).body.totals;
+    const input = {liveRoomCode:"一号直播间",version:before.details.version,reason:"核对原开单卡",hostName:"忽略客户端主播"};
+    await post("unassigned",detailPath+"/live-room",input).expect(404);
+    await post("cashier",detailPath+"/live-room",input).expect(403);
+    await post("supervisor",detailPath+"/live-room",{...input,reason:" "}).expect(400);
+    await post("supervisor",detailPath+"/live-room",{...input,liveRoomCode:"任意房间"}).expect(400);
+    await post("supervisor",detailPath+"/live-room",input).expect(200);
+    await post("supervisor",detailPath+"/live-room",input).expect(409);
+    const after = (await get("supervisor",detailPath).expect(200)).body;
+    expect(after.details).toEqual({...before.details,liveRoomCode:"一号直播间",hostName:"甜甜",version:before.details.version+1});
+    expect(after.items).toEqual(before.items);
+    expect(after.attachments).toEqual(before.attachments);
+    expect((await get("boss",dateFilter).expect(200)).body.totals).toEqual(totalsBefore);
+    const audit = (await db.query("SELECT before_data,after_data FROM audit_logs WHERE entity_id=$1 AND action='order_live_room_correct'",[historical])).rows;
+    expect(audit).toHaveLength(1);
+    expect(audit[0].before_data).toMatchObject({liveRoomCode:"1",hostName:"甜甜"});
+    expect(audit[0].after_data).toMatchObject({liveRoomCode:"一号直播间",hostName:"甜甜",reason:input.reason});
+
+    const protectedPath = "/api/order-records/" + canonical;
+    await payment(canonical,{currency:"CNY",amount:"10.00",thirdParty:false});
+    const protectedVersion = (await get("supervisor",protectedPath).expect(200)).body.details.version;
+    await post("supervisor",protectedPath+"/live-room",{...input,version:protectedVersion}).expect(409);
+
+    const paidCheck = (await db.query(`INSERT INTO live_paid_performance
+      (business_date,live_room_code,host_name,amount_cny,created_by,request_key,payload_hash)
+      VALUES ($1,'文强直播间','文强',20,$2,$3,'fixture') RETURNING id`, [today,users.finance,randomUUID()])).rows[0];
+    try {
+      const unpaid = (await get("supervisor","/api/order-records/"+old).expect(200)).body;
+      await post("supervisor","/api/order-records/"+old+"/live-room",{...input,version:unpaid.details.version}).expect(409);
+    } finally {
+      await db.query("DELETE FROM live_paid_performance WHERE id=$1", [paidCheck.id]);
+    }
+  });
+
  it('直播间首页按成交、追加收费及成本各自发生日统计，筛选与实际资金分开',async()=>{
   const persona='LIVE-'+randomUUID(),yesterday=new Date(Date.parse(today+'T00:00:00Z')-86400000).toISOString().slice(0,10);
   const oldId=await order({businessDate:yesterday,personaCode:persona,liveRoomCode:'DATE-A',customerCurrency:'CNY',items:[{kind:'material',label:'旧原石',priceCny:'100.00'}]});

@@ -6,11 +6,22 @@ import type { AppConfig } from "../config.js";
 import { HttpError } from "../types.js";
 import { writeAudit } from "../audit.js";
 import { addMoney, centsToMoney, moneyToCents } from "../lib/money.js";
-import { afterSaleCharge, amount, cancellationOrder, buyingFee, currency, dateField, hashPayload, replay, textField, uuid, visibleOrder, writeOrder } from "../lib/commerce.js";
+import { afterSaleCharge, amount, cancellationOrder, buyingFee, currency, dateField, hashPayload, replay, textField, uuid, visibleOrder, writeOrder, lockedOrder } from "../lib/commerce.js";
 
 import { effectiveDue, orderIdentity } from "../lib/orderLifecycle.js";
 import { createOrderChargesRouter } from "./orderCharges.js";
+import { canonicalLiveRoom, liveRoomHosts, liveRoomSql } from "../lib/liveRoomIdentity.js";
 import { teamOrderSql } from "../lib/teamOrder.js";
+
+const ROOM_LINKS_SQL = `SELECT (
+    EXISTS (SELECT 1 FROM customer_payments WHERE order_id=$1)
+    OR EXISTS (SELECT 1 FROM order_expenses WHERE order_id=$1)
+    OR EXISTS (SELECT 1 FROM order_charges WHERE order_id=$1)
+    OR EXISTS (SELECT 1 FROM warehouse_bills WHERE order_id=$1)
+    OR EXISTS (SELECT 1 FROM reimbursement_claims WHERE order_id=$1)
+    OR EXISTS (SELECT 1 FROM live_paid_performance WHERE business_date=$2 AND voided_at IS NULL
+      AND ${liveRoomSql("live_room_code")}=ANY($3::text[]))
+  ) AS locked`;
 
 async function orderTeams(db: Pool | PoolClient, userId: string, date: string, lock = false) {
   const {rows} = await db.query<{id: string; name: string}>(`
@@ -95,7 +106,7 @@ export function createOrderRecordsRouter(db: Pool, config: AppConfig) {
       const totalDue=await effectiveDue(c,String(order.id),String(details.customer_due));
       const paid=addMoney(payments.filter(p=>!p.voided_at).map(p=>p.credit_amount));
       const balance=centsToMoney(moneyToCents(totalDue)-moneyToCents(paid));
-      return {order,cancellations,details:{dealChannel:details.deal_channel??"live",projectLine:details.project_line??"",personaName:details.persona_name,operatorName:details.operator_name,source:details.source,customerCurrency:details.customer_currency,customerDue:totalDue,baseCustomerDue:details.customer_due,personaCode:details.persona_code,liveRoomCode:details.live_room_code,hostName:details.host_name,customerCode:details.customer_code,shippedOn:details.shipped_on,version:details.version},items,charges,payments,expenses,attachments,paid,balance,expenseTotal:addMoney(expenses.filter(e=>!e.voided_at).map(e=>e.amount_cny)),legacy:false};
+      return {order,cancellations,details:{dealChannel:details.deal_channel??"live",projectLine:details.project_line??"",personaName:details.persona_name,operatorName:details.operator_name,source:details.source,customerCurrency:details.customer_currency,customerDue:totalDue,baseCustomerDue:details.customer_due,personaCode:details.persona_code,liveRoomCode:canonicalLiveRoom(details.live_room_code),hostName:details.host_name,customerCode:details.customer_code,shippedOn:details.shipped_on,version:details.version},items,charges,payments,expenses,attachments,paid,balance,expenseTotal:addMoney(expenses.filter(e=>!e.voided_at).map(e=>e.amount_cny)),legacy:false};
     }, true).then((result) => res.json(result)).catch(next);
   });
   router.post('/:id/cancellations',mutate(async(c,req)=>{
@@ -162,6 +173,37 @@ export function createOrderRecordsRouter(db: Pool, config: AppConfig) {
       ip:req.ip
     });
     return{ok:true,id};
+  }));
+  router.post("/:id/live-room", mutate(async (c, req) => {
+    if (req.actor!.role !== "cs_supervisor") throw new HttpError(403, "仅负责小组的客服主管可更正直播间");
+    const id = uuid(req.params.id);
+    const {order, details} = await lockedOrder(c, req.actor!, id);
+    const version = req.body?.version;
+    const liveRoomCode = textField(req.body?.liveRoomCode, "直播间", 64);
+    const hostName = liveRoomHosts.get(liveRoomCode);
+    const reason = textField(req.body?.reason, "更正原因", 500);
+    if (!hostName) throw new HttpError(400, "请选择已登记的直播间");
+    if (version !== details.version) throw new HttpError(409, "订单已变更，请刷新后重试");
+    if (details.deal_channel === "private" || order.cancelled || details.shipped_on || ["shipped", "refunded"].includes(order.status)) {
+      throw new HttpError(409, "客服私推、跑单、已发货或已退款的订单不能更正直播间");
+    }
+    if (canonicalLiveRoom(details.live_room_code) === liveRoomCode && details.host_name === hostName) {
+      throw new HttpError(400, "请选择与当前归属不同的直播间");
+    }
+    // Serialize against new room-level verifications while checking linked records.
+    await c.query("LOCK TABLE live_paid_performance IN SHARE MODE");
+    const {rows: [links]} = await c.query(ROOM_LINKS_SQL, [
+      id, order.business_date, [canonicalLiveRoom(details.live_room_code), liveRoomCode],
+    ]);
+    if (links.locked) throw new HttpError(409, "已有收款、成本、结账、报销或直播间核定记录，请先联系财务核对");
+    await c.query("UPDATE order_details SET live_room_code=$2, host_name=$3 WHERE order_id=$1", [id, liveRoomCode, hostName]);
+    await touch(c, id);
+    await writeAudit(c, {
+      actorId: req.actor!.id, action: "order_live_room_correct", entityType: "order", entityId: id, ip: req.ip,
+      before: {liveRoomCode: details.live_room_code, hostName: details.host_name, version},
+      after: {liveRoomCode, hostName, version: version + 1, reason},
+    });
+    return {id};
   }));
   router.patch("/:id",mutate(async(c,req)=>{
     const id=uuid(req.params.id),{order,details}=await writeOrder(c,req.actor!,id),b=req.body??{};

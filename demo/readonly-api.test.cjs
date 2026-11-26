@@ -738,3 +738,25 @@ test('演示主管可批准和解除本组手机绑定，其他角色无权操�
   assert.equal((await supervisor.json(path)).body.bindings.length, 0);
   assert.equal(supervisor.network(), 0);
 });
+
+test('本组主管可在当前标签页更正直播间并保持订单明细',async()=>{
+ const store=new Map(),sup=environment('cs_supervisor','',undefined,store);
+ const path='/api/order-records/demo-order-6';
+ const before=(await sup.json(path)).body;
+ const payload={liveRoomCode:'二号直播间',reason:'核对原始开单卡',version:before.details.version};
+ assert.equal((await environment('boss').json(path+'/live-room','POST',payload)).status,403);
+ assert.equal((await sup.json('/api/order-records/demo-order-3/live-room','POST',payload)).status,404);
+ assert.equal((await sup.json('/api/order-records/demo-order-2/live-room','POST',payload)).status,409);
+ assert.equal((await sup.json(path+'/live-room','POST',{...payload,reason:''})).status,400);
+ assert.equal((await sup.json(path+'/live-room','POST',payload)).status,200);
+ assert.equal((await sup.json(path+'/live-room','POST',payload)).status,409);
+ const after=(await environment('cs_supervisor','',undefined,store).json(path)).body;
+ assert.equal(after.details.liveRoomCode,'二号直播间');
+ assert.equal(after.details.hostName,'文强');
+ assert.equal(after.details.version,before.details.version+1);
+ assert.deepEqual(after.items,before.items);
+ assert.deepEqual(after.attachments,before.attachments);
+ assert.equal(after.order.amount,before.order.amount);
+ assert.equal((await environment('cs_supervisor').json(path)).body.details.liveRoomCode,before.details.liveRoomCode);
+ assert.equal(sup.network(),0);
+});

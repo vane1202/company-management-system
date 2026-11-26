@@ -24,8 +24,9 @@ export function enforceRoleBoundary(req: Request, _res: Response, next: NextFunc
     const fans = (/^\/api\/fan-reports\/(summary|period-summary|export)$/.test(req.path) || /^\/api\/fan-leads(\/|$)/.test(req.path)) && read;
     const orders = (/^\/api\/orders(\/export)?\/?$/.test(req.path) || /^\/api\/order-records(\/|$)/.test(req.path)) && read;
     const accounts = /^\/api\/cs-accounts(\/|$)/.test(req.path);
-    // 唯一写入例外：登记／撤销本组订单的跑单。路由内再按业务日历史小组范围校验。
+    // 订单写入例外在路由内再按订单的小组范围校验。
     const cancellation = req.method === "POST" && new RegExp(`^/api/order-records/${uuidPart}/cancellations(/${uuidPart}/void)?/?$`, "i").test(req.path);
+    const roomCorrection = req.method === "POST" && new RegExp(`^/api/order-records/${uuidPart}/live-room/?$`, "i").test(req.path);
     const peopleRead = read && (req.path === "/api/assessment/foundation" || req.path === "/api/report-history" || req.path === "/api/customer-reviews");
     const reviewWrite = req.method === "POST" && /^\/api\/customer-reviews\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/?$/i.test(req.path);
     const csLogins = (req.path === "/api/cs-logins" && ["GET", "HEAD", "POST"].includes(req.method))
@@ -34,7 +35,7 @@ export function enforceRoleBoundary(req: Request, _res: Response, next: NextFunc
     const consultationCost = read && req.path === "/api/supervisor/consultation-cost";
     const reimbursements = /^\/api\/finance\/reimbursements(?:\/|$)/.test(req.path);
     const bindings = /^\/api\/cs-device-bindings(?:\/(.*))?$/.test(req.path);
-    if (!metadata && !fans && !orders && !accounts && !cancellation && !orderDelete && !peopleRead && !reviewWrite && !csLogins && !followups && !consultationCost && !reimbursements && !bindings) return next(new HttpError(403, "客服主管仅可操作负责小组内的业务"));
+    if (!metadata && !fans && !orders && !accounts && !cancellation && !roomCorrection && !orderDelete && !peopleRead && !reviewWrite && !csLogins && !followups && !consultationCost && !reimbursements && !bindings) return next(new HttpError(403, "客服主管仅可操作负责小组内的业务"));
   }
   next();
 }

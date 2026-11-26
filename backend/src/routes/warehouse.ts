@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { liveRoomSql } from "../lib/liveRoomIdentity.js";
 import { Router, type Request } from "express";
 import type { Pool, PoolClient } from "pg";
 import { withTransaction } from "../db.js";
@@ -33,7 +34,7 @@ async function snapshot(client: PoolClient, finance: boolean) {
       FROM supplier_payments p WHERE p.expense_id=e.id AND p.voided_at IS NULL),0))::numeric(14,2) ELSE NULL END AS pending_cny
     FROM order_expenses e LEFT JOIN order_items i ON i.id=e.item_id WHERE e.voided_at IS NULL`)).rows;
   const orders = (await client.query(`SELECT o.id,o.order_ref AS "orderRef",o.customer_label AS "customerLabel",
-    d.live_room_code AS "liveRoomCode",d.host_name AS "hostName",d.operator_name AS "operatorName",
+    ${liveRoomSql("d.live_room_code")} AS "liveRoomCode",d.host_name AS "hostName",d.operator_name AS "operatorName",
     d.persona_name AS "personaName",d.customer_code AS "customerCode",
     o.status<>'refunded' AND NOT EXISTS(SELECT 1 FROM order_cancellations c WHERE c.order_id=o.id AND c.voided_at IS NULL) AS "canCreate"
     FROM orders o JOIN order_details d ON d.order_id=o.id ORDER BY o.business_date DESC,o.created_at DESC`)).rows;

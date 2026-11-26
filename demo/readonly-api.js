@@ -91,12 +91,20 @@
   }));
   function leadDemo(q){const from=q.get('from')||today,to=q.get('to')||today,allowed=visibleAccounts().map(a=>a.id);return {from,to,today,leads:leadFixtures.filter(l=>allowed.includes(l.accountId)&&l.receivedOn>=from&&l.receivedOn<=to),reports:fans.filter(f=>allowed.includes(f.userId)&&f.businessDate>=from&&f.businessDate<=to).map(f=>({accountId:f.userId,businessDate:f.businessDate,pageName:f.pageName,msToday:f.msToday,wsToday:f.wsToday,addedCount:f.addedCount}))};}
   const visibleTeams = () => role === "cs_supervisor" ? [teams[0]] : teams;
+  const roomCorrectionKey = "cms-demo-live-room-corrections-v1";
   const visibleOrders = () => orders.filter((o)=>visibleAccounts().some((a)=>a.id===o.userId));
   orders.forEach((o,index)=>{o.workflowEnabled=index<3||index>=4;o.cancelled=!!o.cancelled;Object.assign(o,{personaCode:index===2?'DEMO-P-B':'DEMO-P-A',personaName:index===2?'演示人设 B':'演示人设 A',liveRoomCode:index===2?'DEMO-LIVE-02':'DEMO-LIVE-01',hostName:index===2?'文强':'甜甜',customerCode:'DEMO-C-'+(index+1),operatorName:['演示客服甲','演示客服丙','演示客服乙','','演示客服甲','演示前任客服'][index]||''});});
   // Same acquisition persona may lead into different receiving groups/rooms; it is not a fixed room assignment.
   Object.assign(orders[2],{personaCode:'DEMO-P-A',personaName:'演示人设 A'});
   Object.assign(orders[3],{liveRoomCode:'',hostName:'',personaCode:'',personaName:'',customerCode:'',operatorName:''});
   orders.push({id:'demo-order-7',userId:accounts[0].id,businessDate:today,orderRef:'DEMO-P-001',customerLabel:'演示私推客户',amount:'600.00',status:'placed',customProductCost:'0.00',laborCost:'0.00',shippingCost:'0.00',wechatId:accounts[0].wechatId,displayName:accounts[0].wechatId,accountKind:'cs_service',isCustom:true,recordVersion:1,updatedAt:today+'T03:30:00Z',workflowEnabled:true,cancelled:false,dealChannel:'private',personaCode:'',personaName:'',liveRoomCode:'',hostName:'',customerCode:'DEMO-C-P1',operatorName:'演示客服甲'});
+  try {
+    const corrections=JSON.parse(window.sessionStorage.getItem(roomCorrectionKey)||"{}");
+    for(const order of orders){
+      const correction=corrections[order.id];
+      if(correction)Object.assign(order,{liveRoomCode:correction.liveRoomCode,hostName:correction.hostName,recordVersion:correction.version});
+    }
+  } catch { /* Start with fictional fixtures if the tab state cannot be read. */ }
   const payments=[
     {id:"demo-payment-a",order_id:orders[0].id,order_ref:orders[0].orderRef,customer_label:orders[0].customerLabel,persona_name:"演示人设 A",wechat_id:accounts[0].wechatId,payment_date:today,amount:"1290.50",currency:"CNY",credit_amount:"1290.50",customer_currency:"CNY",purpose:"full",channel:"演示支付宝账户",third_party:false,reference:"DEMO-PAY-001",voided_at:null,settled_amount:"0.00",pendingAmount:"0.00"},
     {id:"demo-payment-b",order_id:orders[1].id,order_ref:orders[1].orderRef,customer_label:orders[1].customerLabel,persona_name:"演示人设 A",wechat_id:accounts[0].wechatId,payment_date:today,amount:"1200.00",currency:"TWD",credit_amount:"1200.00",customer_currency:"TWD",purpose:"deposit",channel:"演示台币代收账户",third_party:true,reference:"DEMO-PAY-002",voided_at:null,settled_amount:"0.00",pendingAmount:"1200.00"},
@@ -195,7 +203,7 @@
       // 虚构未付款开单：无追加、无收款、无成本；料价＋10%代购费即营业额。
       const price=index===4?'300.00':'500.00',fee=index===4?'30.00':'50.00';
       const cancellations=order.cancelled?[{id:'demo-cancellation-'+index,booked_on:order.businessDate,base_amount_cny:order.amount,reason:'虚构：客户跨日明确放弃付款',created_at:order.businessDate+'T10:00:00Z',created_by_name:'演示主管',voided_at:null,void_reason:null,voided_by_name:null}]:[];
-      return {order:raw,cancellations,legacy:false,details:{personaName:order.personaName,personaCode:order.personaCode,liveRoomCode:order.liveRoomCode,hostName:order.hostName,customerCode:order.customerCode,operatorName:order.operatorName,source:'演示直播间',customerCurrency:'CNY',customerDue:order.amount,baseCustomerDue:order.amount,shippedOn:null,version:1},items:[{id:'demo-item-'+index,label:'演示原石',material_ref:'DEMO-JADE-'+(index+1),kind:'material',price_cny:price,buying_fee_cny:fee}],charges:[],payments:[],expenses:[],attachments:[],paid:'0.00',balance:order.amount,expenseTotal:'0.00'};
+      return {order:raw,cancellations,legacy:false,details:{personaName:order.personaName,personaCode:order.personaCode,liveRoomCode:order.liveRoomCode,hostName:order.hostName,customerCode:order.customerCode,operatorName:order.operatorName,source:'演示直播间',customerCurrency:'CNY',customerDue:order.amount,baseCustomerDue:order.amount,shippedOn:null,version:order.recordVersion},items:[{id:'demo-item-'+index,label:'演示原石',material_ref:'DEMO-JADE-'+(index+1),kind:'material',price_cny:price,buying_fee_cny:fee}],charges:[],payments:[],expenses:[],attachments:[],paid:'0.00',balance:order.amount,expenseTotal:'0.00'};
     }
     const cur=['CNY','TWD','USD'][index],due=['1290.50','3200.00','140.00'][index],paid=['1290.50','1200.00','140.00'][index];
     const charges=index===1?[{id:'demo-charge-1',business_date:order.businessDate,label:'设计雕刻费',amount_cny:'200.00',customer_amount:'900.00',note:'虚构配货：客户收费与采购成本分开',voided_at:null}]:index===2?[{id:'demo-charge-2',business_date:today,label:'旧单今日追加设计费',amount_cny:'100.00',customer_amount:'20.00',note:'虚构跨日追加收费',voided_at:null}]:[];
@@ -789,6 +797,29 @@
         window.sessionStorage.setItem(key,JSON.stringify(saved));
         return json({user:{id:user.id,username,displayName,mustChangePassword:true}},201);
       }
+    }
+    const roomCorrection=path.match(/^\/api\/order-records\/([^/]+)\/live-room$/);
+    if(roomCorrection&&method==="POST"){
+      if(role!=="cs_supervisor")return json({error:"仅负责小组的客服主管可更正直播间"},403);
+      const order=visibleOrders().find(o=>o.id===roomCorrection[1]);
+      if(!order)return json({error:"订单不存在或不在本组范围"},404);
+      const data=orderRecord(order);
+      const blocked=!data.details||order.dealChannel==="private"||order.cancelled||["shipped","refunded"].includes(order.status)
+        ||data.payments?.length||data.expenses?.length||data.charges?.length
+        ||warehouseState().bills.some(b=>b.orderId===order.id)||reimbursementState().claims.some(c=>c.orderId===order.id);
+      if(blocked)return json({error:"该订单已有业务记录或状态受限"},409);
+      try{
+        const body=JSON.parse(options.body||"{}");
+        const hostName=new Map([["一号直播间","甜甜"],["二号直播间","文强"]]).get(body.liveRoomCode);
+        const reason=typeof body.reason==="string"?body.reason.trim():"";
+        if(body.version!==order.recordVersion)return json({error:"订单已变更，请刷新后重试"},409);
+        if(!hostName||!reason||reason.length>500||body.liveRoomCode===order.liveRoomCode&&hostName===order.hostName)return json({error:"请选择新的直播间并填写更正原因"},400);
+        const corrections=JSON.parse(window.sessionStorage.getItem(roomCorrectionKey)||"{}");
+        const correction={liveRoomCode:body.liveRoomCode,hostName,version:order.recordVersion+1,reason};
+        window.sessionStorage.setItem(roomCorrectionKey,JSON.stringify({...corrections,[order.id]:correction}));
+        Object.assign(order,{liveRoomCode:correction.liveRoomCode,hostName,recordVersion:correction.version});
+        return json({id:order.id});
+      }catch{return json({error:"演示更正无法保存"},400);}
     }
     if(!["GET","HEAD"].includes(method))return json({error:"这是公开只读演示，不保存任何修改。请在正式后台操作。"},403);
     if(path==='/api/demo/service-directory')return ['cs','cs_supervisor'].includes(role)?json(currentDirectory()||{enabled:false}):json({error:'当前身份不能查看接待账号名册'},403);
