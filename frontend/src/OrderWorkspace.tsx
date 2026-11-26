@@ -94,50 +94,73 @@ export function CreateOrder({today,operator,onSaved,initial,previewOnly=false,re
   const [reason,setReason]=useState(""); const [items,setItems]=useState(initial?.items?.map(i=>{const ch=initial?.details?.dealChannel??activeChannel;const auto=defaultBuyingFee(i.price_cny,i.kind,ch);return {kind:i.kind,label:i.label,materialRef:i.material_ref,priceCny:i.price_cny,buyingFeeCny:i.buying_fee_cny,feeManual:!!auto&&i.buying_fee_cny!==auto,sourcingNoSettle:Boolean(i.sourcing_no_settle)};})??[freshItem()]),[busy,setBusy]=useState(false),[error,setError]=useState("");const key=useRef(submissionKey());
   const privateDeal=activeChannel==="private";const previews=items.map(i=>itemPreview(i.priceCny,i.kind,privateDeal?"0.00":i.feeManual?i.buyingFeeCny:undefined,activeChannel)),total=previews.every(p=>p!==null)?money(previews.reduce((n,p)=>n+(p?.total??0n),0n)):"—";
   function practiceDraft(){if(chooseTeam&&!performanceTeamId)return null;let material=0n,fee=0n;if(!items.length)return null;for(const item of items){const price=cents(item.priceCny);const preview=itemPreview(item.priceCny,item.kind,privateDeal?"0.00":item.feeManual?item.buyingFeeCny:undefined,activeChannel);const feeCents=preview?cents(preview.fee):null;if(price===null||feeCents===null)return null;material+=price;fee+=feeCents;}return {channel:activeChannel,businessDate:form.businessDate,performanceTeamId,performanceTeamName:availableTeams.find(team=>team.id===performanceTeamId)?.name,materialCny:money(material),feeCny:money(fee),customerCurrency:form.customerCurrency,customerDue:form.customerDue,materialRef:form.materialLotNo||items.map(i=>i.materialRef).filter(Boolean).join('、'),items:items.map(i=>({kind:i.kind,materialRef:i.materialRef,priceCny:i.priceCny,buyingFeeCny:privateDeal?'0.00':itemPreview(i.priceCny,i.kind,i.feeManual?i.buyingFeeCny:undefined,activeChannel)?.fee??'0.00'}))};}
-  const photoUrls = useRef<string[]>([]);
-  const [itemPhotos, setItemPhotos] = useState<string[]>([]);
-  const [itemFiles, setItemFiles] = useState<(File | null)[]>([]);
-  const photoChecks = useRef<number[]>([]);
-  useEffect(() => () => { for (const url of photoUrls.current) URL.revokeObjectURL(url); }, []);
-  function rememberPhotos(next: string[]) { photoUrls.current = next; setItemPhotos(next); }
-  function clearItemPhotos() { for (const url of photoUrls.current) URL.revokeObjectURL(url); rememberPhotos([]); setItemFiles([]); }
+  const [photos, setPhotos] = useState<({ file: File; preview: string } | null)[]>([]);
+  const photoChecks = useRef<symbol[]>([]);
+  useEffect(() => () => { photoChecks.current = []; }, []);
+
+  function clearItemPhotos() {
+    photoChecks.current = [];
+    setPhotos([]);
+  }
+
   async function setItemPhoto(index: number, file: File | null) {
-    const token = (photoChecks.current[index] ?? 0) + 1;
+    const token = Symbol();
     photoChecks.current[index] = token;
     if (!file) {
-      const next = photoUrls.current.slice();
-      if (next[index]) URL.revokeObjectURL(next[index]);
-      next[index] = "";
-      rememberPhotos(next);
-      setItemFiles(curr => { const copy = curr.slice(); copy[index] = null; return copy; });
+      setPhotos(current => {
+        const next = current.slice();
+        next[index] = null;
+        return next;
+      });
       return;
     }
+    const formatError = "开单卡截图请使用 JPEG、PNG 或 WebP，每张不超过 8MB。";
     if (file.size > 8 * 1024 * 1024) {
-      setError("开单卡截图请使用 JPEG、PNG 或 WebP，每张不超过 8MB。");
+      setError(formatError);
       return;
     }
-    const mime = await resolveImageMime(file);
-    if (photoChecks.current[index] !== token) return;
-    if (!mime) {
-      setError("开单卡截图请使用 JPEG、PNG 或 WebP，每张不超过 8MB。");
-      return;
+
+    try {
+      const mime = await resolveImageMime(file);
+      if (!mime) {
+        if (photoChecks.current.includes(token)) setError(formatError);
+        return;
+      }
+      const preview = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = reject;
+        reader.readAsDataURL(file.slice(0, file.size, mime));
+      });
+      const image = new Image();
+      image.src = preview;
+      await image.decode();
+
+      const currentIndex = photoChecks.current.indexOf(token);
+      if (currentIndex === -1) return;
+      setPhotos(current => {
+        const next = current.slice();
+        next[currentIndex] = { file, preview };
+        return next;
+      });
+      setError("");
+    } catch {
+      if (photoChecks.current.includes(token)) setError("无法读取开单卡截图，请重新选择可打开的图片。");
     }
-    const next = photoUrls.current.slice();
-    if (next[index]) URL.revokeObjectURL(next[index]);
-    next[index] = URL.createObjectURL(file);
-    rememberPhotos(next);
-    setItemFiles(curr => { const copy = curr.slice(); copy[index] = file; return copy; });
-    setError("");
   }
+
   function removeItem(index: number) {
-    if (itemPhotos[index]) URL.revokeObjectURL(itemPhotos[index]);
-    rememberPhotos(itemPhotos.filter((_, n) => n !== index));
-    setItemFiles(curr => curr.filter((_, n) => n !== index));
-    setItems(items.filter((_, n) => n !== index));
+    photoChecks.current.splice(index, 1);
+    setPhotos(current => {
+      const next = current.slice();
+      next.splice(index, 1);
+      return next;
+    });
+    setItems(current => current.filter((_, n) => n !== index));
   }
   function switchChannel(nextChannel:"live"|"private"){setDealChannel(nextChannel);setItems(current=>current.map(item=>{const fee=buyingFeeAfterPriceChange(item.kind,item.priceCny,{feeCny:item.buyingFeeCny,manual:nextChannel==="live"?false:item.feeManual},nextChannel);return {...item,buyingFeeCny:fee.feeCny,feeManual:nextChannel==="private"?false:fee.manual};}));}
   function patchItem(index:number,patch:Partial<(typeof items)[number]>){if(activeChannel==="private"){setItems(items.map((x,n)=>n===index?{...x,...patch,buyingFeeCny:"0.00",feeManual:false}:x));return;}setItems(items.map((x,n)=>{if(n!==index)return x;const next={...x,...patch};if(patch.kind&&patch.kind!=="material"){const fee=buyingFeeRestored(next.priceCny,patch.kind,activeChannel);return {...next,buyingFeeCny:fee.feeCny,feeManual:fee.manual};}if(patch.priceCny!=null||patch.kind!=null){const fee=buyingFeeAfterPriceChange(next.kind,next.priceCny,{feeCny:next.buyingFeeCny,manual:next.feeManual},activeChannel);return {...next,buyingFeeCny:fee.feeCny,feeManual:fee.manual};}return next;}));}
-  async function submit(e:FormEvent){e.preventDefault();if(previewOnly||busy||(chooseTeam&&!performanceTeamId))return;if(!initial){const missingIdx=items.findIndex((_,idx)=>!itemFiles[idx]);if(missingIdx!==-1){const msg=`第 ${missingIdx+1} 件商品请先上传开单卡截图（含金额信息与翡翠料子照片）`;setError(msg);toast.error(msg);return;}}setBusy(true);setError("");try{const preparedItems=items.map(i=>({kind:i.kind,label:i.label,materialRef:i.materialRef,priceCny:i.priceCny,buyingFeeCny:activeChannel==="private"?"0.00":i.feeManual?i.buyingFeeCny:(defaultBuyingFee(i.priceCny,i.kind,activeChannel)??"0.00"),sourcingNoSettle:initial?i.kind!=="service"&&Boolean(i.sourcingNoSettle):false}));const body={...form,orderRef:initial?form.orderRef:"",dealChannel:activeChannel,items:preparedItems,...(!initial?{performanceTeamId,customerLeadId}:{})};const result=initial?await api.correctOrderRecord(initial.order.id,{...body,version:initial.details!.version,reason}):await api.createOrderRecord({...body,requestKey:key.current(body)});const uploadErrors:string[]=[];for(let idx=0;idx<items.length;idx++){const file=itemFiles[idx];if(!file)continue;try{await api.uploadOrderPhoto(result.id,file,result.itemIds?.[idx]??"");}catch(upErr){uploadErrors.push(`第 ${idx+1} 件开单卡截图上传失败：${toErrorMessage(upErr,"请稍后在订单详情补传")}`);}}if(uploadErrors.length){toast.error(`订单已保存，但有图片未上传成功：${uploadErrors.join("；")}`);}else if(!initial){toast.success(`已登记成交 （自动单号）（${form.customerLabel.trim()}），开单卡截图已留底，可继续登记收款`);}onSaved(result.id);}catch(e){const text=toErrorMessage(e,"保存失败");setError(text);toast.error(`${initial?"成交更正":"登记成交"}未保存：${text}`);}finally{setBusy(false);}}
+  async function submit(e:FormEvent){e.preventDefault();if(previewOnly||busy||(chooseTeam&&!performanceTeamId))return;if(!initial){const missingIdx=items.findIndex((_,idx)=>!photos[idx]);if(missingIdx!==-1){const msg=`第 ${missingIdx+1} 件商品请先上传开单卡截图（含金额信息与翡翠料子照片）`;setError(msg);toast.error(msg);return;}}setBusy(true);setError("");try{const preparedItems=items.map(i=>({kind:i.kind,label:i.label,materialRef:i.materialRef,priceCny:i.priceCny,buyingFeeCny:activeChannel==="private"?"0.00":i.feeManual?i.buyingFeeCny:(defaultBuyingFee(i.priceCny,i.kind,activeChannel)??"0.00"),sourcingNoSettle:initial?i.kind!=="service"&&Boolean(i.sourcingNoSettle):false}));const body={...form,orderRef:initial?form.orderRef:"",dealChannel:activeChannel,items:preparedItems,...(!initial?{performanceTeamId,customerLeadId}:{})};const result=initial?await api.correctOrderRecord(initial.order.id,{...body,version:initial.details!.version,reason}):await api.createOrderRecord({...body,requestKey:key.current(body)});const uploadErrors:string[]=[];for(let idx=0;idx<items.length;idx++){const file=photos[idx]?.file;if(!file)continue;try{await api.uploadOrderPhoto(result.id,file,result.itemIds?.[idx]??"");}catch(upErr){uploadErrors.push(`第 ${idx+1} 件开单卡截图上传失败：${toErrorMessage(upErr,"请稍后在订单详情补传")}`);}}if(uploadErrors.length){toast.error(`订单已保存，但有图片未上传成功：${uploadErrors.join("；")}`);}else if(!initial){toast.success(`已登记成交 （自动单号）（${form.customerLabel.trim()}），开单卡截图已留底，可继续登记收款`);}onSaved(result.id);}catch(e){const text=toErrorMessage(e,"保存失败");setError(text);toast.error(`${initial?"成交更正":"登记成交"}未保存：${text}`);}finally{setBusy(false);}}
   return <form onSubmit={submit}>
     {!initial&&!channel&&<div className="order-channel" role="group" aria-label="成交渠道">
       <button type="button" disabled={busy} aria-pressed={activeChannel==="live"} onClick={()=>{if(activeChannel!=="live")switchChannel("live");}}>直播间开单</button>
@@ -151,7 +174,7 @@ export function CreateOrder({today,operator,onSaved,initial,previewOnly=false,re
         {availableTeams.length!==1&&<option value="">{availableTeams.length?"请选择小组":teamNotice}</option>}
         {availableTeams.map(team=><option key={team.id} value={team.id}>{team.name}</option>)}
       </select>
-      <small>{availableTeams.length ? "这笔成交计入所选小组，保留经办客服。" : teamNotice}</small>
+      {!availableTeams.length&&<small>{teamNotice}</small>}
     </Field>}
   </div>}
   {DemoOrderBasicFields&&chooseTeam&&<div className="grid two"><Field label="业绩归属小组">
@@ -159,16 +182,16 @@ export function CreateOrder({today,operator,onSaved,initial,previewOnly=false,re
       {availableTeams.length!==1&&<option value="">{availableTeams.length?"请选择小组":teamNotice}</option>}
       {availableTeams.map(team=><option key={team.id} value={team.id}>{team.name}</option>)}
     </select>
-    <small>{availableTeams.length ? "这笔成交计入所选小组，保留经办客服。" : teamNotice}</small>
+    {!availableTeams.length&&<small>{teamNotice}</small>}
   </Field></div>}
 
-        <h3>商品明细</h3><p className="notice">{activeChannel==="private"?"私推订单默认不收代购费；成品与纯工费服务项均不加代购费。每件商品均须上传开单卡截图（含金额信息与翡翠料子照片）；后续如需走接待（PH），请在售后阶段进入订单档案标记。":"直播间原石默认按谈成价的 10% 自动计算代购费（四舍五入到分），可按实际减免或调整；手动改过后再改谈成价不会覆盖，可点「恢复按 10% 计算」。每件商品均须上传开单卡截图（含金额信息与翡翠料子照片）；后续如需走接待（PH），请在售后阶段进入订单档案标记。"}</p>{items.map((i,index)=><fieldset className="commerce-item" key={index}><legend>第 {index+1} 件</legend><div className="grid two"><Field label="类别"><select aria-label={`第 ${index+1} 件类别`} value={i.kind} onChange={e=>patchItem(index,{kind:e.target.value})}><option value="material">{isDemo||activeChannel==="private"?"翡翠原石":"翡翠原石（默认 10% 代购费）"}</option><option value="finished">{isDemo?"翡翠成品":"翡翠成品（不加代购费）"}</option><option value="service">工费 / 镶嵌 / 服务（纯服务费）</option></select></Field>{isDemo?<><Field label="料子编号（可选）"><input aria-label={`第 ${index+1} 件料子编号`} maxLength={128} value={i.materialRef} onChange={e=>setItems(items.map((x,n)=>n===index?{...x,materialRef:e.target.value}:x))}/></Field><Field label="开单价（¥）"><input required aria-label={`第 ${index+1} 件开单价`} inputMode="decimal" value={i.priceCny} onChange={e=>patchItem(index,{priceCny:e.target.value})}/></Field></>:([['label',i.kind==="service"?'服务 / 加工项目名':'商品名称'],['materialRef','料子编号（可选）'],['priceCny',i.kind==="service"?'服务费 · 人民币（¥）':'谈成价 · 人民币（¥）']] as const).map(([k,l])=><Field key={k} label={l}><input required={k!=="materialRef"} inputMode={k==="priceCny"?"decimal":"text"} value={i[k]} onChange={e=>k==="priceCny"?patchItem(index,{priceCny:e.target.value}):setItems(items.map((x,n)=>n===index?{...x,[k]:e.target.value}:x))}/></Field>)}
-    {activeChannel!=="private"&&i.kind==="material"?<Field label="代购费（¥）"><input inputMode="decimal" aria-label={`第 ${index+1} 件代购费`} value={i.buyingFeeCny} onChange={e=>{setItems(items.map((x,n)=>n===index?{...x,buyingFeeCny:e.target.value,feeManual:true}:x));}}/>{i.feeManual&&<small className="hint">已手动修改，改价格不会覆盖。{previews[index]?.autoFee!=null&&<button type="button" className="text-action" onClick={()=>setItems(items.map((x,n)=>n===index?{...x,buyingFeeCny:buyingFeeRestored(x.priceCny,x.kind,activeChannel).feeCny,feeManual:false}:x))}>恢复按 10% 计算（{previews[index]?.autoFee}）</button>}</small>}</Field>:<span>{isDemo?"代购费":"服务费（代购费）"} {previews[index]?.fee != null ? yuan(previews[index].fee) : "—"}</span>}
-    <Field label={initial?"开单卡截图（补传可选）":"开单卡截图（必填）"}><span className="item-photo"><input aria-label={`第 ${index+1} 件开单卡截图`} type="file" accept="image/jpeg,image/png,image/webp" onChange={e=>{const file=e.target.files?.[0]??null;e.currentTarget.value="";setItemPhoto(index,file);}}/>{itemPhotos[index]&&<><img src={itemPhotos[index]} alt={`第 ${index+1} 件开单卡截图`}/><button type="button" className="text-action" onClick={()=>setItemPhoto(index,null)}>移除截图</button></>}<small className="hint">请上传含开单金额信息与翡翠料子的照片（JPEG / PNG / WebP，≤ 8MB）{isDemo&&i.label?` · 识别件次：${i.label}`:""}</small></span></Field></div>{items.length>1&&<div className="commerce-line"><button type="button" className="secondary" onClick={()=>removeItem(index)}>移除此件</button></div>}</fieldset>)}
+        <h3>商品明细</h3>{items.map((i,index)=><fieldset className="commerce-item" key={index}><legend>第 {index+1} 件</legend><div className="grid two"><Field label="类别"><select aria-label={`第 ${index+1} 件类别`} value={i.kind} onChange={e=>patchItem(index,{kind:e.target.value})}><option value="material">原石</option><option value="finished">成品</option>{i.kind==="service"&&<option value="service">工费 / 镶嵌 / 服务</option>}</select></Field>{isDemo?<><Field label="料子编号（可选）"><input aria-label={`第 ${index+1} 件料子编号`} maxLength={128} value={i.materialRef} onChange={e=>setItems(items.map((x,n)=>n===index?{...x,materialRef:e.target.value}:x))}/></Field><Field label="开单价（¥）"><input required aria-label={`第 ${index+1} 件开单价`} inputMode="decimal" value={i.priceCny} onChange={e=>patchItem(index,{priceCny:e.target.value})}/></Field></>:([['label',i.kind==="service"?'服务 / 加工项目名':'商品名称'],['materialRef','料子编号（可选）'],['priceCny',i.kind==="service"?'服务费 · 人民币（¥）':'谈成价 · 人民币（¥）']] as const).map(([k,l])=><Field key={k} label={l}><input required={k!=="materialRef"} inputMode={k==="priceCny"?"decimal":"text"} value={i[k]} onChange={e=>k==="priceCny"?patchItem(index,{priceCny:e.target.value}):setItems(items.map((x,n)=>n===index?{...x,[k]:e.target.value}:x))}/></Field>)}
+    {activeChannel!=="private"&&i.kind==="material"?<Field label="代购费（¥）"><input inputMode="decimal" aria-label={`第 ${index+1} 件代购费`} value={i.buyingFeeCny} onChange={e=>{setItems(items.map((x,n)=>n===index?{...x,buyingFeeCny:e.target.value,feeManual:true}:x));}}/>{i.feeManual&&previews[index]?.autoFee!=null&&<button type="button" className="text-action" onClick={()=>setItems(items.map((x,n)=>n===index?{...x,buyingFeeCny:buyingFeeRestored(x.priceCny,x.kind,activeChannel).feeCny,feeManual:false}:x))}>恢复按 10% 计算（{previews[index]?.autoFee}）</button>}</Field>:<span>{isDemo?"代购费":"服务费（代购费）"} {previews[index]?.fee != null ? yuan(previews[index].fee) : "—"}</span>}
+    <Field label={initial?"开单卡截图（补传可选）":"开单卡截图（必填）"}><span className="item-photo"><input aria-label={`第 ${index+1} 件开单卡截图`} type="file" accept="image/jpeg,image/png,image/webp" onChange={e=>{const file=e.target.files?.[0]??null;e.currentTarget.value="";setItemPhoto(index,file);}}/>{photos[index]&&<><img src={photos[index].preview} alt={`第 ${index+1} 件开单卡截图`}/><button type="button" className="text-action" onClick={()=>setItemPhoto(index,null)}>移除截图</button></>}</span></Field></div>{items.length>1&&<div className="commerce-line"><button type="button" className="secondary" onClick={()=>removeItem(index)}>移除此件</button></div>}</fieldset>)}
     <button type="button" className="secondary" disabled={items.length>=50} onClick={()=>setItems([...items,freshItem()])}>＋ 再加一件</button><div className="commerce-total">成交总额 <strong>{yuan(total)}</strong><small>{activeChannel==="private"?"私推成交，不含代购费。":isDemo?"开单价＋代购费；演示不保存。":"料价＋代购费；有有效收款或发货后不能直接修改成交。"}</small></div>
     <div className="grid two"><Field label="本价（白条价）· 人民币（¥，可选）"><input inputMode="decimal" value={form.materialCostCny} onChange={e=>setForm({...form,materialCostCny:e.target.value})} aria-label="料子本钱"/><small className="hint">按原石标签/白条本价录入，留空表示暂未登记。</small></Field>
     <Field label="料号（可选）"><input maxLength={64} value={form.materialLotNo} onChange={e=>setForm({...form,materialLotNo:e.target.value})} aria-label="料号"/><small className="hint">原石标签上的编号，例如 D367-32。可留空。</small></Field></div>
-    <div className="grid two"><Field label="与客户约定的付款币种"><CurrencySelect value={form.customerCurrency} onChange={v=>setForm({...form,customerCurrency:v})}/></Field>{form.customerCurrency!=="CNY"&&<Field label={`约定总应收 · ${currencies[form.customerCurrency]}`}><input required inputMode="decimal" value={form.customerDue} onChange={e=>setForm({...form,customerDue:e.target.value})}/></Field>}</div><p className="notice">外币总应收以客户约定为准，不按第三方后续结汇汇率计算。</p><Field label="备注"><textarea maxLength={500} value={form.note} onChange={e=>setForm({...form,note:e.target.value})}/></Field>{error&&<p role="alert" className="error">{error}</p>}{initial&&<><p className="notice">修改明细后，已有照片保留在整笔订单中。</p><Field label="修改原因"><input required maxLength={500} value={reason} onChange={e=>setReason(e.target.value)}/></Field></>}{previewOnly?<><p role="status" className="notice">试填预览 · 不写入正式后台</p>{onPractice&&<button type="button" disabled={chooseTeam&&!performanceTeamId} onClick={()=>{const draft=practiceDraft();if(!draft){setError("请先填写每件商品的开单价");return;}const missingIdx=items.findIndex((_,idx)=>!itemPhotos[idx]);if(missingIdx!==-1){setError(`第 ${missingIdx+1} 件商品请先上传开单卡截图（含金额信息与翡翠料子照片）`);return;}try{onPractice(draft);setError("");}catch(cause){setError(toErrorMessage(cause));}}}>{practiceLabel}</button>}</>:<button disabled={busy||(chooseTeam&&!performanceTeamId)}>{busy?"保存中…":initial?"保存成交更正":"保存成交，继续登记收款"}</button>}
+    <div className="grid two"><Field label="与客户约定的付款币种"><CurrencySelect value={form.customerCurrency} onChange={v=>setForm({...form,customerCurrency:v})}/></Field>{form.customerCurrency!=="CNY"&&<Field label={`约定总应收 · ${currencies[form.customerCurrency]}`}><input required inputMode="decimal" value={form.customerDue} onChange={e=>setForm({...form,customerDue:e.target.value})}/></Field>}</div><p className="notice">外币总应收以客户约定为准，不按第三方后续结汇汇率计算。</p><Field label="备注"><textarea maxLength={500} value={form.note} onChange={e=>setForm({...form,note:e.target.value})}/></Field>{error&&<p role="alert" className="error">{error}</p>}{initial&&<><p className="notice">修改明细后，已有照片保留在整笔订单中。</p><Field label="修改原因"><input required maxLength={500} value={reason} onChange={e=>setReason(e.target.value)}/></Field></>}{previewOnly?<><p role="status" className="notice">试填预览 · 不写入正式后台</p>{onPractice&&<button type="button" disabled={chooseTeam&&!performanceTeamId} onClick={()=>{const draft=practiceDraft();if(!draft){setError("请先填写每件商品的开单价");return;}const missingIdx=items.findIndex((_,idx)=>!photos[idx]);if(missingIdx!==-1){setError(`第 ${missingIdx+1} 件商品请先上传开单卡截图（含金额信息与翡翠料子照片）`);return;}try{onPractice(draft);setError("");}catch(cause){setError(toErrorMessage(cause));}}}>{practiceLabel}</button>}</>:<button disabled={busy||(chooseTeam&&!performanceTeamId)}>{busy?"保存中…":initial?"保存成交更正":"保存成交，继续登记收款"}</button>}
   </form>;
 }
 

@@ -330,3 +330,16 @@
 :root main.customer-fill .cs-fill-overview .cs-fans-breakdown { grid-template-columns:repeat(2,minmax(0,1fr)); }
 :root main.customer-fill .cs-fill-overview .cs-fans-breakdown > div { display:grid; gap:4px; padding:8px; border-radius:8px; background:var(--bg); }
 :root main.customer-fill .cs-fill-overview .cs-fans-breakdown dd { font-weight:650; }
+
+.customer-fill .customer-profile > summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+.customer-fill .customer-profile > summary > span + span {
+  display: inline-flex;
+  margin-inline-start: 10px;
+  font-weight: 400;
+}
+.customer-fill .customer-profile:not([open]) {
+  padding-block: 14px;
+}

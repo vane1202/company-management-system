@@ -157,7 +157,9 @@ function DemoCustomerRows({people,state,onOpen,invalid=false}:{people:CrmCustome
   const [search,setSearch]=useState("");
   const rows=people.filter(row=>row.name.toLowerCase().includes(search.trim().toLowerCase()))
     .sort((a,b)=>b.createdOn.localeCompare(a.createdOn)||a.name.localeCompare(b.name,"zh"));
-  return <section className="card cs-customer-book"><Field label="查找客户"><input type="search" value={search} onChange={e=>setSearch(e.target.value)}/></Field>
+  return <section className="card cs-customer-book">
+    {invalid&&<p className="notice">接粉空档可用这里练习跟进。先看复核原因，再尝试联系适合继续沟通的客户。请尊重客户的拒绝。</p>}
+    <Field label="查找客户"><input type="search" value={search} onChange={e=>setSearch(e.target.value)}/></Field>
     {!rows.length&&<p className="notice">{invalid?"没有符合条件的已复核无效粉。":"没有符合条件的客户。"}</p>}
     <div className="commerce-list cs-customer-rows">{rows.map(row=>{
       const review=latestCustomerReview(state,row.id);
@@ -179,10 +181,10 @@ function CustomerDetail({ today, customer, actor, crm, account, onMessage }: { t
   const tags = customerTags(crm.state, customer);
   const pending = crm.state.reviews.some(review => review.customerId === customer.id && review.status === "pending");
   return <div>
-    <section className="card"><h2>客户档案</h2><p className="crm-tags">{tags.map(tag => <em key={tag} className={tag === "无效" ? "is-invalid" : tag === "待复核" ? "is-pending" : ""}>{tag}</em>)}</p><dl className="fill-preview-fields"><div><dt>客服</dt><dd>{customer.employeeName}</dd></div><div><dt>来源</dt><dd>{customer.source || "未填写"}</dd></div><div><dt>下粉广告户ID</dt><dd>{customer.adAccountId || "来源待补"}</dd></div><div><dt>登记日期</dt><dd>{customer.createdOn}</dd></div><div><dt>需求</dt><dd>{customer.need || "未填写"}</dd></div></dl>
+    <details className="card customer-profile"><summary><span>客户档案</span><span className="crm-tags">{tags.map(tag => <em key={tag} className={tag === "无效" ? "is-invalid" : tag === "待复核" ? "is-pending" : ""}>{tag}</em>)}</span></summary><dl className="fill-preview-fields"><div><dt>客服</dt><dd>{customer.employeeName}</dd></div><div><dt>来源</dt><dd>{customer.source || "未填写"}</dd></div><div><dt>下粉广告户ID</dt><dd>{customer.adAccountId || "来源待补"}</dd></div><div><dt>登记日期</dt><dd>{customer.createdOn}</dd></div><div><dt>需求</dt><dd>{customer.need || "未填写"}</dd></div></dl>
       <Field label="消费能力"><select aria-label="消费能力" value={customer.spendTier} onChange={event => { try { crm.dispatch({ type: "setTier", actor, customerId: customer.id, tier: event.target.value as SpendTier }); } catch (cause) { onMessage(toErrorMessage(cause)); } }}><option value="">未分档</option><option value="A">A档</option><option value="B">B档</option><option value="C">C档</option></select></Field>
       <p className="hint">有效、已成交、无效由订单和复核结果决定。复购在有效订单超过两笔时自动出现。消费能力由客服手工选择。</p>
-    </section>
+    </details>
     <section className="card"><h2>开单记录</h2><CrmOrderHistory state={crm.state} customerId={customer.id} today={today} actor={actor} dispatch={crm.dispatch} room={account?.registeredRoomName ? {name:account.registeredRoomName,host:account.registeredHostName||""}:undefined} onMessage={onMessage} onAfterSales={order=><details><summary>办理售后</summary><AfterSalesFill today={today} operator={actor.employeeName} linkedOrder={order.id} /></details>}/><OrderPractice customerName={customer.name} today={today} operator={actor.employeeName} room={account?.registeredRoomName ? { name: account.registeredRoomName, host: account.registeredHostName || "" } : undefined} onPractice={values => { crm.dispatch({ type: "addOrder", actor, customerId: customer.id, ...values }); onMessage("已按开单卡记入本次演练业绩。正式收款仍由财务登记。"); }} /></section>
     {!pending && !tags.includes("无效") && <InvalidRequest onSubmit={(reason, note) => { crm.dispatch({ type: "requestInvalid", actor, customerId: customer.id, reason, note }); onMessage(reason === "custom" ? "已提交主管复核。确认前客户仍不是无效客资；若驳回会自动打上「尝试沟通」标识。" : "已按预设规则标记为无效客资。"); }} />}
   </div>;
