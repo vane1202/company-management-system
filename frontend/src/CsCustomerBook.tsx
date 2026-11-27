@@ -106,11 +106,8 @@ export function CsCustomerBook({invalid=false,today,user,revision=0,orderRevisio
   </div>;
 
   return <div className="cs-customer-book">
-    {invalid&&<p className="notice">接粉空档可用这里练习跟进。先看复核原因，再尝试联系适合继续沟通的客户。请尊重客户的拒绝。</p>}
-    <div className="commerce-line"><Field label="查找客户"><input type="search" value={search} placeholder="输入客户称呼" onChange={e=>{setSearch(e.target.value);setPage(0);}}/></Field>
-      <div className="actions"><button type="button" className="secondary" onClick={update}>刷新</button>
-        {!invalid&&<button type="button" className="secondary" aria-pressed={openUnlinked} onClick={()=>setOpenUnlinked(v=>!v)}>待关联旧订单</button>}</div>
-    </div>
+    {invalid && <div className="cs-page-row"><h2>已复核无效粉</h2><button type="button" className="secondary cs-icon-btn" onClick={update}>刷新</button></div>}
+    <div className="cs-search-line"><input type="search" aria-label="查找客户" placeholder="输入客户称呼查找..." value={search} onChange={e=>{setSearch(e.target.value);setPage(0);}} />{!invalid && <button type="button" className="secondary cs-icon-btn" aria-pressed={openUnlinked} onClick={()=>setOpenUnlinked(v=>!v)}>待关联旧单</button>}</div>
     {openUnlinked&&<div className="cs-unlinked">
       <p className="hint">可先核对旧单，再打开对应客户档案，点击「关联旧订单」。</p>
       {orderError&&<p className="error" role="alert">{orderError}</p>}

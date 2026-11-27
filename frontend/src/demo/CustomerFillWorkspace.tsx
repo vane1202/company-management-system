@@ -8,14 +8,15 @@ import { csFillPageFromPath, csFillPageIds, csFillPages, type CsFillPage } from 
 import { DashboardIcon } from "../DashboardIcon";
 import { centsOf, commissionLine, estimateCsCommission, type WelfareDeduction } from "./commissionCalc";
 import { dashboardPresetRange } from "../dates";
+import { PeriodToolbar, type StandardPreset } from "../PeriodToolbar";
 import type { PersonalFanPreset } from "../leadApi";
+import { yuan } from "../dashboardDisplay";
 import { CsFillOverview } from "../CsFillOverview";
-import { InfoTip } from "../InfoTip";
 import ReportTextImport from "./ReportTextImport";
 import { afterSaleTotals, emptyAfterSale, parseAfterSaleText, signedMoney, type AfterSaleExpense, type AfterSaleFields } from "./afterSalesText";
 import FanFillForm from "./FanFillForm";
 import { loadServiceDirectory, type FillAccount } from "./serviceDirectory";
-import { effectiveOrderCents, type CrmOrder, type CrmOrderDraft, centsToYuan, customerStatus, customerTags, invalidReasons, personalPerformance, latestCustomerReview, useCustomerCrm, type CrmActor, type CrmCustomer, type SpendTier } from "./customerCrm";
+import { effectiveOrderCents, type CrmOrder, type CrmOrderDraft, centsToYuan, customerStatus, customerTags, invalidReasons, latestCustomerReview, useCustomerCrm, type CrmActor, type CrmCustomer, type SpendTier } from "./customerCrm";
 import CrmOrderHistory from "./CrmOrderHistory";
 import "./customer-fill.css";
 import "../fill-ui.css";
@@ -157,11 +158,8 @@ export default function CustomerFillWorkspace({ today }: { today: string }) {
     {page==="home"&&<CsFillOverview data={actor?{orderCount:monthOrders.length,liveCount:liveOrders.length,privateCount:privateOrders.length,liveAmount:monthAmount(liveOrders),privateAmount:monthAmount(privateOrders),commission:null,commissionEstimate:demoCommissionEstimate(monthOrders, today.slice(0, 7), actor.employeeName)}:null}
       fans={actor?fanCounts:null} preset={fanPreset} onPreset={setFanPreset}/> }
     {!actor && page !== "reimbursements" && page !== "home" && <section className="card"><h2>{loading ? "正在读取客服" : "暂无可用客服"}</h2><p>请选择可用的接待账号。</p></section>}
-    {actor && page === "leads" && !customer && <section className="card">
-      <div className="commerce-line"><p className="fill-page-count" role="status">今日已登记客资 <strong>{leadCount}</strong> 条</p>
-        <div className="actions fill-lead-actions">{leadCount===0 && (checked ? <span className="fill-status">今日已打卡（演练）</span> : <button className="secondary" type="button" onClick={()=>setCheckins(values=>[...values,checkinKey])}>今日 0 粉打卡</button>)}
-        <button type="button" disabled={!selected} onClick={()=>leadDrawer.current?.showModal()}>＋ 登记新客资</button></div>
-      </div>
+    {actor && page === "leads" && !customer && <section className="card cs-leads-page">
+      <div className="cs-page-head"><div className="cs-page-row"><h2>客户档案</h2><span className="cs-count-pill" role="status">今日 <strong>{leadCount}</strong> 条</span></div><div className="cs-split-actions"><button type="button" disabled={!selected} onClick={()=>leadDrawer.current?.showModal()}>＋ 登记新客资</button>{leadCount===0 && (checked ? <span className="cs-quiet-btn">今日已打卡</span> : <button className="secondary" type="button" onClick={()=>setCheckins(values=>[...values,checkinKey])}>今日 0 粉打卡</button>)}</div></div>
       {selected ? <dialog className="fill-drawer" ref={leadDrawer} aria-label="登记新客资"><div className="fill-drawer-body"><header className="commerce-line"><h2>登记新客资</h2><button type="button" className="secondary" onClick={()=>leadDrawer.current?.close()}>关闭</button></header><FanFillForm key={selected.id} today={today} account={selected} employees={[]} tenures={[]} onRegister={(leads, source) => {
       try {
         if (selected.holderSince && source.businessDate < selected.holderSince) throw Error("该填报日期早于当前客服接手日期，请由主管核对历史归属");
@@ -171,23 +169,23 @@ export default function CustomerFillWorkspace({ today }: { today: string }) {
 
       } catch (cause) { setNotice(""); setError(toErrorMessage(cause)); }
     }} />{error&&<p role="alert" className="error">{error}</p>}</div></dialog> : <p className="notice">请先选择 WhatsApp 或 Messenger 接待账号，再登记客资。</p>}
+      <DemoCustomerRows plain people={mine.filter(row=>!confirmed.has(row.id))} state={crm.state} onOpen={setCustomerId}/>
     </section>}
-    {actor&&page==="leads"&&(customer
-      ?<CustomerDetail key={customer.id} today={today} customer={customer} actor={actor} crm={crm} account={selected} onMessage={setNotice}/>
-      :<DemoCustomerRows people={mine.filter(row=>!confirmed.has(row.id))} state={crm.state} onOpen={setCustomerId}/>)}
+    {actor&&page==="leads"&&customer&&<CustomerDetail key={customer.id} today={today} customer={customer} actor={actor} crm={crm} account={selected} onMessage={setNotice}/>}
     {actor&&page==="invalid"&&<DemoCustomerRows people={mine.filter(row=>confirmed.has(row.id))} state={crm.state} invalid/>}
     {page === "reimbursements" && <ReimbursementWorkspace today={today} mode="staff" />}
     {actor && page === "performance" && <Performance today={today} employeeId={actor.employeeId} state={crm.state} onOpen={id=>{navigate("leads");setCustomerId(id);}} />}
   </main>;
 }
 
-function DemoCustomerRows({people,state,onOpen,invalid=false}:{people:CrmCustomer[];state:ReturnType<typeof useCustomerCrm>["state"];onOpen?:(id:string)=>void;invalid?:boolean}) {
+function DemoCustomerRows({people,state,onOpen,invalid=false,plain=false}:{people:CrmCustomer[];state:ReturnType<typeof useCustomerCrm>["state"];onOpen?:(id:string)=>void;invalid?:boolean;plain?:boolean}) {
   const [search,setSearch]=useState("");
   const rows=people.filter(row=>row.name.toLowerCase().includes(search.trim().toLowerCase()))
     .sort((a,b)=>b.createdOn.localeCompare(a.createdOn)||a.name.localeCompare(b.name,"zh"));
-  return <section className="card cs-customer-book">
-    {invalid&&<p className="notice">接粉空档可用这里练习跟进。先看复核原因，再尝试联系适合继续沟通的客户。请尊重客户的拒绝。</p>}
-    <Field label="查找客户"><input type="search" value={search} onChange={e=>setSearch(e.target.value)}/></Field>
+  const Shell = plain ? "div" : "section";
+  return <Shell className={plain ? "cs-customer-book" : "card cs-customer-book"}>
+    {invalid && <div className="cs-page-row"><h2>已复核无效粉</h2></div>}
+    <div className="cs-search-line"><input type="search" aria-label="查找客户" placeholder="输入客户称呼查找..." value={search} onChange={e=>setSearch(e.target.value)} /></div>
     {!rows.length&&<p className="notice">{invalid?"没有符合条件的已复核无效粉。":"没有符合条件的客户。"}</p>}
     <div className="commerce-list cs-customer-rows">{rows.map(row=>{
       const review=latestCustomerReview(state,row.id);
@@ -202,7 +200,7 @@ function DemoCustomerRows({people,state,onOpen,invalid=false}:{people:CrmCustome
         <small>{latest?latest.cancelled?"最近订单已冲抵":"有历史订单":"暂无订单"} ›</small>
       </button>;
     })}</div>
-  </section>;
+  </Shell>;
 }
 
 function CustomerDetail({ today, customer, actor, crm, account, onMessage }: { today: string; customer: CrmCustomer; actor: CrmActor; crm: ReturnType<typeof useCustomerCrm>; account?: FillAccount; onMessage: (value: string) => void }) {
@@ -245,23 +243,31 @@ function InvalidRequest({ onSubmit }: { onSubmit: (reason: keyof typeof invalidR
 }
 
 function Performance({ today, employeeId, state, onOpen }: { today:string; employeeId: string; onOpen:(id:string)=>void; state: ReturnType<typeof useCustomerCrm>["state"] }) {
-  const result = personalPerformance(state, employeeId);
-  const rows = state.orders.filter(order => order.employeeId === employeeId);
-  return <section className="card" aria-label="个人业绩"><h2>个人业绩 <InfoTip label="个人业绩口径" text="合计等于直播间料价加代购费，再加私推料价。跑单和换料取消的旧单不计入，换料新单归新开单日。业绩跟开单时的客服，换账号不改旧单。" /></h2>
-    <p className="fill-page-count">本月有效开单 <strong>{rows.filter(order=>!order.cancelled&&order.businessDate<=today&&order.businessDate.startsWith(today.slice(0,7))).length}</strong> 单</p>
+  const [preset, setPreset] = useState<StandardPreset>("month");
+  const [customRange, setCustomRange] = useState<{ from: string; to: string } | null>(null);
+  const range = customRange ?? dashboardPresetRange(today, preset);
+  const rows = state.orders.filter(order => order.employeeId === employeeId && order.businessDate >= range.from && order.businessDate <= range.to);
+  const valid = rows.filter(order => !order.cancelled);
+  const live = valid.filter(order => order.channel !== "private");
+  const priv = valid.filter(order => order.channel === "private");
+  const excluded = rows.filter(order => order.cancelled);
+  const sum = (list: typeof rows) => list.reduce((total, order) => total + (order.cancelled ? order.materialCents + order.feeCents : effectiveOrderCents(order)), 0);
+  return <section className="card cs-performance" aria-label="个人业绩">
+    <div className="cs-page-row"><h2>个人业绩</h2><span className="cs-count-pill" role="status">有效 <strong>{valid.length}</strong> 单</span></div>
+    <div className="cs-perf-toolbar"><PeriodToolbar today={today} preset={preset} custom={customRange} customLabel="自定义 ▾" onPreset={next => { setPreset(next); setCustomRange(null); }} onCustom={setCustomRange} /></div>
     <div className="commerce-kpis fill-performance-kpis">
-      <div className="fill-hero"><small>直播间成交</small><strong>¥{centsToYuan(result.liveCents)}</strong></div>
-      <div><small>客服私推</small><strong>¥{centsToYuan(result.privateCents)}</strong></div>
-      <div><small>跑单／换料冲抵</small><strong>¥{centsToYuan(rows.filter(order=>order.cancelled).reduce((total,order)=>total+order.materialCents+order.feeCents,0))}</strong></div>
+      <div className="fill-hero"><small>直播间成交（{live.length} 单）</small><strong>{yuan(centsToYuan(sum(live)))}</strong></div>
+      <div><small>客服私推</small><small>{priv.length} 单</small><strong>{yuan(centsToYuan(sum(priv)))}</strong></div>
+      <div><small>跑单／换料冲抵</small><small>{excluded.length} 单</small><strong>{yuan(centsToYuan(sum(excluded)))}</strong></div>
     </div>
     <div className="commerce-list">{rows.map(order=>{
       const customer=state.customers.find(item=>item.id===order.customerId);
       return <button type="button" key={order.id} className="commerce-record secondary" onClick={()=>onOpen(order.customerId)}>
         <span><strong>{customer?.name||"客户"}</strong><small>{order.businessDate} · {order.id}</small><small>{order.channel==="private"?"客服私推":"直播间开单"}{order.performanceTeamName?` · ${order.performanceTeamName}`:""}{order.cancelled?" · 已冲抵":""}</small></span>
-        <span className="commerce-amount">¥{centsToYuan(effectiveOrderCents(order))}<small>查看档案 →</small></span>
+        <span className="commerce-amount">{yuan(centsToYuan(effectiveOrderCents(order)))}<small>查看档案 →</small></span>
       </button>;
     })}</div>
-    {!rows.length && <p className="notice">还没有记在这位客服名下的开单。</p>}
+    {!rows.length && <p>这个区间还没有开单。</p>}
   </section>;
 }
 

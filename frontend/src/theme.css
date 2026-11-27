@@ -274,7 +274,7 @@ small { font-size: var(--fs-xs); }
 :root main.role-desk .card h2 {
   font-size: var(--fs-lg); font-weight: 650; margin: 30px 0 8px; padding-top: 22px; border-top: 1px solid var(--line);
 }
-:root main.role-desk .card > h2:first-child, :root main.role-desk .card > :is(header, div):first-child + h2, :root main.role-desk .card > .commerce-line:first-child h2 { margin-top: 0; padding-top: 0; border-top: 0; }
+:root main.role-desk .card > h2:first-child, :root main.role-desk .card > :is(header, div):first-child + h2, :root main.role-desk .card > .commerce-line:first-child h2, :root main.role-desk .card .cs-page-row h2 { margin-top: 0; padding-top: 0; border-top: 0; }
 :root main.role-desk .card p, :root main.role-desk .hint { color: var(--muted); font-size: var(--fs-sm); line-height: 1.75; max-width: 68ch; }
 :root main.role-desk label { font-size: var(--fs-sm); font-weight: 500; color: #44524d; margin-bottom: 6px; }
 :root main.role-desk .row { margin-bottom: 18px; }

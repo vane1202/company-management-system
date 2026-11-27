@@ -26,7 +26,8 @@ export function PeriodToolbar({
   filters,
   caption,
   actions,
-  ariaLabel = "日期与筛选工具栏"
+  ariaLabel = "日期与筛选工具栏",
+  customLabel = "自定义日期"
 }: {
   today: string;
   preset: StandardPreset;
@@ -38,6 +39,7 @@ export function PeriodToolbar({
   caption?: ReactNode;
   actions?: ReactNode;
   ariaLabel?: string;
+  customLabel?: string;
 }) {
   const activeRange = custom ?? dashboardPresetRange(today, preset);
   const [draft, setDraft] = useState(activeRange);
@@ -88,7 +90,7 @@ export function PeriodToolbar({
             })}
           </div>
           <details ref={detailsRef} className={`pt-custom${custom ? " is-active" : ""}`}>
-            <summary>{custom ? `${custom.from.slice(5)} ~ ${custom.to.slice(5)}` : "自定义日期"}</summary>
+            <summary>{custom ? `${custom.from.slice(5)} ~ ${custom.to.slice(5)}` : customLabel}</summary>
             <form className="pt-custom-form" onSubmit={submitCustom}>
               <label>
                 开始日期

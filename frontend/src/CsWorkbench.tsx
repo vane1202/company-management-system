@@ -240,38 +240,35 @@ function CsPersonalPerformance({
     money(list.reduce((total, o) => total + (cents(o.bookingAmount ?? o.amount) ?? 0n), 0n));
 
   return (
-    <section className="card">
-      <div className="commerce-line">
+    <section className="card cs-performance">
+      <div className="cs-page-row">
         <h2>个人业绩</h2>
-        <button type="button" className="secondary" disabled={loading} onClick={() => void load()}>
-          刷新
-        </button>
+        <span className="cs-count-pill" role="status">有效 <strong>{loading || error ? "—" : validOrders.length}</strong> 单</span>
+        <button type="button" className="secondary cs-icon-btn" disabled={loading} onClick={() => void load()}>刷新</button>
       </div>
-      <PeriodToolbar
-        today={today}
-        preset={preset}
-        custom={customRange}
-        onPreset={next => {
-          setPreset(next);
-          setCustomRange(null);
-        }}
-        onCustom={next => setCustomRange(next)}
-      />
+      <div className="cs-perf-toolbar">
+        <PeriodToolbar
+          today={today}
+          preset={preset}
+          custom={customRange}
+          customLabel="自定义 ▾"
+          onPreset={next => {
+            setPreset(next);
+            setCustomRange(null);
+          }}
+          onCustom={next => setCustomRange(next)}
+        />
+      </div>
       {error && (
         <p className="error" role="alert">
           {error}
         </p>
       )}
-      <p className="fill-page-count" role="status">{!customRange && preset === "month" ? "本月有效开单" : "区间有效开单"} <strong>{loading || error ? "—" : validOrders.length}</strong> 单</p>
       <div className="commerce-kpis fill-performance-kpis">
         <div className="fill-hero"><small>直播间成交（{liveOrders.length} 单）</small><strong>{yuan(sumAmount(liveOrders))}</strong></div>
-        <div><small>客服私推（{privateOrders.length} 单）</small><strong>{yuan(sumAmount(privateOrders))}</strong></div>
-        <div><small>跑单／退款冲抵（{excludedOrders.length} 单）</small><strong>{yuan(sumAmount(excludedOrders))}</strong></div>
+        <div><small>客服私推</small><small>{privateOrders.length} 单</small><strong>{yuan(sumAmount(privateOrders))}</strong></div>
+        <div><small>跑单／退款冲抵</small><small>{excludedOrders.length} 单</small><strong>{yuan(sumAmount(excludedOrders))}</strong></div>
       </div>
-      <p className="notice">
-        口径：按开单卡料价＋代购费统计，排除跑单与退款订单（当前区间已排除 {excludedOrders.length} 笔，合计{" "}
-        {yuan(sumAmount(excludedOrders))}）。
-      </p>
       <div className="commerce-list">
         {!loading && !orders.length && (
           <div className="empty-state">

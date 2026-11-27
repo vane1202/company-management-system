@@ -50,9 +50,23 @@ export function LeadWorkspace({today,editable=false,platform,layered=false,super
   function start(lead?:Lead){setEditing(lead??null);setMessage('');setError('');setVoiding(false);requestKey.current=submissionKey();const next=blank(today);if(defaultOperatorName)next.operatorName=defaultOperatorName;if(platform==='whatsapp')next.channel='ws';if(platform==='messenger')next.channel='ms';if(lead){for(const k of Object.keys(next) as (keyof Draft)[]){if(k!=='reason'&&k!=='invalidReasonCode')next[k]=String(lead[k as keyof Lead]??'') as never;}next.invalidReasonCode=(lead.invalidReasonCode??(lead.invalidReason?'custom':'')) as InvalidReasonCode;}setForm(next);}
   async function checkinZero(){if(zeroBusy)return;setZeroBusy(true);setError('');try{const res=await leadApi.submitZeroReport(today);setZeroStatus({date:res.date,leadCount:res.leadCount,zeroCheckedIn:res.zeroCheckedIn,checkedInAt:new Date().toISOString()});setMessage(res.alreadyHasLeads?'今日已有客户线索登记，无需零进粉打卡':'已记录今日零进粉打卡，加粉日报将同步显示已报');setTick(n=>n+1);}catch(e){setError(toErrorMessage(e));}finally{setZeroBusy(false);}}
   function csv(){const rows=[['承接日期','小组','客服接待账号','经办客服','主页','下粉广告户ID','人设ID','渠道','客户','客户标识','首次回复日期','首次明确需求日期','需求摘要','无效原因','流失原因','下次跟进','作废原因'],...shown.map(l=>[l.receivedOn,l.teamName,l.wechatId,l.operatorName,l.pageName,(l.sourceAdAccountId||'').trim()||'来源待补',l.personaCode,l.channel,l.customerLabel,l.customerRef,l.repliedOn??'',l.qualifiedOn??'',l.needSummary,l.invalidReason,l.lossReason,l.nextFollowup??'',l.voidReason??''])];const body='\uFEFF'+rows.map(row=>row.map(v=>'"'+String(v).replace(/^(\s*[=+@-])/,"'$&").replace(/"/g,'""')+'"').join(',')).join('\r\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([body],{type:'text/csv;charset=utf-8'}));a.download=`客户线索-${range.from}-${range.to}.csv`;a.click();URL.revokeObjectURL(a.href);}
-  return <section className={`card lead-workspace ${layered?"lead-layered":""}`}>
+  return <section className={`card lead-workspace ${layered?"lead-layered":""}${editable&&hasDirectory?" cs-leads-compact":""}`}>
+    {editable && hasDirectory ? <div className="cs-page-head">
+      <div className="cs-page-row">
+        <h2>客户档案</h2>
+        <span className="cs-count-pill" role="status">今日 <strong>{zeroStatus?.leadCount ?? "—"}</strong> 条</span>
+        <button type="button" className="secondary cs-icon-btn" onClick={() => setTick(n => n + 1)}>刷新</button>
+      </div>
+      <div className="cs-split-actions">
+        <button type="button" onClick={() => start()}>＋ 登记新客资</button>
+        {zeroStatus?.leadCount === 0 && (zeroStatus.zeroCheckedIn
+          ? <span className="cs-quiet-btn">今日已打卡</span>
+          : <button type="button" className="secondary" disabled={zeroBusy} onClick={checkinZero}>{zeroBusy ? "打卡中…" : "今日 0 粉打卡"}</button>)}
+      </div>
+    </div> : <>
     <div className="lead-title"><div><span className="dashboard-eyebrow">客服接待账号 / 线索转化</span><h2>{hasDirectory?"客户档案":layered?"加粉与线索概况":"客户线索考核"}{!hasDirectory&&<InfoTip label={layered?"线索统计口径":"线索考核口径"} text="承接需求转化率＝同一批承接线索中，当日已明确具体需求人数÷承接人数。满7日转化只统计承接日及其后6天均已结束的批次；第7天仍在进行中的批次继续标记观察中，不混入最终转化率。无效线索保留在分母，作废的重复/误录不计入。旧日报沟通人数不推算客户明细。该指标以全部承接人数为分母；客服开口转化率以正常沟通人数为分母，请在客服考核中查看。"/>}</h2></div>{editable&&<div className="actions fill-lead-actions"><span className="fill-page-count" role="status">今日已登记客资 <strong>{zeroStatus?.leadCount??"—"}</strong> 条</span>{zeroStatus?.zeroCheckedIn&&zeroStatus.leadCount===0&&<span className="fill-status">今日已打卡</span>}{zeroStatus&&zeroStatus.leadCount===0&&!zeroStatus.zeroCheckedIn&&<button type="button" className="secondary" disabled={zeroBusy} onClick={checkinZero}>{zeroBusy?'打卡中…':'今日 0 粉打卡'}</button>}<button type="button" onClick={()=>start()}>＋ 登记新客资</button></div>}</div>
     {editable&&zeroStatus&&<p className="notice">{zeroStatus.leadCount>0?`今日（${today}）已登记 ${zeroStatus.leadCount} 条客户线索，已自动汇总为今日加粉日报。`:zeroStatus.zeroCheckedIn?`今日（${today}）已打卡零进粉；如后续有新进粉，直接登记线索即可自动更新。`:`今日（${today}）尚未登记客户线索；若今天确实没有新进粉，可点击右上角「今日零进粉打卡」。`}</p>}
+    </>}
     {directory ? directory(start,tick) : <>
     <PeriodToolbar
       today={today}
