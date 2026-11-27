@@ -478,3 +478,39 @@ main.customer-fill .reimbursement-workspace.is-staff .card, main.customer-fill .
   line-height: 26px;
   height: 26px;
 }
+
+
+/* order detail: compact header, funds, payments, photos */
+.fill-order-detail .order-hero-split { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; }
+.fill-order-detail .order-hero-split .order-hero-main { flex:1 1 auto; min-width:0; }
+.fill-order-detail .order-hero-split .order-hero-tags { display:flex; flex-direction:column; align-items:flex-end; gap:4px; flex:0 1 auto; max-width:48%; }
+.fill-order-detail .order-hero-split .order-meta-chip { font-size:11px; padding:2px 8px; white-space:nowrap; max-width:100%; overflow:hidden; text-overflow:ellipsis; }
+.fill-order-detail .order-hero-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; }
+.fill-order-detail .order-fund-card { padding:14px 16px; }
+.fill-order-detail .order-fund-row { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+.fill-order-detail .order-fund-row strong { display:block; margin-top:4px; font-size:clamp(15px,4.2vw,22px); line-height:1.2; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.fill-order-detail .order-fund-row small { color:var(--muted); font-size:12px; }
+.fill-order-detail .order-jade-cost { align-items:center; }
+.fill-order-detail .order-jade-cost strong { white-space:nowrap; }
+.fill-order-detail .order-item-card { display:grid; gap:4px; }
+.fill-order-detail .order-item-line { display:flex; align-items:center; justify-content:space-between; gap:8px; min-width:0; }
+.fill-order-detail .order-item-line strong { display:inline-flex; align-items:center; gap:6px; min-width:0; }
+.fill-order-detail .order-item-line b { font-weight:650; white-space:nowrap; }
+.fill-order-detail .order-item-sub small { margin:0; min-width:0; }
+.fill-order-detail .order-ph-pill { display:inline-flex; align-items:center; height:18px; padding:0 6px; border-radius:999px; background:var(--gold-bg); color:var(--gold-ink); font-size:11px; font-weight:600; white-space:nowrap; }
+.fill-order-detail .order-photo-divider { border-top:1px dashed var(--line); margin:14px 0; }
+.fill-order-detail .order-photo-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin:0; }
+.fill-order-detail .order-photo-grid img { width:100%; height:auto; aspect-ratio:1; object-fit:cover; border-radius:10px; background:var(--bg,#f5f7f4); }
+.fill-order-detail .order-photo-add { display:flex; align-items:center; justify-content:center; min-height:72px; aspect-ratio:1; margin:0; border:1px dashed var(--line); border-radius:10px; color:var(--jade-dark); font-size:13px; text-align:center; cursor:pointer; }
+.fill-order-detail .order-photo-add input { display:none; }
+.fill-order-detail .order-pay-card { display:grid; gap:4px; }
+.fill-order-detail .order-pay-top { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.fill-order-detail .order-pay-main { display:flex; flex-wrap:wrap; align-items:center; gap:6px; min-width:0; }
+.fill-order-detail .order-pay-main strong { font-size:16px; }
+.fill-order-detail .order-pay-fix { white-space:nowrap; flex-shrink:0; min-height:32px; padding:4px 10px; }
+.fill-order-detail .order-pay-meta { display:block; margin:0; color:var(--muted); font-size:12px; line-height:1.4; }
+.fill-order-detail .order-pill { display:inline-flex; align-items:center; height:20px; padding:0 8px; border-radius:999px; background:var(--jade-light); color:var(--jade-dark); font-size:11px; font-weight:600; white-space:nowrap; }
+.fill-order-detail .order-pill.is-muted { background:var(--bg,#f4f7f6); color:var(--muted); border:1px solid var(--line); font-weight:500; }
+.fill-order-detail .order-charge-select { font-size:13px; }
+:root main.role-desk .order-pay-entry { padding:0 12px; }
+:root main.role-desk .order-pay-entry > summary { min-height:36px; padding-block:4px; }
