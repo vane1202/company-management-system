@@ -140,7 +140,8 @@ export default function CustomerFillWorkspace({ today }: { today: string }) {
             <option value="">请选择接待账号</option>{personAccounts.map(account => <option key={account.id} value={account.id}>{account.wechatId}</option>)}
           </select>
         </Field></div>
-        <details className="fill-login-help"><summary aria-label="登录说明">ⓘ</summary><p className="hint">演示阶段按所选客服区分数据。</p></details>
+        <details className="fill-login-help"><summary aria-label="登录说明">ⓘ</summary><p className="hint">演示阶段按所选客服区分数据。</p>      
+    </details>
       </div>
       {error && <p className="error" role="alert">{error}</p>}
       {notice && <p className="notice" role="status">{notice}</p>}
@@ -210,9 +211,11 @@ function CustomerDetail({ today, customer, actor, crm, account, onMessage }: { t
     <details className="card customer-profile"><summary><span>客户档案</span><span className="crm-tags">{tags.map(tag => <em key={tag} className={tag === "无效" ? "is-invalid" : tag === "待复核" ? "is-pending" : ""}>{tag}</em>)}</span></summary><dl className="fill-preview-fields"><div><dt>客服</dt><dd>{customer.employeeName}</dd></div><div><dt>来源</dt><dd>{customer.source || "未填写"}</dd></div><div><dt>下粉广告户ID</dt><dd>{customer.adAccountId || "来源待补"}</dd></div><div><dt>登记日期</dt><dd>{customer.createdOn}</dd></div><div><dt>需求</dt><dd>{customer.need || "未填写"}</dd></div></dl>
       <Field label="消费能力"><select aria-label="消费能力" value={customer.spendTier} onChange={event => { try { crm.dispatch({ type: "setTier", actor, customerId: customer.id, tier: event.target.value as SpendTier }); } catch (cause) { onMessage(toErrorMessage(cause)); } }}><option value="">未分档</option><option value="A">A档</option><option value="B">B档</option><option value="C">C档</option></select></Field>
       <p className="hint">有效、已成交、无效由订单和复核结果决定。复购在有效订单超过两笔时自动出现。消费能力由客服手工选择。</p>
+    
+      {!pending && !tags.includes("无效") && <InvalidRequest hasDeal={customerStatus(crm.state, customer) === "dealt"} onSubmit={(reason, note) => { crm.dispatch({ type: "requestInvalid", actor, customerId: customer.id, reason, note }); onMessage(reason === "custom" ? "已提交主管复核。确认前客户仍不是无效客资；若驳回会自动打上「尝试沟通」标识。" : "已按预设规则标记为无效客资。"); }} />}
     </details>
     <section className="card"><h2>开单记录</h2><CrmOrderHistory state={crm.state} customerId={customer.id} today={today} actor={actor} dispatch={crm.dispatch} room={account?.registeredRoomName ? {name:account.registeredRoomName,host:account.registeredHostName||""}:undefined} onMessage={onMessage} onAfterSales={order=><details><summary>办理售后</summary><AfterSalesFill today={today} operator={actor.employeeName} linkedOrder={order.id} /></details>}/><OrderPractice customerName={customer.name} today={today} operator={actor.employeeName} room={account?.registeredRoomName ? { name: account.registeredRoomName, host: account.registeredHostName || "" } : undefined} onPractice={values => { crm.dispatch({ type: "addOrder", actor, customerId: customer.id, ...values }); onMessage("已按开单卡记入本次演练业绩。正式收款仍由财务登记。"); }} /></section>
-    {!pending && !tags.includes("无效") && <InvalidRequest onSubmit={(reason, note) => { crm.dispatch({ type: "requestInvalid", actor, customerId: customer.id, reason, note }); onMessage(reason === "custom" ? "已提交主管复核。确认前客户仍不是无效客资；若驳回会自动打上「尝试沟通」标识。" : "已按预设规则标记为无效客资。"); }} />}
+    
   </div>;
 }
 
@@ -234,12 +237,26 @@ function OrderPractice({ today, operator, room, onPractice, customerName }: { cu
   </div>;
 }
 
-function InvalidRequest({ onSubmit }: { onSubmit: (reason: keyof typeof invalidReasons, note: string) => void }) {
+function InvalidRequest({ hasDeal, onSubmit }: { hasDeal: boolean; onSubmit: (reason: keyof typeof invalidReasons, note: string) => void }) {
+  const drawer = useRef<HTMLDialogElement>(null);
   const [reason, setReason] = useState<keyof typeof invalidReasons | "">("");
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const isCustom = reason === "custom";
-  return <form className="card" onSubmit={event => { event.preventDefault(); if (!reason) return; try { onSubmit(reason, note); setNote(""); setError(""); } catch (cause) { setError(toErrorMessage(cause)); } }}><h2>标记无效客资</h2><p className="notice">选择语言不通、误点咨询/不感兴趣、色粉三类预设原因可直接计入无效客资；其他情况请填写判定原因提交客服主管复核（驳回后自动打上「尝试沟通」标识）。</p><Field label="无效原因"><select required aria-label="无效原因" value={reason} onChange={event => setReason(event.target.value as keyof typeof invalidReasons)}><option value="">请选择</option>{Object.entries(invalidReasons).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Field><Field label={isCustom ? "判定原因（必填）" : "补充说明（可选）"}><textarea required={isCustom} maxLength={1000} value={note} onChange={event => setNote(event.target.value)} placeholder={isCustom ? "请填写具体无效判定原因，提交给客服主管复核" : "补充具体情况，可选"} /></Field>{error && <p className="error" role="alert">{error}</p>}<button type="submit">{isCustom ? "提交主管复核" : "确认标记无效"}</button></form>;
+  return <>
+    <button type="button" className="text-action invalid-entry" onClick={() => drawer.current?.showModal()}>标记无效客资 ›</button>
+    <dialog className="fill-drawer invalid-lead-drawer" ref={drawer} aria-label="标记无效客资" onClose={() => setError("")}><div className="fill-drawer-body">
+      <header className="commerce-line"><h2>标记无效客资</h2><button type="button" className="secondary" onClick={() => drawer.current?.close()}>关闭</button></header>
+      <form onSubmit={event => { event.preventDefault(); if (!reason) return; try { onSubmit(reason, note); setNote(""); setError(""); drawer.current?.close(); } catch (cause) { setError(toErrorMessage(cause)); } }}>
+        {hasDeal && <p className="notice">该客户已有成交记录，仅在整单跑单或误建档时标记无效</p>}
+        <p className="hint">预设三类直接计入无效，其他提交主管复核。</p>
+        <Field label="无效原因"><select required aria-label="无效原因" value={reason} onChange={event => setReason(event.target.value as keyof typeof invalidReasons)}><option value="">请选择</option>{Object.entries(invalidReasons).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Field>
+        <Field label={isCustom ? "判定原因（必填）" : "补充说明（可选）"}><textarea required={isCustom} maxLength={1000} value={note} onChange={event => setNote(event.target.value)} placeholder={isCustom ? "请填写具体无效判定原因，提交给客服主管复核" : "补充具体情况，可选"} /></Field>
+        {error && <p className="error" role="alert">{error}</p>}
+        <button type="submit">{isCustom ? "提交主管复核" : "确认标记无效"}</button>
+      </form>
+    </div></dialog>
+  </>;
 }
 
 function Performance({ today, employeeId, state, onOpen }: { today:string; employeeId: string; onOpen:(id:string)=>void; state: ReturnType<typeof useCustomerCrm>["state"] }) {

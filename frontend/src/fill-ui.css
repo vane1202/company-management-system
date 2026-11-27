@@ -514,3 +514,27 @@ main.customer-fill .reimbursement-workspace.is-staff .card, main.customer-fill .
 .fill-order-detail .order-charge-select { font-size:13px; }
 :root main.role-desk .order-pay-entry { padding:0 12px; }
 :root main.role-desk .order-pay-entry > summary { min-height:36px; padding-block:4px; }
+
+.customer-profile .invalid-entry { display:flex; width:100%; justify-content:flex-start; margin:8px 0 0; padding:0; min-height:36px; background:transparent; border:0; box-shadow:none; color:var(--muted); font-size:14px; font-weight:500; }
+.invalid-lead-drawer .hint { margin:0 0 12px; color:var(--muted); }
+.order-submit-bar { display:grid; gap:8px; margin-top:12px; padding-top:10px; border-top:1px solid var(--line); }
+.order-submit-row { display:flex; align-items:center; gap:12px; min-width:0; }
+.order-submit-total { display:grid; min-width:0; }
+.order-submit-total span { color:var(--muted); font-size:12px; line-height:1.2; }
+.order-submit-total strong { font-size:18px; line-height:1.2; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.order-submit-bar button { flex:1 1 auto; min-height:44px; margin:0; white-space:nowrap; }
+.order-submit-bar .error { margin:0; }
+.fill-order-drawer form.order-create-form { display:flex; flex-direction:column; min-height:calc(100dvh - 96px); }
+.fill-order-drawer .order-submit-bar { position:sticky; bottom:0; z-index:2; margin:16px -20px -20px; margin-top:auto; padding:10px 16px calc(10px + env(safe-area-inset-bottom)); background:var(--card); }
+.commerce-item .item-pair { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:10px; align-items:start; }
+.commerce-item .item-pair > .row { min-width:0; margin-bottom:0; }
+.num-input { font-variant-numeric:tabular-nums; }
+.order-fx-note { margin-top:0; }
+@media (max-width:700px) {
+  .fill-order-drawer .order-submit-bar { margin:12px -12px -12px; margin-top:auto; }
+}
+@media (max-width:430px) {
+  .fill-order-drawer :is(input, select, textarea),
+  .invalid-lead-drawer :is(input, select, textarea),
+  main.customer-fill .order-create-form :is(input, select, textarea) { font-size:16px; }
+}
