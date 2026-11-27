@@ -538,3 +538,8 @@ main.customer-fill .reimbursement-workspace.is-staff .card, main.customer-fill .
   .invalid-lead-drawer :is(input, select, textarea),
   main.customer-fill .order-create-form :is(input, select, textarea) { font-size:16px; }
 }
+
+.fill-order-detail .order-cost-bar { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:10px; padding:8px 2px 2px; min-width:0; }
+.fill-order-detail .order-cost-bar span { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px; min-width:0; color:var(--muted); font-size:13px; }
+.fill-order-detail .order-cost-bar small { color:var(--muted); }
+.fill-order-detail .order-cost-bar b { flex:0 0 auto; font-weight:650; font-variant-numeric:tabular-nums; white-space:nowrap; }
