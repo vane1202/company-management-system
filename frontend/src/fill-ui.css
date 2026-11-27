@@ -264,7 +264,7 @@
 .fill-order-panel:not([hidden]) { display:grid; gap:12px; }
 .fill-order-panel[hidden] { display:none; }
 @media(max-width:700px) {
-  :root main.customer-fill { padding:10px 14px calc(82px + env(safe-area-inset-bottom, 0px)); }
+  :root main.customer-fill { padding:10px 10px calc(76px + env(safe-area-inset-bottom, 0px)); }
   :root main.customer-fill > header.cs-mobile-hide-head { display:none; }
   :root main.customer-fill .fill-mobile-logout { display:inline-flex; align-items:center; justify-content:center; }
   :root main.customer-fill .card.fill-account { margin:0 0 12px; padding:12px 14px; }
@@ -352,7 +352,6 @@
 :root main.customer-fill .cs-customer-rows .commerce-record { width:100%; text-align:left; gap:10px; }
 :root main.customer-fill .cs-unlinked { max-height:360px; overflow:auto; padding:12px; border-radius:10px; background:var(--bg); }
 @media(max-width:700px) {
-  :root main.customer-fill .cs-fill-overview { grid-template-columns:minmax(0,1fr); }
   :root main.customer-fill .cs-customer-book .commerce-record { flex-wrap:wrap; }
 }
 
@@ -366,6 +365,41 @@
 :root main.customer-fill .cs-fill-overview .cs-fans-breakdown { grid-template-columns:repeat(2,minmax(0,1fr)); }
 :root main.customer-fill .cs-fill-overview .cs-fans-breakdown > div { display:flex; flex-wrap:wrap; justify-content:space-between; gap:2px 5px; padding:6px 10px; border-radius:9px; background:rgba(255,255,255,0.72); border:1px solid #d4e4de; color:#3a5750; font-size:13px; }
 :root main.customer-fill .cs-fill-overview .cs-fans-breakdown dd { font-weight:650; color:#0f2e28; }
+
+@media(max-width:700px) {
+  :root main.customer-fill .cs-fill-overview {
+    grid-template-columns:minmax(0,1fr);
+    grid-template-rows:minmax(0,1.25fr) minmax(0,1.15fr) minmax(0,0.95fr);
+    min-height:calc(100dvh - 176px - env(safe-area-inset-bottom, 0px));
+    gap:12px;
+  }
+  :root main.customer-fill .cs-fill-overview .card {
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+    padding:18px 16px;
+  }
+  :root main.customer-fill .cs-fill-overview .cs-fans-heading h2 { font-size:17px; }
+  :root main.customer-fill .cs-overview-metric { font-size:15px; gap:6px 10px; }
+  :root main.customer-fill .cs-overview-metric strong { font-size:clamp(26px, 7.2vw, 30px); line-height:1.15; }
+  :root main.customer-fill .cs-fill-overview .cs-fans-breakdown { margin-top:auto; gap:8px; }
+  :root main.customer-fill .cs-fill-overview .cs-fans-breakdown > div {
+    padding:10px 12px; border-radius:11px; font-size:14px;
+  }
+  :root main.customer-fill .cs-fill-overview .cs-sales-breakdown { margin-top:auto; gap:8px; }
+  :root main.customer-fill .cs-fill-overview .cs-sales-breakdown > div {
+    padding:10px 12px; border-radius:11px;
+    background:rgba(255,255,255,0.72); border:1px solid #d4e4de;
+    color:#3a5750; font-size:14px;
+  }
+  :root main.customer-fill .cs-fill-overview .cs-sales-breakdown dd:last-child {
+    font-weight:650; color:#0f2e28;
+  }
+  :root main.customer-fill .cs-fill-overview .card:last-child .cs-overview-metric {
+    margin-block:auto;
+  }
+  :root main.customer-fill .cs-fill-overview .hint { font-size:13px; }
+}
 
 .customer-fill .customer-profile > summary {
   cursor: pointer;

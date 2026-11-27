@@ -65,8 +65,9 @@ export default function FanFillForm({ today, account, employees, tenures, onRegi
         const label = key === "pageName" ? "人设" : key === "operatorName" ? "经办客服" : fanFillLabels[key];
         if (key === "pageName") {
           const current = form.pageName.trim();
-          const hasLegacy = Boolean(current && !personaOptions.includes(current));
-          return <Field key={key} label={label}><select required value={form.pageName} onChange={(event) => setForm({ ...form, pageName: event.target.value })}><option value="">{personaLoading ? "正在读取人设列表…" : personaOptions.length ? "请选择人设" : "暂无人设，请先在拍剪端登记"}</option>{personaOptions.map((name) => <option key={name} value={name}>{name}</option>)}{hasLegacy && <option value={current}>{current}（历史记录）</option>}</select></Field>;
+          const options = personaOptions.filter((name) => name !== "无");
+          const hasLegacy = Boolean(current && current !== "无" && !options.includes(current));
+          return <Field key={key} label={label}><select required value={form.pageName} onChange={(event) => setForm({ ...form, pageName: event.target.value })}><option value="">{personaLoading ? "正在读取人设列表…" : "请选择人设"}</option><option value="无">无</option>{options.map((name) => <option key={name} value={name}>{name}</option>)}{hasLegacy && <option value={current}>{current}（历史记录）</option>}</select></Field>;
         }
         return <Field key={key} label={label}><input required={key !== "adAccountId"} inputMode={key === "adAccountId" ? "text" : undefined} pattern={key === "adAccountId" ? "[0-9]{0,32}" : undefined} type={key === "businessDate" ? "date" : "text"} max={key === "businessDate" ? today : undefined} maxLength={key === "adAccountId" ? 32 : 128} placeholder={key === "adAccountId" ? "例如 01871，前导零会保留" : undefined} value={form[key]} onChange={(event) => setForm({ ...form, [key]: event.target.value })} /></Field>;
       })}</div>
