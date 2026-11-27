@@ -121,7 +121,7 @@ export default function CustomerFillWorkspace({ today }: { today: string }) {
     window.scrollTo({ top: 0, behavior: "instant" });
   }
   return <main className="customer-fill role-desk">
-    <header className="desk-heading"><div><p className="eyebrow">日常填报</p><h1>{customer ? customer.name : csFillPages[page].title}</h1></div>{customer && <button type="button" className="secondary" onClick={() => setCustomerId("")}>返回客资库</button>}</header>
+    <header className={`desk-heading${customer ? "" : " cs-mobile-hide-head"}`}><div><p className="eyebrow">日常填报</p><h1>{customer ? customer.name : csFillPages[page].title}</h1></div>{customer && <button type="button" className="secondary" onClick={() => setCustomerId("")}>返回客资库</button>}</header>
     <section className="card fill-account fill-account-bar" aria-label="填报身份">
       <div className="fill-identity-summary">
         <div><span className="fill-avatar" aria-hidden="true">{(selectedPerson?.name || "客").slice(0, 1)}</span>

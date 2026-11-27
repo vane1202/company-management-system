@@ -35,7 +35,7 @@ export function CsFillOverview({data, fans, preset, onPreset, fanError}: {
       <small className="hint">正常沟通 {fans ? fans.replied + " 人" : "—"}</small>
       {fanError && <small className="error" role="alert">{fanError}</small>}
     </article>
-    <article className="card fill-hero">
+    <article className="card">
       <header className="cs-fans-heading"><h2>本月业绩</h2><small>金额（人民币）</small></header>
       <div className="cs-overview-metric">有效开单 <strong>{data ? data.orderCount + " 单" : "—"}</strong></div>
       <dl className="cs-sales-breakdown">

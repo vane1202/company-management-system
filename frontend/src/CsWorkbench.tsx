@@ -82,7 +82,7 @@ export function CsWorkbench({
 
   return (
     <main className="customer-fill role-desk">
-      <header className="desk-heading">
+      <header className="desk-heading cs-mobile-hide-head">
         <div>
           <p className="eyebrow">日常填报</p>
           <h1>{csFillPages[page].title}</h1>
@@ -113,6 +113,9 @@ export function CsWorkbench({
                 </span>
               </span>
             </div>
+            <button type="button" className="secondary fill-mobile-logout" onClick={onLogout}>
+              退出
+            </button>
           </div>
           {isEmployeeAccount && accounts.length > 0 && <Field label="接待账号">
             <select
