@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { api } from "../api";
 import { fillHolder, type FillAccount } from "./serviceDirectory";
 import { fanFields, fanNote } from "../dailyDetail";
 import { Field } from "../OrderWorkspace";
@@ -19,6 +20,20 @@ export default function FanFillForm({ today, account, employees, tenures, onRegi
   const [needsReviewed, setNeedsReviewed] = useState(false);
   const [draftReason, setDraftReason] = useState<"" | InvalidReason>("");
   const [draftNote, setDraftNote] = useState("");
+  const [personaOptions, setPersonaOptions] = useState<string[]>([]);
+  const [personaLoading, setPersonaLoading] = useState(true);
+  useEffect(() => {
+    let active = true;
+    setPersonaLoading(true);
+    void api.orderPersonaOptions().then((list) => {
+      if (active) setPersonaOptions(list);
+    }).catch(() => {
+      if (active) setPersonaOptions([]);
+    }).finally(() => {
+      if (active) setPersonaLoading(false);
+    });
+    return () => { active = false; };
+  }, []);
   const dirty = Object.entries(form).some(([key, value]) => !!value && (key !== "operatorName" || value !== (account.holderName || ""))) || leads.length > 0;
   const intake = leads.filter((lead) => lead.roster !== "reviewOnly");
   const total = /^\d+$/.test(form.msToday) && /^\d+$/.test(form.wsToday) ? Number(form.msToday) + Number(form.wsToday) : null;
@@ -46,7 +61,15 @@ export default function FanFillForm({ today, account, employees, tenures, onRegi
   return <div className="card"><h2>新增客资登记</h2>
     <ReportTextImport name="每日加粉" example={example} dirty={dirty} parse={(text) => parseFanText(text, today)} preview={(result) => <><PreviewFields fields={result.fields} /><p>今日进粉明细：{result.leads.filter((lead) => lead.roster !== "reviewOnly").length}条 · 可复核无效客户 {result.leads.filter((lead) => lead.contact === "invalid").length} 人 · 明确需求待逐条确认</p></>} onApply={(result) => { setForm((current) => ({ ...current, ...result.fields })); setLeads(result.leads.map(lead => ({ ...lead, invalidNote: lead.invalidNote || "", roster: lead.roster || "intake" }))); setReviewed(false); setNeedsReviewed(false); }} />
     <form onSubmit={(event) => { event.preventDefault(); setReviewed(true); }} onChange={() => { setReviewed(false); setNeedsReviewed(false); }}>
-      <div className="grid two">{(["businessDate", "operatorName", "pageName", "adAccountId"] as const).map((key) => <Field key={key} label={fanFillLabels[key]}><input required={key !== "adAccountId"} inputMode={key === "adAccountId" ? "text" : undefined} pattern={key === "adAccountId" ? "[0-9]{0,32}" : undefined} type={key === "businessDate" ? "date" : "text"} max={key === "businessDate" ? today : undefined} maxLength={key === "adAccountId" ? 32 : 128} placeholder={key === "adAccountId" ? "例如 01871，前导零会保留" : undefined} value={form[key]} onChange={(event) => setForm({ ...form, [key]: event.target.value })} /></Field>)}</div>
+      <div className="grid two">{(["businessDate", "operatorName", "pageName", "adAccountId"] as const).map((key) => {
+        const label = key === "pageName" ? "人设" : key === "operatorName" ? "经办客服" : fanFillLabels[key];
+        if (key === "pageName") {
+          const current = form.pageName.trim();
+          const hasLegacy = Boolean(current && !personaOptions.includes(current));
+          return <Field key={key} label={label}><select required value={form.pageName} onChange={(event) => setForm({ ...form, pageName: event.target.value })}><option value="">{personaLoading ? "正在读取人设列表…" : personaOptions.length ? "请选择人设" : "暂无人设，请先在拍剪端登记"}</option>{personaOptions.map((name) => <option key={name} value={name}>{name}</option>)}{hasLegacy && <option value={current}>{current}（历史记录）</option>}</select></Field>;
+        }
+        return <Field key={key} label={label}><input required={key !== "adAccountId"} inputMode={key === "adAccountId" ? "text" : undefined} pattern={key === "adAccountId" ? "[0-9]{0,32}" : undefined} type={key === "businessDate" ? "date" : "text"} max={key === "businessDate" ? today : undefined} maxLength={key === "adAccountId" ? 32 : 128} placeholder={key === "adAccountId" ? "例如 01871，前导零会保留" : undefined} value={form[key]} onChange={(event) => setForm({ ...form, [key]: event.target.value })} /></Field>;
+      })}</div>
       <p className="notice">下粉广告户ID记在这一批新客户上，按原文保存。同一天承接多个广告户时分开登记。没有填写的客户显示“来源待补”，不会按客服或主页补上。此项只记录来源，不对应广告消耗。</p>
       {!employee && form.businessDate && <p className="notice">这一天没有对应的使用人，不能把日报记到当前持有人名下。</p>}
       <h3>进粉与当日沟通</h3><p className="notice">{fanNote}</p>
