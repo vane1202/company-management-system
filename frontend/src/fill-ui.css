@@ -264,13 +264,24 @@
 .fill-order-panel:not([hidden]) { display:grid; gap:12px; }
 .fill-order-panel[hidden] { display:none; }
 @media(max-width:700px) {
-  :root main.customer-fill { padding:10px 10px calc(76px + env(safe-area-inset-bottom, 0px)); }
+  :root main.customer-fill { padding:8px 10px calc(68px + env(safe-area-inset-bottom, 0px)); }
   :root main.customer-fill > header.cs-mobile-hide-head { display:none; }
-  :root main.customer-fill .fill-mobile-logout { display:inline-flex; align-items:center; justify-content:center; }
-  :root main.customer-fill .card.fill-account { margin:0 0 12px; padding:12px 14px; }
+  :root main.customer-fill .fill-mobile-logout {
+    display:inline-flex; align-items:center; justify-content:center;
+    min-height:30px; padding:0 11px; font-size:12px;
+  }
+  :root main.customer-fill .card.fill-account { margin:0 0 8px; padding:8px 12px; border-radius:14px; }
+  :root main.customer-fill .fill-account-bar .fill-identity-fields { gap:8px; }
+  :root main.customer-fill .fill-identity-summary { min-height:0; gap:8px; }
+  :root main.customer-fill .fill-identity-summary > div { flex-wrap:nowrap; align-items:center; gap:9px; flex:1 1 auto; min-width:0; }
+  :root main.customer-fill .fill-avatar { width:34px; height:34px; font-size:14px; }
+  :root main.customer-fill .fill-identity-text { gap:1px; }
+  :root main.customer-fill .fill-identity-text strong { font-size:15px; line-height:1.2; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  :root main.customer-fill .fill-identity-text span { font-size:12px; line-height:1.25; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  :root main.customer-fill .fill-account button.secondary { min-height:30px; padding:0 11px; font-size:12px; }
   :root main.customer-fill .fill-nav {
     position:fixed; left:0; right:0; bottom:0; z-index:40; margin:0;
-    padding:7px 8px calc(7px + env(safe-area-inset-bottom, 0px));
+    padding:6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
     border-radius:0;
     background:
       radial-gradient(120% 180% at 100% 0%, rgba(78, 201, 170, 0.22) 0%, rgba(78, 201, 170, 0) 60%),
@@ -281,7 +292,7 @@
   }
   :root main.customer-fill .fill-nav button {
     display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
-    min-height:48px; padding:5px 2px; border:1px solid transparent !important; border-radius:12px;
+    min-height:44px; padding:4px 2px; border:1px solid transparent !important; border-radius:12px;
     background:transparent !important; box-shadow:none !important; color:rgba(218, 238, 231, 0.72) !important;
     font-size:11px; font-weight:500; line-height:1.2;
   }
@@ -369,28 +380,31 @@
 @media(max-width:700px) {
   :root main.customer-fill .cs-fill-overview {
     grid-template-columns:minmax(0,1fr);
-    grid-template-rows:minmax(0,1.25fr) minmax(0,1.15fr) minmax(0,0.95fr);
-    min-height:calc(100dvh - 176px - env(safe-area-inset-bottom, 0px));
-    gap:12px;
+    grid-template-rows:minmax(0,1.22fr) minmax(0,1.15fr) minmax(0,0.85fr);
+    min-height:calc(100dvh - 134px - env(safe-area-inset-bottom, 0px));
+    gap:8px;
   }
   :root main.customer-fill .cs-fill-overview .card {
     display:flex;
     flex-direction:column;
-    gap:12px;
-    padding:18px 16px;
+    gap:6px;
+    padding:12px 14px;
+    border-radius:14px;
   }
-  :root main.customer-fill .cs-fill-overview .cs-fans-heading h2 { font-size:17px; }
-  :root main.customer-fill .cs-overview-metric { font-size:15px; gap:6px 10px; }
-  :root main.customer-fill .cs-overview-metric strong { font-size:clamp(26px, 7.2vw, 30px); line-height:1.15; }
-  :root main.customer-fill .cs-fill-overview .cs-fans-breakdown { margin-top:auto; gap:8px; }
+  :root main.customer-fill .cs-fill-overview .cs-fans-heading { min-height:28px; }
+  :root main.customer-fill .cs-fill-overview .cs-fans-heading h2 { font-size:15px; }
+  :root main.customer-fill .cs-fans-period button { min-height:28px; min-width:34px; padding:2px 9px; font-size:12px; }
+  :root main.customer-fill .cs-overview-metric { font-size:14px; gap:4px 8px; }
+  :root main.customer-fill .cs-overview-metric strong { font-size:clamp(22px, 6.2vw, 26px); line-height:1.15; }
+  :root main.customer-fill .cs-fill-overview .cs-fans-breakdown { margin-top:auto; gap:6px; }
   :root main.customer-fill .cs-fill-overview .cs-fans-breakdown > div {
-    padding:10px 12px; border-radius:11px; font-size:14px;
+    padding:7px 11px; border-radius:9px; font-size:13px;
   }
-  :root main.customer-fill .cs-fill-overview .cs-sales-breakdown { margin-top:auto; gap:8px; }
+  :root main.customer-fill .cs-fill-overview .cs-sales-breakdown { margin-top:auto; gap:6px; }
   :root main.customer-fill .cs-fill-overview .cs-sales-breakdown > div {
-    padding:10px 12px; border-radius:11px;
+    padding:7px 11px; border-radius:9px;
     background:rgba(255,255,255,0.72); border:1px solid #d4e4de;
-    color:#3a5750; font-size:14px;
+    color:#3a5750; font-size:13px;
   }
   :root main.customer-fill .cs-fill-overview .cs-sales-breakdown dd:last-child {
     font-weight:650; color:#0f2e28;
@@ -398,7 +412,7 @@
   :root main.customer-fill .cs-fill-overview .card:last-child .cs-overview-metric {
     margin-block:auto;
   }
-  :root main.customer-fill .cs-fill-overview .hint { font-size:13px; }
+  :root main.customer-fill .cs-fill-overview .hint { font-size:12px; }
 }
 
 .customer-fill .customer-profile > summary {
