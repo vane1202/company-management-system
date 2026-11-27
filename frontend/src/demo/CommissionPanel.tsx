@@ -1,9 +1,46 @@
 import { useEffect, useState } from "react";
 import { api, requestInner } from "../api";
 import { toErrorMessage } from "../errors";
-import { commissionLine, commissionPeople, commissionSummary, yuan, type CommissionInput, type CommissionLine } from "./commissionCalc";
+import { centsOf, commissionLine, commissionPeople, commissionSummary, yuan, type CommissionInput, type CommissionLine, type WelfareDeduction } from "./commissionCalc";
 
 const statusLabel = { ready: "可计提", pending: "待核算", reversed: "已回冲" };
+
+type RawReimbursementClaim = {
+  id: string;
+  claimant: string;
+  claimType?: string;
+  welfareCustomer?: string;
+  orderId?: string;
+  status: string;
+  expenseDate: string;
+  purpose: string;
+  amount: string;
+};
+
+async function loadReimbursementWelfare(month: string): Promise<WelfareDeduction[]> {
+  const url = import.meta.env.MODE === "demo" ? "/api/demo/reimbursements" : "/api/finance/reimbursements";
+  try {
+    const data = import.meta.env.MODE === "demo"
+      ? await fetch(url, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
+      : await requestInner<{ state?: { claims?: RawReimbursementClaim[] } }>(url);
+    const claims: RawReimbursementClaim[] = data?.state?.claims ?? [];
+    return claims.flatMap((c) => {
+      if (c.claimType !== "welfare" || c.orderId || c.status !== "approved" || !c.expenseDate.startsWith(month)) return [];
+      const amountCents = centsOf(c.amount);
+      if (amountCents == null || amountCents <= 0) return [];
+      return [{
+        id: c.id,
+        expenseDate: c.expenseDate,
+        operator: c.claimant,
+        customer: c.welfareCustomer || "",
+        purpose: c.purpose,
+        amountCents
+      }];
+    });
+  } catch {
+    return [];
+  }
+}
 
 export default function CommissionPanel({ today, readOnly = false }: { today: string; readOnly?: boolean }) {
   const [month, setMonth] = useState(today.slice(0, 7));
@@ -13,6 +50,7 @@ export default function CommissionPanel({ today, readOnly = false }: { today: st
 
 function CommissionContent({ today, readOnly, month, setMonth }: { today: string; readOnly: boolean; month: string; setMonth: (value: string) => void }) {
   const [lines, setLines] = useState<CommissionLine[] | null>(null);
+  const [deductions, setDeductions] = useState<WelfareDeduction[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   useEffect(() => {
@@ -20,24 +58,34 @@ function CommissionContent({ today, readOnly, month, setMonth }: { today: string
     setLoading(true);
     setError("");
     setLines(null);
+    setDeductions([]);
     const source = !readOnly && import.meta.env.MODE !== "demo"
-      ? requestInner<{ records: (CommissionInput & { channel: "live" | "private" })[] }>(`/api/finance/commission-inputs?month=${encodeURIComponent(month)}`).then(data => data.records.map(record => commissionLine(record, record.channel)))
-      : api.orders().then(data => Promise.all(data.orders.filter(order => order.businessDate.startsWith(month)).map(async (order) => {
-        const record = await api.orderRecord(order.id);
-        return commissionLine(record, order.dealChannel === "private" ? "private" : "live");
-      })));
-    source.then(rows => {
-      if (live) setLines(rows);
+      ? requestInner<{ records: (CommissionInput & { channel: "live" | "private" })[]; welfareDeductions?: WelfareDeduction[] }>(`/api/finance/commission-inputs?month=${encodeURIComponent(month)}`).then((data) => ({
+        rows: data.records.map((record) => commissionLine(record, record.channel)),
+        welfare: data.welfareDeductions ?? []
+      }))
+      : Promise.all([
+        api.orders().then((data) => Promise.all(data.orders.filter((order) => order.businessDate.startsWith(month)).map(async (order) => {
+          const record = await api.orderRecord(order.id);
+          return commissionLine(record, order.dealChannel === "private" ? "private" : "live");
+        }))),
+        loadReimbursementWelfare(month)
+      ]).then(([rows, welfare]) => ({ rows, welfare }));
+    source.then(({ rows, welfare }) => {
+      if (live) {
+        setLines(rows);
+        setDeductions(welfare);
+      }
     }).catch((cause) => { if (live) setError(toErrorMessage(cause)); }).finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
   }, [month, readOnly]);
   if (error) return <section className="commission-panel"><h2>{readOnly ? "本组提成" : "业绩提成"}</h2><p className="error" role="alert">{error}</p></section>;
   const visible = (lines ?? []).filter((line) => line.businessDate.startsWith(month));
-  const summary = commissionSummary(visible);
-  const people = commissionPeople(visible);
+  const summary = commissionSummary(visible, deductions);
+  const people = commissionPeople(visible, deductions);
   return <section className="commission-panel" aria-label={readOnly ? "本组提成" : "业绩提成"}>
     <header className="desk-section-heading">{!readOnly && <h2>业绩提成</h2>}<label>月份<input aria-label="提成月份" type="month" max={today.slice(0, 7)} value={month} onChange={(event) => setMonth(event.target.value)} /></label></header>
-    <details className="commission-rules"><summary>计提规则与演示说明</summary><p className="notice">提成按净利润计算。{readOnly ? "直播间开单客服 5%，私推开单客服 10%。" : "直播间净利润：主播 10%、开单客服 5%。私推净利润：主播 5%、开单客服 10%。"}主管拿本组可计提净利润的 5%。料子本钱或发货成本未登记时待核算。广告消耗、工资和本次提成不计入。{readOnly ? "主管只能查看，不能修改。" : "演示金额不写入工资单，财务可按此结果在工资核算中登记提成。"}</p></details>
+    <details className="commission-rules"><summary>计提规则与演示说明</summary><p className="notice">提成按净利润计算。{readOnly ? "直播间开单客服 5%，私推开单客服 10%。" : "直播间净利润：主播 10%、开单客服 5%。私推净利润：主播 5%、开单客服 10%。"}主管拿本组可计提净利润的 5%。已核准的未开单福利品报销从对应客服当月订单总净利润扣除；办公类报销不计入。料子本钱或发货成本未登记时待核算。广告消耗、工资和本次提成不计入。{readOnly ? "主管只能查看，不能修改。" : "演示金额不写入工资单，财务可按此结果在工资核算中登记提成。"}</p></details>
     {error && <p className="error" role="alert">{error}</p>}
     <div className="supervisor-figures" aria-label="提成汇总">
       <div><span>可计提净利润</span><strong>{loading ? "…" : yuan(summary.net)}</strong></div>
@@ -45,9 +93,10 @@ function CommissionContent({ today, readOnly, month, setMonth }: { today: string
       <div><span>客服提成</span><strong>{loading ? "…" : yuan(summary.cs)}</strong></div>
       <div><span>主管提成</span><strong>{loading ? "…" : yuan(summary.supervisor)}</strong></div>
     </div>
-    <p className="supervisor-note">可计提 {summary.ready} 笔 · 待核算 {summary.pending} 笔{!readOnly && summary.unassigned ? " · 私推待归属主播 " + summary.unassigned + " 笔" : ""}</p>
-    <div className="commission-people"><div><h3>按客服</h3>{people.staff.length ? people.staff.map((person) => <p key={person.name}><span>{person.name}</span><b>{yuan(person.cents)}</b></p>) : <p className="supervisor-note">本月还没有可计提的客服提成。</p>}</div>{!readOnly && <div><h3>按主播</h3>{people.hosts.length ? people.hosts.map((person) => <p key={person.name}><span>{person.name}</span><b>{yuan(person.cents)}</b></p>) : <p className="supervisor-note">本月还没有可计提的主播提成。</p>}<p><span>客服主管</span><b>{yuan(summary.supervisor)}</b></p></div>}</div>
+    <p className="supervisor-note">可计提 {summary.ready} 笔 · 待核算 {summary.pending} 笔{summary.welfareCount ? ` · 已扣未开单福利品 ${summary.welfareCount} 笔（${yuan(summary.welfareCents)}）` : ""}{!readOnly && summary.unassigned ? " · 私推待归属主播 " + summary.unassigned + " 笔" : ""}</p>
+    <div className="commission-people"><div><h3>按客服</h3>{people.staff.length ? people.staff.map((person) => <p key={person.name}><span>{person.name}{person.welfareCents ? <small>（已扣福利品 {yuan(person.welfareCents)}）</small> : null}</span><b>{yuan(person.cents)}</b></p>) : <p className="supervisor-note">本月还没有可计提的客服提成。</p>}</div>{!readOnly && <div><h3>按主播</h3>{people.hosts.length ? people.hosts.map((person) => <p key={person.name}><span>{person.name}</span><b>{yuan(person.cents)}</b></p>) : <p className="supervisor-note">本月还没有可计提的主播提成。</p>}<p><span>客服主管</span><b>{yuan(summary.supervisor)}</b></p></div>}</div>
     <details className="commission-detail"><summary>订单核算明细 · {visible.length} 笔</summary><div className="commission-lines">{visible.map((line) => <article key={line.id}><div><strong>{line.customer}</strong><small>{line.businessDate} · {line.orderRef} · {line.channel === "private" ? "私推" : "直播间"} · {!readOnly && <>{line.host || "主播待归属"} · </>}{line.operator || "客服待归属"}</small></div><div><span>{statusLabel[line.status]}{line.pendingReason ? " · " + line.pendingReason : ""}</span><b>{line.status === "ready" ? "净利润 " + yuan(line.netCents) : line.status === "reversed" ? "已回冲" : "待核算"}</b></div></article>)}</div></details>
+    {deductions.length > 0 && <details className="commission-detail"><summary>未开单福利品扣减明细 · {deductions.length} 笔</summary><div className="commission-lines">{deductions.map((item) => <article key={item.id}><div><strong>{item.customer || "未登记客户"}</strong><small>{item.expenseDate} · {item.operator} · {item.purpose}</small></div><div><span>未开单福利品</span><b>扣减净利润 {yuan(item.amountCents)}</b></div></article>)}</div></details>}
     {!loading && !visible.length && <p className="empty-state">这个月没有开单记录。</p>}
   </section>;
 }

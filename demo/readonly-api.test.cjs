@@ -768,3 +768,53 @@ test('客服演示只读获取拍剪人设选项',async()=>{
  assert.ok(result.body.personas.includes('演示人设 A'));
  assert.equal((await cs.json('/api/order-records/demo-order-1')).status,403);
 });
+
+test('报销三分类：业务类确认入订单成本，未开单福利品可转绑新订单，办公类不影响订单成本', async () => {
+  const store = new Map(), path = '/api/demo/reimbursements';
+  const staff = environment('cs', '', undefined, store);
+  const supervisor = environment('cs_supervisor', '', undefined, store);
+  const finance = environment('finance', '', undefined, store);
+  const csSnap = await staff.json(path);
+  assert.equal(csSnap.status, 200);
+  const teamId = csSnap.body.teams[0].id;
+  const order = csSnap.body.orders[0];
+  assert.ok(teamId && order);
+  const date = order.businessDate;
+  const proof = ['data:image/png;base64,iVBORw0KGgo='];
+
+  const badBiz = await staff.json(path, 'POST', { action: 'create', claimType: 'business', teamId, category: 'advance', purpose: '漏选订单测试', amount: '20', expenseDate: date, claimDate: date, requestKey: 'cls-bad-1', proofs: proof });
+  assert.equal(badBiz.status, 400);
+
+  const beforePayables = (await finance.json('/api/finance/payables')).body.summary.costCny;
+  const beforeOrder = (await supervisor.json(`/api/order-records/${order.id}`)).body.expenses.length;
+  const bizCreate = await staff.json(path, 'POST', { action: 'create', claimType: 'business', teamId, orderId: order.id, category: 'advance', purpose: '客户抛光垫付', amount: '35.00', expenseDate: date, claimDate: date, requestKey: 'cls-biz-1', proofs: proof });
+  assert.equal(bizCreate.status, 200);
+  const bizClaim = bizCreate.body.state.claims.find(c => c.requestKey === 'cls-biz-1');
+  assert.equal(bizClaim.claimType, 'business');
+  assert.equal((await supervisor.json(path, 'POST', { action: 'forward', id: bizClaim.id, version: bizClaim.version })).status, 200);
+  const bizReview = await finance.json(path, 'POST', { action: 'review', id: bizClaim.id, version: bizClaim.version + 1, decision: 'approved', reason: '核对无误' });
+  assert.equal(bizReview.status, 200);
+  assert.ok(bizReview.body.state.claims.find(c => c.id === bizClaim.id).postedExpenseId);
+  assert.equal((await supervisor.json(`/api/order-records/${order.id}`)).body.expenses.length, beforeOrder + 1);
+  assert.equal((await finance.json('/api/finance/payables')).body.summary.costCny, beforePayables);
+
+  const welCreate = await staff.json(path, 'POST', { action: 'create', claimType: 'welfare', welfareCustomer: '潜在客户A', teamId, category: 'advance', purpose: '福利手串邮费', amount: '18.00', expenseDate: date, claimDate: date, requestKey: 'cls-wel-1', proofs: ['data:image/png;base64,iVBORw0KGgoAAAANSUhEUg=='] });
+  assert.equal(welCreate.status, 200);
+  const welClaim = welCreate.body.state.claims.find(c => c.requestKey === 'cls-wel-1');
+  assert.equal(welClaim.claimType, 'welfare');
+  assert.equal((await supervisor.json(path, 'POST', { action: 'forward', id: welClaim.id, version: welClaim.version })).status, 200);
+  assert.equal((await finance.json(path, 'POST', { action: 'review', id: welClaim.id, version: welClaim.version + 1, decision: 'approved', reason: '同意福利品' })).status, 200);
+  const bound = await staff.json(path, 'POST', { action: 'bindOrder', id: welClaim.id, version: welClaim.version + 2, orderId: order.id });
+  assert.equal(bound.status, 200);
+  const updatedWel = bound.body.state.claims.find(c => c.id === welClaim.id);
+  assert.equal(updatedWel.claimType, 'business');
+  assert.equal(updatedWel.orderId, order.id);
+  assert.equal((await supervisor.json(`/api/order-records/${order.id}`)).body.expenses.length, beforeOrder + 2);
+
+  const offCreate = await finance.json(path, 'POST', { action: 'create', claimType: 'office', claimant: '行政', department: '综合部', category: 'purchase', purpose: '打印纸', amount: '50.00', expenseDate: date, claimDate: date, receiptRef: 'OFF-001', requestKey: 'cls-off-1' });
+  assert.equal(offCreate.status, 200);
+  const offClaim = offCreate.body.state.claims.find(c => c.requestKey === 'cls-off-1');
+  assert.equal(offClaim.claimType, 'office');
+  assert.equal((await finance.json(path, 'POST', { action: 'review', id: offClaim.id, version: offClaim.version, decision: 'approved', reason: '办公采购核对' })).status, 200);
+  assert.equal((await supervisor.json(`/api/order-records/${order.id}`)).body.expenses.length, beforeOrder + 2);
+});

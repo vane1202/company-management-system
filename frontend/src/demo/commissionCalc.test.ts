@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { OrderRecord } from "../api";
-import { commissionLine, commissionPeople, commissionSummary, cutOf } from "./commissionCalc";
+import { commissionLine, commissionPeople, commissionSummary, cutOf, estimateCsCommission } from "./commissionCalc";
 
 function record(patch: Partial<OrderRecord["order"]> = {}, extra: Partial<OrderRecord> = {}): OrderRecord {
   return {
@@ -46,5 +46,18 @@ describe("commission", () => {
     expect(summary.supervisor).toBe(cutOf(ready.netCents, 500));
     expect(commissionPeople([ready]).hosts[0]).toEqual({ name: "host", cents: ready.hostCents });
     expect(summary.unassigned).toBe(0);
+  });
+  it("deducts approved unlinked welfare reimbursements from monthly CS net profit", () => {
+    const ready = commissionLine(record(), "live");
+    const welfare = [{ id: "w1", expenseDate: "2026-11-10", operator: "cs", customer: "新客小王", purpose: "寄送福利手串", amountCents: 6000 }];
+    const summary = commissionSummary([ready], welfare);
+    expect(summary.net).toBe(12000);
+    expect(summary.welfareCents).toBe(6000);
+    expect(summary.cs).toBe(600);
+    expect(summary.supervisor).toBe(cutOf(12000, 500));
+    expect(commissionPeople([ready], welfare).staff[0]).toEqual({ name: "cs", cents: 600, welfareCents: 6000 });
+    const est = estimateCsCommission([ready], welfare);
+    expect(est.cents).toBe(600);
+    expect(est.welfareCents).toBe(6000);
   });
 });

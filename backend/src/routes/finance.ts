@@ -1,5 +1,5 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
-import { commissionInputs } from "../lib/commissionInputs.js";
+import { commissionInputs, welfareDeductions } from "../lib/commissionInputs.js";
 import { liveRoomSql } from "../lib/liveRoomIdentity.js";
 import type { Pool, PoolClient } from "pg";
 import { withTransaction } from "../db.js";
@@ -21,7 +21,8 @@ export function createFinanceRouter(db:Pool, config:AppConfig) {
         throw new HttpError(400, "请选择有效核算月份");
       }
       const rows = await commissionInputs(db, month + "-01");
-      res.set("Cache-Control", "private, no-store").json({ records: rows });
+      const deductions = await welfareDeductions(db, month + "-01");
+      res.set("Cache-Control", "private, no-store").json({ records: rows, welfareDeductions: deductions });
     } catch (error) { next(error); }
   });
   const mutate=(handler:(c:PoolClient,req:Request)=>Promise<unknown>)=>(req:Request,res:Response,next:NextFunction)=>{

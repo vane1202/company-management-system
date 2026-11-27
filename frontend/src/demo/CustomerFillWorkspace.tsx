@@ -6,7 +6,7 @@ import { cents, currencies, expenseLabels } from "../commerceUi";
 import { toErrorMessage } from "../errors";
 import { csFillPageFromPath, csFillPageIds, csFillPages, type CsFillPage } from "../fillEntries";
 import { DashboardIcon } from "../DashboardIcon";
-import { commissionLine, estimateCsCommission } from "./commissionCalc";
+import { centsOf, commissionLine, estimateCsCommission, type WelfareDeduction } from "./commissionCalc";
 import { dashboardPresetRange } from "../dates";
 import type { PersonalFanPreset } from "../leadApi";
 import { CsFillOverview } from "../CsFillOverview";
@@ -29,7 +29,22 @@ const sampleCommissionCosts = new Map([
   ["sample-o1", { material: "760.00", shipping: "28.00" }],
   ["sample-o6", { material: "400.00", shipping: "20.00" }]
 ]);
-function demoCommissionEstimate(orders: CrmOrder[]) {
+function demoWelfareDeductions(month: string, employeeName: string): WelfareDeduction[] {
+  try {
+    const raw = window.sessionStorage.getItem("cms-demo-reimbursements-v1");
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as { claims?: { id: string; claimant: string; claimType?: string; welfareCustomer?: string; orderId?: string; status: string; expenseDate: string; purpose: string; amount: string }[] };
+    return (parsed.claims ?? []).flatMap((c) => {
+      if (c.claimType !== "welfare" || c.orderId || c.status !== "approved" || !c.expenseDate.startsWith(month) || c.claimant !== employeeName) return [];
+      const amountCents = centsOf(c.amount);
+      if (amountCents == null || amountCents <= 0) return [];
+      return [{ id: c.id, expenseDate: c.expenseDate, operator: c.claimant, customer: c.welfareCustomer || "", purpose: c.purpose, amountCents }];
+    });
+  } catch {
+    return [];
+  }
+}
+function demoCommissionEstimate(orders: CrmOrder[], month: string, employeeName: string) {
   const estimate = estimateCsCommission(orders.map(row => {
     const costs = sampleCommissionCosts.get(row.id);
     return commissionLine({
@@ -39,8 +54,8 @@ function demoCommissionEstimate(orders: CrmOrder[]) {
         ?? [{price_cny:(row.materialCents/100).toFixed(2),buying_fee_cny:(row.feeCents/100).toFixed(2)}],
       expenses: costs ? [{category:"shipping",amount_cny:costs.shipping}] : []
     }, row.channel);
-  }));
-  return { amount: estimate.cents === null ? null : (estimate.cents/100).toFixed(2), pendingCount: estimate.pendingCount };
+  }), demoWelfareDeductions(month, employeeName));
+  return { amount: estimate.cents === null ? null : (estimate.cents/100).toFixed(2), pendingCount: estimate.pendingCount, welfareCents: estimate.welfareCents };
 }
 
 export default function CustomerFillWorkspace({ today }: { today: string }) {
@@ -139,7 +154,7 @@ export default function CustomerFillWorkspace({ today }: { today: string }) {
       })}
     </nav>
 
-    {page==="home"&&<CsFillOverview data={actor?{orderCount:monthOrders.length,liveCount:liveOrders.length,privateCount:privateOrders.length,liveAmount:monthAmount(liveOrders),privateAmount:monthAmount(privateOrders),commission:null,commissionEstimate:demoCommissionEstimate(monthOrders)}:null}
+    {page==="home"&&<CsFillOverview data={actor?{orderCount:monthOrders.length,liveCount:liveOrders.length,privateCount:privateOrders.length,liveAmount:monthAmount(liveOrders),privateAmount:monthAmount(privateOrders),commission:null,commissionEstimate:demoCommissionEstimate(monthOrders, today.slice(0, 7), actor.employeeName)}:null}
       fans={actor?fanCounts:null} preset={fanPreset} onPreset={setFanPreset}/> }
     {!actor && page !== "reimbursements" && page !== "home" && <section className="card"><h2>{loading ? "正在读取客服" : "暂无可用客服"}</h2><p>请选择可用的接待账号。</p></section>}
     {actor && page === "leads" && !customer && <section className="card">

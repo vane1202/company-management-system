@@ -10,7 +10,7 @@ export type Lead={id:string;accountId:string;wechatId:string;teamId:string;teamN
 export type CustomerLead = Lead & {reviewedAt:string|null;lastOrderStatus:string|null;lastOrderCancelled:boolean};
 export type PersonalFanPreset = "day" | "week" | "month";
 export type PersonalFans = {from:string;to:string;added:number;replied:number;invalid:number};
-export type PersonalFillOverview = {orderCount:number;liveCount:number;privateCount:number;liveAmount:string;privateAmount:string;commission:string|null;commissionEstimate?:{amount:string|null;pendingCount:number}|null};
+export type PersonalFillOverview = {orderCount:number;liveCount:number;privateCount:number;liveAmount:string;privateAmount:string;commission:string|null;commissionEstimate?:{amount:string|null;pendingCount:number;welfareCents?:number}|null};
 export type LeadReport={accountId:string;pageName:string;businessDate:string;msToday:number|null;wsToday:number|null;addedCount:number};
 export type ZeroStatus={date:string;leadCount:number;zeroCheckedIn:boolean;checkedInAt:string|null};
 export function isConfirmedInvalidLead(lead:Pick<Lead,'invalidReason'|'invalidReviewStatus'>):boolean{

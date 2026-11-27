@@ -3,3 +3,15 @@
 .reimbursement-workspace .reim-proofs img { width: 120px; height: 96px; object-fit: contain; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
 .reimbursement-workspace .reim-proof-file { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-block: 5px; }
 .reimbursement-workspace .reim-proof-file span { overflow-wrap: anywhere; }
+.reimbursement-workspace .reim-filters { grid-template-columns: 1.2fr 1.2fr 1fr 1fr; }
+.reimbursement-workspace .reim-section-label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 7px; }
+.reimbursement-workspace .reim-type-picker { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 6px; }
+.reimbursement-workspace .reim-type-btn { min-height: 40px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; font-weight: 600; cursor: pointer; }
+.reimbursement-workspace .reim-type-btn.is-active { background: var(--jade-dark) !important; color: #ffffff !important; border-color: var(--jade-dark) !important; }
+.reimbursement-workspace .reim-type-line { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.reimbursement-workspace .reim-bind-box { margin-top: 12px; padding: 12px 14px; border-radius: 10px; border: 1px solid #e4cfa3; background: #fffdf8; display: grid; gap: 8px; }
+.reimbursement-workspace .reim-bind-box h3 { margin: 0; font-size: 14px; color: var(--ink); }
+.reimbursement-workspace .reim-bind-box .notice { margin: 0; }
+.reimbursement-workspace .reim-bind-row { display: flex; gap: 8px; align-items: center; }
+.reimbursement-workspace .reim-bind-row select { flex: 1; min-width: 0; min-height: 40px; }
+@media(max-width:799px){.reimbursement-workspace .reim-filters{grid-template-columns:1fr 1fr}.reimbursement-workspace .reim-type-picker{grid-template-columns:1fr}.reimbursement-workspace .reim-bind-row{flex-direction:column;align-items:stretch}}

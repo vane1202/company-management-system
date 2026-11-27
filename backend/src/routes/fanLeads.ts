@@ -8,7 +8,7 @@ import { managedTeamIds, membershipOnDate, type Actor } from '../users.js';
 import { getBackfillDays } from '../settings.js';
 import { writeAudit } from '../audit.js';
 import { HttpError } from '../types.js';
-import { commissionInputs } from '../lib/commissionInputs.js';
+import { commissionInputs, welfareDeductions } from '../lib/commissionInputs.js';
 import { commissionLine, estimateCsCommission } from '../lib/commissionCalc.js';
 import { centsToMoney } from '../lib/money.js';
 
@@ -116,10 +116,12 @@ export function createFanLeadsRouter(db:Pool,config:AppConfig){
     let commissionEstimate = null;
     if (summary.commission === null) {
       const records = await commissionInputs(db,month,actor.id,today);
-      const estimate = estimateCsCommission(records.map(record=>commissionLine(record,record.channel)));
+      const deductions = await welfareDeductions(db,month,actor.id,today);
+      const estimate = estimateCsCommission(records.map(record=>commissionLine(record,record.channel)), deductions);
       commissionEstimate = {
         amount: estimate.cents === null ? null : centsToMoney(BigInt(estimate.cents)),
-        pendingCount: estimate.pendingCount
+        pendingCount: estimate.pendingCount,
+        welfareCents: estimate.welfareCents
       };
     }
     res.set('Cache-Control','private, no-store').json({...summary,commissionEstimate});

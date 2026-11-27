@@ -1,5 +1,6 @@
 (function(root,factory){if(typeof module==='object'&&module.exports)module.exports=factory();else root.CmsReimbursements=factory();})(typeof window!=='undefined'?window:globalThis,function(){
  const categories={temporary:'临时支出',advance:'业务垫付',travel:'差旅外出',purchase:'临时采购',other:'其他报销'};
+ const claimTypes=new Set(['business','welfare','office']);
  const fail=(message,status=400)=>{const e=Error(message);e.status=status;throw e;};
  const cents=value=>{if(typeof value!=='string'||!/^\d{1,10}(\.\d{1,2})?$/.test(value))fail('请填写有效人民币金额');const [a,b='']=value.split('.');return BigInt(a)*100n+BigInt(b.padEnd(2,'0'));};
  const money=value=>`${value/100n}.${String(value%100n).padStart(2,'0')}`;
@@ -12,10 +13,17 @@
    if(ctx.role==='cs_supervisor')fail('请由客服发起报销',403);
    const staff=ctx.role==='cs';
    const requestKey=text(input.requestKey,'提交标识');if(next.claims.some(c=>c.requestKey===requestKey))return next;
+   const claimType=typeof input.claimType==='string'&&input.claimType.trim()
+    ? input.claimType.trim()
+    : (typeof input.orderId==='string'&&input.orderId.trim())||(typeof input.expenseId==='string'&&input.expenseId.trim())
+     ? 'business'
+     : 'office';
+   if(!claimTypes.has(claimType))fail('报销分类无效');
+   const welfareCustomer=claimType==='welfare'&&typeof input.welfareCustomer==='string'?input.welfareCustomer.trim().slice(0,128):'';
    if(!Object.hasOwn(categories,input.category))fail('报销类别无效');
    const amount=cents(input.amount);if(amount<=0n)fail('报销金额必须大于0');
-   const source=!staff&&input.expenseId?expenses.find(e=>e.id===input.expenseId&&!e.voided_at):null;
-   if(!staff&&input.expenseId&&!source)fail('关联费用不存在');
+   const source=!staff&&claimType==='business'&&input.expenseId?expenses.find(e=>e.id===input.expenseId&&!e.voided_at):null;
+   if(!staff&&claimType==='business'&&input.expenseId&&!source)fail('关联费用不存在');
    if(source&&(source.pending_cny==null||amount>cents(source.pending_cny)))fail('报销金额超过关联费用待付金额');
    if(source&&next.claims.some(c=>c.expenseId===source.id&&c.status!=='rejected'))fail('该费用已有报销单，请勿重复登记');
    const claimant=staff?actor:text(input.claimant,'报销人');
@@ -37,9 +45,16 @@
   }else if(typeof input.teamId==='string'&&input.teamId.trim()){
    pickedTeam=teams.find(t=>t.id===input.teamId)||null;
   }
-  const linkedOrder=staff&&typeof input.orderId==='string'&&input.orderId.trim()?orders.find(o=>o.id===input.orderId):null;
-  if(staff&&typeof input.orderId==='string'&&input.orderId.trim()&&!linkedOrder)fail('所选订单不存在或不属于当前客服');
-  next.claims.push({id,requestKey,claimant,teamId:pickedTeam?.id||'',department:pickedTeam?pickedTeam.name:(staff?'演示客服组':typeof input.department==='string'?input.department.slice(0,64):''),orderId:linkedOrder?.id||'',orderRef:linkedOrder?.orderRef||'',customerLabel:linkedOrder?.customerLabel||'',orderDate:linkedOrder?.businessDate||'',category:input.category,purpose:text(input.purpose,'报销事由',500),amount:money(amount),expenseDate,claimDate,expenseId:source?.id||'',receiptRef:receipt,proofs,stage:staff?'supervisor':'finance',ownerRole:ctx.role,note:typeof input.note==='string'?input.note.slice(0,1000):'',status:'pending',version:1,createdBy:actor,createdAt:now,history:[]});return next;
+  let linkedOrder=null;
+  if(source){
+   linkedOrder=orders.find(o=>o.id===source.order_id)||null;
+  }else if(claimType==='business'){
+   const rawOrderId=typeof input.orderId==='string'?input.orderId.trim():'';
+   if(!rawOrderId)fail('业务类报销请选择关联订单；未开单客户请选择「未开单福利品」');
+   linkedOrder=orders.find(o=>o.id===rawOrderId)||null;
+   if(!linkedOrder)fail(staff?'所选订单不存在或不属于当前客服':'所选订单不存在');
+  }
+  next.claims.push({id,requestKey,claimant,teamId:pickedTeam?.id||'',department:pickedTeam?pickedTeam.name:(staff?'演示客服组':typeof input.department==='string'?input.department.slice(0,64):''),claimType,welfareCustomer,postedExpenseId:'',orderId:linkedOrder?.id||'',orderRef:linkedOrder?.orderRef||'',customerLabel:linkedOrder?.customerLabel||'',orderDate:linkedOrder?.businessDate||'',category:staff?(claimType==='office'?'other':'advance'):input.category,purpose:text(input.purpose,'报销事由',500),amount:money(amount),expenseDate,claimDate,expenseId:source?.id||'',receiptRef:receipt,proofs,stage:staff?'supervisor':'finance',ownerRole:ctx.role,note:typeof input.note==='string'?input.note.slice(0,1000):'',status:'pending',version:1,createdBy:actor,createdAt:now,history:[]});return next;
   }
   const claim=next.claims.find(c=>c.id===input.id);if(!claim)fail('报销单不存在',404);
   if(input.version!==claim.version)fail('报销单已更新，请刷新后重试',409);
@@ -49,6 +64,20 @@
   const pickedTeam=teams.find(t=>t.id===input.teamId);
   if(!pickedTeam)fail('所选客服组别无效或无权限');
   claim.teamId=pickedTeam.id;claim.department=pickedTeam.name;claim.history.push({action:'updateTeam',actor,at:now,version:claim.version});claim.version++;return next;
+ }
+ if(input.action==='bindOrder'){
+  if(claim.claimType!=='welfare'||claim.orderId)fail('仅未关联订单的福利品报销可转绑新订单',409);
+  if(claim.status==='rejected'||claim.status==='historical')fail('已退回或历史报销单不可转绑订单',409);
+  const orders=Array.isArray(ctx.orders)?ctx.orders:[];
+  const target=orders.find(o=>o.id===input.orderId);
+  if(!target)fail('所选订单不存在或无权绑定');
+  claim.claimType='business';
+  claim.orderId=target.id;
+  claim.orderRef=target.orderRef||'';
+  claim.customerLabel=target.customerLabel||'';
+  claim.orderDate=target.businessDate||'';
+  if(claim.status==='approved'&&!claim.expenseId&&!claim.postedExpenseId)claim.postedExpenseId='reim-exp-'+claim.id;
+  claim.history.push({action:'bindOrder',actor,at:now,version:claim.version});claim.version++;return next;
  }
   if(ctx.role==='cs')fail('客服只能发起报销',403);
   if(ctx.role==='cs_supervisor'){
@@ -64,6 +93,7 @@
    if(!['approved','rejected'].includes(input.decision))fail('核对结果无效');
    if(input.decision==='approved'&&claim.expenseId){const e=expenses.find(e=>e.id===claim.expenseId&&!e.voided_at);if(!e||e.pending_cny==null||cents(claim.amount)>cents(e.pending_cny))fail('关联费用待付余额已变化，请核对');}
    claim.status=input.decision;claim.reviewNote=text(input.reason,'核对说明',500);claim.reviewedBy=actor;claim.reviewedAt=now;
+   if(input.decision==='approved'&&claim.claimType==='business'&&claim.orderId&&!claim.expenseId&&!claim.postedExpenseId)claim.postedExpenseId='reim-exp-'+claim.id;
   }else if(input.action==='pay'){
    if(claim.status!=='approved')fail('请先核对确认报销单');
    const reference=text(input.reference,'付款流水号');if(next.payments.some(p=>p.reference===reference)||(ctx.references||[]).includes(reference))fail('该付款流水号已登记');

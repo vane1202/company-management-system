@@ -18,6 +18,26 @@ export type CommissionLine = {
   csCents: number | null;
 };
 
+export type WelfareDeduction = {
+  id: string;
+  expenseDate: string;
+  operator: string;
+  customer: string;
+  purpose: string;
+  amountCents: number;
+};
+
+function deductWelfareFromCs(rawNet: number, rawCs: number, welfareCents: number): number {
+  if (welfareCents <= 0) return rawCs;
+  if (rawNet > 0 && rawCs > 0) {
+    if (welfareCents <= rawNet) {
+      return rawCs - Math.round((welfareCents * rawCs) / rawNet);
+    }
+    return cutOf(rawNet - welfareCents, 500);
+  }
+  return rawCs - cutOf(welfareCents, 500);
+}
+
 export function centsOf(value: string | null | undefined): number | null {
   if (value == null) return null;
   const text = value.trim();
@@ -104,13 +124,18 @@ export function commissionLine(record: CommissionInput, channel: "live" | "priva
   return { ...base, status: "ready", pendingReason: "", revenueCents: revenue, costCents: cost, netCents: net, hostCents: base.host ? cutOf(net, rates.host) : null, csCents: base.operator ? cutOf(net, rates.cs) : null };
 }
 
-export function commissionSummary(lines: CommissionLine[]) {
+export function commissionSummary(lines: CommissionLine[], welfareDeductions: WelfareDeduction[] = []) {
   const ready = lines.filter((line) => line.status === "ready");
-  const net = ready.reduce((sum, line) => sum + line.netCents, 0);
+  const orderNet = ready.reduce((sum, line) => sum + line.netCents, 0);
+  const welfareCents = welfareDeductions.reduce((sum, item) => sum + item.amountCents, 0);
+  const net = orderNet - welfareCents;
+  const people = commissionPeople(lines, welfareDeductions);
   return {
     net,
+    welfareCents,
+    welfareCount: welfareDeductions.length,
     host: ready.reduce((sum, line) => sum + (line.hostCents ?? 0), 0),
-    cs: ready.reduce((sum, line) => sum + (line.csCents ?? 0), 0),
+    cs: people.staff.reduce((sum, person) => sum + person.cents, 0),
     supervisor: cutOf(net, 500),
     pending: lines.filter((line) => line.status === "pending").length,
     unassigned: ready.filter((line) => line.channel === "private" && !line.host).length,
@@ -118,7 +143,7 @@ export function commissionSummary(lines: CommissionLine[]) {
   };
 }
 
-export function commissionPeople(lines: CommissionLine[]) {
+export function commissionPeople(lines: CommissionLine[], welfareDeductions: WelfareDeduction[] = []) {
   const ready = lines.filter((line) => line.status === "ready");
   function group(nameOf: (line: CommissionLine) => string, amountOf: (line: CommissionLine) => number | null) {
     const totals = new Map<string, number>();
@@ -130,21 +155,48 @@ export function commissionPeople(lines: CommissionLine[]) {
     }
     return [...totals].map(([name, cents]) => ({ name, cents })).sort((a, b) => b.cents - a.cents || a.name.localeCompare(b.name, "zh"));
   }
-  return { hosts: group((line) => line.host, (line) => line.hostCents), staff: group((line) => line.operator, (line) => line.csCents) };
+  const staffMap = new Map<string, { rawNet: number; rawCs: number; welfareCents: number }>();
+  for (const line of ready) {
+    const name = line.operator;
+    if (!name || line.csCents == null) continue;
+    const entry = staffMap.get(name) ?? { rawNet: 0, rawCs: 0, welfareCents: 0 };
+    entry.rawNet += line.netCents;
+    entry.rawCs += line.csCents;
+    staffMap.set(name, entry);
+  }
+  for (const item of welfareDeductions) {
+    const name = item.operator.trim();
+    if (!name || item.amountCents <= 0) continue;
+    const entry = staffMap.get(name) ?? { rawNet: 0, rawCs: 0, welfareCents: 0 };
+    entry.welfareCents += item.amountCents;
+    staffMap.set(name, entry);
+  }
+  const staff = [...staffMap.entries()]
+    .map(([name, entry]) => ({
+      name,
+      cents: deductWelfareFromCs(entry.rawNet, entry.rawCs, entry.welfareCents),
+      welfareCents: entry.welfareCents
+    }))
+    .sort((a, b) => b.cents - a.cents || a.name.localeCompare(b.name, "zh"));
+  return { hosts: group((line) => line.host, (line) => line.hostCents), staff };
 }
 
-export function estimateCsCommission(lines: CommissionLine[]) {
+export function estimateCsCommission(lines: CommissionLine[], welfareDeductions: WelfareDeduction[] = []) {
+  let rawNet = 0;
   let amount = 0;
   let ready = 0;
   let pendingCount = 0;
   for (const line of lines) {
     if (line.status === "reversed") continue;
     if (line.status === "ready" && line.csCents !== null) {
+      rawNet += line.netCents;
       amount += line.csCents;
       ready += 1;
     } else {
       pendingCount += 1;
     }
   }
-  return { cents: ready || pendingCount === 0 ? amount : null, pendingCount };
+  const welfareCents = welfareDeductions.reduce((sum, item) => sum + item.amountCents, 0);
+  const netCents = ready || pendingCount === 0 ? deductWelfareFromCs(rawNet, amount, welfareCents) : null;
+  return { cents: netCents, pendingCount, welfareCents, welfareCount: welfareDeductions.length };
 }

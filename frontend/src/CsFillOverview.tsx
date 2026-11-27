@@ -52,6 +52,9 @@ export function CsFillOverview({data, fans, preset, onPreset, fanError}: {
       {confirmed == null && !!estimate?.pendingCount && <small className="hint">
         {estimate.amount != null ? "另有 " : ""}{estimate.pendingCount} 笔待核算
       </small>}
+      {confirmed == null && !!estimate?.welfareCents && <small className="hint">
+        已扣未开单福利品 {yuan((estimate.welfareCents / 100).toFixed(2))}
+      </small>}
       {commission != null && confirmed == null && <small className="hint">以财务核算为准</small>}
     </article>
   </section>;

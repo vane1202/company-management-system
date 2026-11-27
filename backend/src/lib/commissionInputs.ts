@@ -1,5 +1,5 @@
 import type { Pool } from "pg";
-import type { CommissionInput } from "./commissionCalc.js";
+import { centsOf, type CommissionInput, type WelfareDeduction } from "./commissionCalc.js";
 
 export async function commissionInputs(db: Pick<Pool, "query">, firstDay: string, ownerId?: string, throughDate?: string) {
   const { rows } = await db.query<CommissionInput & { channel: "live" | "private" }>(`
@@ -17,4 +17,50 @@ export async function commissionInputs(db: Pick<Pool, "query">, firstDay: string
           AND ($3::date IS NULL OR o.business_date<=$3)
         ORDER BY o.business_date, o.id`, [firstDay, ownerId ?? null, throughDate ?? null]);
   return rows;
+}
+
+export async function welfareDeductions(
+  db: Pick<Pool, "query">,
+  firstDay: string,
+  ownerId?: string,
+  throughDate?: string
+): Promise<WelfareDeduction[]> {
+  const { rows } = await db.query<{
+    id: string;
+    expense_date: string;
+    operator: string;
+    customer: string;
+    purpose: string;
+    amount_cny: string;
+  }>(
+    `SELECT c.id::text AS id,
+            c.expense_date::text AS expense_date,
+            COALESCE(NULLIF(TRIM(c.claimant), ''), u.display_name) AS operator,
+            COALESCE(c.welfare_customer, '') AS customer,
+            c.purpose,
+            c.amount_cny::text AS amount_cny
+       FROM reimbursement_claims c
+       JOIN users u ON u.id = c.created_by
+      WHERE c.claim_type = 'welfare'
+        AND c.order_id IS NULL
+        AND c.status = 'approved'
+        AND c.expense_date >= $1::date
+        AND c.expense_date < $1::date + interval '1 month'
+        AND ($2::uuid IS NULL OR c.created_by = $2)
+        AND ($3::date IS NULL OR c.expense_date <= $3)
+      ORDER BY c.expense_date, c.id`,
+    [firstDay, ownerId ?? null, throughDate ?? null]
+  );
+  return rows.flatMap((row) => {
+    const amountCents = centsOf(row.amount_cny);
+    if (amountCents == null || amountCents <= 0) return [];
+    return [{
+      id: row.id,
+      expenseDate: row.expense_date,
+      operator: row.operator,
+      customer: row.customer,
+      purpose: row.purpose,
+      amountCents
+    }];
+  });
 }
