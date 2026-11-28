@@ -426,13 +426,117 @@
     for(const o of operations.orders.filter(o=>o.bookedInPeriod||o.status==='unpaid'||o.status==='partial')){
       if(!rooms.has(o.roomKey))rooms.set(o.roomKey,{key:o.roomKey,roomCode:o.roomCode,hosts:o.hostName?[o.hostName]:[],personas:o.personaName?[o.personaName]:[],totals:empty()});
     }
-    for(const room of rooms.values())room.profit=attachProfit(room.key,room.totals.performanceCny);
+    const roomReimClaims=reimbursementState().claims.filter(c=>c.status==='approved'&&!c.postedExpenseId&&c.liveRoomName&&matchDate(c.expenseDate)).map(c=>({id:c.id,claimant:c.claimant,purpose:c.purpose,amount:c.amount,expense_date:c.expenseDate,live_room_name:c.liveRoomName,category:c.category}));
+    if(!roomReimClaims.length&&matchDate(today)&&(!selected.room||selected.room==='DEMO-LIVE-01')&&!selected.host&&!selected.persona&&!selected.operator){
+      roomReimClaims.push({id:'demo-room-reim-1',claimant:'演示·林小禾',purpose:'直播间补光灯与展示台耗材（主管填报示例）',amount:'120.00',expense_date:today,live_room_name:'一号直播间',category:'temporary'});
+    }
+    const fxToCny=(amt,cur)=>{const c=cents(amt||'0.00');const r=cur==='USD'?7.24:cur==='TWD'?0.2235:cur==='SGD'?5.38:cur==='HKD'?0.93:1;return cur==='CNY'?c:BigInt(Math.round(Number(c)*r));};
+    const trendDates=Array.from({length:7},(_,i)=>shift(period.to,i-6));
+    const syntheticDaily={
+      'DEMO-LIVE-01':['1480.00','1620.00','1350.00','1890.00','1540.00'],
+      'DEMO-LIVE-02':['780.00','920.00','640.00','850.00','710.00']
+    };
+    const unsupportedStaffScope=Boolean(selected.host||selected.persona||selected.operator);
+    for(const room of rooms.values()){
+      const baseProfit=attachProfit(room.key,room.totals.performanceCny);
+      const afterSaleCost=events.filter(e=>e.kind==='expense'&&!MATERIAL.has(e.category)&&roomKeyOf(e.order.live_room_code)===room.key&&!e.order.cancelled&&e.order.status!=='refunded').reduce((s,e)=>s+cents(e.amount),0n);
+      const matchedReims=unsupportedStaffScope?[]:roomReimClaims.filter(r=>r.live_room_name===room.roomCode||r.live_room_name===room.key);
+      const roomReimTotal=matchedReims.reduce((s,r)=>s+cents(r.amount),0n);
+      const knownStaffTotal=baseProfit.staff.status==='ok'
+        ? cents(baseProfit.staff.totalCny||'0.00')
+        : baseProfit.staff.status==='pending_finance'
+          ? cents(baseProfit.staff.actorSessionFee?.value||'0.00')
+          : 0n;
+      const directExpense=knownStaffTotal+afterSaleCost+roomReimTotal;
+      const perfCents=cents(room.totals.performanceCny);
+      const matCents=cents(baseProfit.materialCostCny);
+      const netProfit=perfCents-matCents-directExpense;
+      const netMargin=perfCents>0n?Number((netProfit*1000n)/perfCents)/10:0;
+      const pendingBalCents=operations.orders.filter(o=>o.roomKey===room.key&&o.balance!=null&&cents(o.balance)>0n).reduce((s,o)=>s+fxToCny(o.balance,o.currency||'CNY'),0n);
+      room.profit={
+        ...baseProfit,
+        afterSaleCostCny:money(afterSaleCost),
+        roomReimbursementCny:money(roomReimTotal),
+        roomReimbursementRecords:matchedReims,
+        directExpenseCny:money(directExpense),
+        netLiveRoomProfitCny:money(netProfit),
+        netGrossMargin:netMargin,
+        pendingBalanceCny:money(pendingBalCents)
+      };
+      room.trend7d=trendDates.map(d=>{
+        const dayOrders=scoped.filter(o=>roomKeyOf(o.liveRoomCode)===room.key&&o.businessDate===d&&!o.cancelled&&o.status!=='refunded');
+        if(dayOrders.length)return {date:d,amount:money(dayOrders.reduce((s,o)=>s+cents(bookingAmount(o)),0n))};
+        const hasAnyRaw=scoped.some(o=>roomKeyOf(o.liveRoomCode)===room.key&&o.businessDate===d);
+        if(hasAnyRaw)return {date:d,amount:'0.00'};
+        const diff=Math.round((Date.parse(d+'T00:00:00Z')-Date.parse(today+'T00:00:00Z'))/86400000);
+        if(diff>=-6&&diff<=-2&&syntheticDaily[room.key]&&!selected.host&&!selected.persona&&!selected.operator){
+          return {date:d,amount:syntheticDaily[room.key][diff+6]};
+        }
+        return {date:d,amount:null};
+      });
+    }
+    const orderStatusList=scoped.filter(o=>matchDate(o.businessDate)).map(o=>{
+      const rec=orderRecord(o);
+      const basePmts=(rec.payments||[]).filter(p=>!p.voided_at&&!p.after_sale_charge_id&&p.verify_status!=='rejected');
+      const chargePmts=(rec.payments||[]).filter(p=>!p.voided_at&&p.after_sale_charge_id&&p.verify_status!=='rejected');
+      const chargeDue=(rec.charges||[]).filter(c=>!c.voided_at).reduce((s,c)=>s+cents(c.customer_amount||c.amount_cny||'0.00'),0n);
+      const hasSourcing=Array.isArray(rec.items)&&rec.items.some(i=>i.sourcing_no_settle);
+      return {
+        id:o.id,
+        orderRef:o.orderRef,
+        businessDate:o.businessDate,
+        customerLabel:o.customerLabel||'客户待补',
+        roomKey:roomKeyOf(o.liveRoomCode),
+        roomCode:roomTitle(o.liveRoomCode),
+        hostName:o.hostName||'主播待补',
+        operatorName:o.operatorName||o.wechatId||'待补',
+        bookingAmount:bookingAmount(o),
+        cancelled:Boolean(o.cancelled),
+        status:o.status,
+        customerDue:rec.details?.customerDue??o.amount,
+        basePaid:money(basePmts.reduce((s,p)=>s+cents(p.credit_amount||p.amount||'0.00'),0n)),
+        basePaymentCount:basePmts.length,
+        hasSplitPayment:basePmts.some(p=>p.purpose==='deposit'||p.purpose==='balance'),
+        hasFullPayment:basePmts.some(p=>p.purpose==='full'),
+        shippedOn:rec.details?.shippedOn??null,
+        chargeDue:money(chargeDue),
+        chargePaid:money(chargePmts.reduce((s,p)=>s+cents(p.credit_amount||p.amount||'0.00'),0n)),
+        hasSourcingNoSettle:Boolean(hasSourcing),
+        currency:rec.details?.customerCurrency||'CNY'
+      };
+    }).sort((a,b)=>b.businessDate.localeCompare(a.businessDate)||a.orderRef.localeCompare(b.orderRef));
+    const sortedRooms=[...rooms.values()].sort((a,b)=>Number(cents(b.totals.performanceCny)-cents(a.totals.performanceCny)));
+    const sumRooms=fn=>sortedRooms.reduce((s,r)=>s+fn(r),0n);
+    const totalTurn=sumRooms(r=>cents(r.totals.performanceCny));
+    const totalMat=sumRooms(r=>cents(r.profit?.materialCostCny||'0.00'));
+    const totalStaff=sumRooms(r=>cents(r.profit?.staff.status==='ok'?(r.profit.staff.totalCny||'0.00'):(r.profit?.staff.actorSessionFee?.value||'0.00')));
+    const totalAfter=sumRooms(r=>cents(r.profit?.afterSaleCostCny||'0.00'));
+    const totalReim=sumRooms(r=>cents(r.profit?.roomReimbursementCny||'0.00'));
+    const totalDirect=totalStaff+totalAfter+totalReim;
+    const totalGp=totalTurn-totalMat-totalDirect;
+    const totalPendingBal=sumRooms(r=>cents(r.profit?.pendingBalanceCny||'0.00'));
+    const validCount=sortedRooms.reduce((s,r)=>s+r.totals.newOrderCount,0);
+    const roomSummary={
+      validOrderCount:validCount,
+      avgOrderCny:validCount>0?money(totalTurn/BigInt(validCount)):'0.00',
+      totalTurnoverCny:money(totalTurn),
+      totalMaterialCostCny:money(totalMat),
+      totalStaffCostCny:money(totalStaff),
+      totalAfterSaleCostCny:money(totalAfter),
+      totalRoomReimbursementCny:money(totalReim),
+      totalDirectExpenseCny:money(totalDirect),
+      totalGrossProfitCny:money(totalGp),
+      grossMargin:totalTurn>0n?Number((totalGp*1000n)/totalTurn)/10:0,
+      companyReceivedCny:totals.companyReceivedCny,
+      pendingBalanceCny:money(totalPendingBal),
+      roomReimbursements:roomReimClaims
+    };
     const ads=ops.filter(r=>matchDate(r.businessDate)&&r.spendUsd!=null).map(r=>({id:r.id,date:r.businessDate,persona:r.personaName,account:r.adAccountRef||'历史未关联',amount:r.spendUsd}));
     const paidRecords=paidPerformanceRecords.filter(r=>!r.voided_at&&matchDate(r.business_date)&&(!selected.room||r.live_room_code===selected.room)&&(!selected.host||r.host_name===selected.host));
     const paidPerformance={amountCny:paidRecords.length?sumMoney(paidRecords,'amount_cny'):null,recordCount:paidRecords.length,scope:'room_host',records:paidRecords.map(r=>({...r,date:r.business_date}))};
     const afterSales={receipts:{CNY:'0.00',TWD:'0.00',USD:'0.00'},recordCount:0,unclassifiedReceiptCount:events.filter(e=>e.kind==='receipt').length,records:[]};
     const legacy=scoped.filter(o=>!o.workflowEnabled&&cents(o.customProductCost)+cents(o.laborCost)+cents(o.shippingCost)>0n);
-    return json({period,selected,totals,paidPerformance,afterSales,operations,rooms:[...rooms.values()].sort((a,b)=>Number(cents(b.totals.performanceCny)-cents(a.totals.performanceCny))),events,options:orders.filter(o=>o.dealChannel!=='private').map(o=>({room:o.liveRoomCode,host:o.hostName,persona:o.personaCode,persona_name:o.personaName,operator:o.operatorName})),ads:{scope:'company',spendUsd:sumMoney(ads,'amount'),records:ads,unknownCount:0},legacyCost:{count:legacy.length,amountCny:money(legacy.reduce((n,o)=>n+cents(o.customProductCost)+cents(o.laborCost)+cents(o.shippingCost),0n))},refundMethod:'cancelled_and_legacy_refunded_orders_reverse_original_booking_day',turnoverMethod:'booking_price_plus_buying_fee_excludes_additional_charges',profitMethod:'turnover_minus_material_and_entered_staff_costs'});
+    return json({period,selected,totals,paidPerformance,afterSales,operations,rooms:sortedRooms,orderStatusList,roomSummary,events,options:orders.filter(o=>o.dealChannel!=='private').map(o=>({room:o.liveRoomCode,host:o.hostName,persona:o.personaCode,persona_name:o.personaName,operator:o.operatorName})),ads:{scope:'company',spendUsd:sumMoney(ads,'amount'),records:ads,unknownCount:0},legacyCost:{count:legacy.length,amountCny:money(legacy.reduce((n,o)=>n+cents(o.customProductCost)+cents(o.laborCost)+cents(o.shippingCost),0n))},refundMethod:'cancelled_and_legacy_refunded_orders_reverse_original_booking_day',turnoverMethod:'booking_price_plus_buying_fee_excludes_additional_charges',profitMethod:'turnover_minus_material_and_entered_staff_costs'});
   }
   function dashboard(query) {
     const preset=query.get("preset")||"day";
@@ -921,7 +1025,32 @@
       if(path==="/api/dashboard/summary")return json(dashboard(q));
       if(path==="/api/dashboard/series")return dashboardSeries(q);
       if(path==="/api/ops-reports")return json({reports:ops});
-      if(path==="/api/editor-reports")return json({reports:editors});
+      if(path==="/api/editor-reports"){
+        const editorTrendSeries=(()=>{
+          const history=Array.from({length:6},(_,dayOffset)=>{
+            const d=shift(today,dayOffset-6);
+            const matrix=[
+              {editorName:'魏磊',personaName:'演示人设 A',shoot:[2,3,2,3,2,3][dayOffset],edit:[2,2,2,2,2,2][dayOffset],sent:[1,2,1,2,1,1][dayOffset],inv:[5,6,7,7,8,7][dayOffset]},
+              {editorName:'魏磊',personaName:'演示人设 B',shoot:[1,2,1,1,2,1][dayOffset],edit:[1,1,1,1,1,1][dayOffset],sent:[1,1,2,1,1,2][dayOffset],inv:[3,3,2,2,2,1][dayOffset]},
+              {editorName:'尚杰',personaName:'演示人设 A',shoot:[2,2,3,2,2,2][dayOffset],edit:[1,2,2,2,1,2][dayOffset],sent:[1,1,2,1,1,1][dayOffset],inv:[4,5,5,6,6,5][dayOffset]},
+              {editorName:'尚杰',personaName:'演示人设 B',shoot:[1,1,2,1,1,2][dayOffset],edit:[1,1,1,1,1,1][dayOffset],sent:[1,1,1,1,1,1][dayOffset],inv:[2,2,2,2,2,1][dayOffset]},
+              {editorName:'十七',personaName:'演示人设 A',shoot:[3,2,3,2,3,2][dayOffset],edit:[1,1,2,1,1,1][dayOffset],sent:[1,1,1,1,1,1][dayOffset],inv:[3,3,4,4,4,4][dayOffset]},
+              {editorName:'十七',personaName:'演示人设 B',shoot:[2,2,2,2,2,2][dayOffset],edit:[1,0,1,1,0,1][dayOffset],sent:[1,0,1,1,1,1][dayOffset],inv:[1,1,1,1,0,0][dayOffset]}
+            ];
+            return matrix.map((m,idx)=>({id:`demo-ed-${d}-${idx}`,userId:'demo-editor',editorName:m.editorName,businessDate:d,personaName:m.personaName,shootCount:m.shoot,editCount:m.edit,sentToOpsCount:m.sent,finishedCount:0,publishedCount:0,inventorySnapshot:m.inv,inventoryAdjusted:false,recordVersion:1,updatedAt:d+'T18:00:00Z'}));
+          }).flat();
+          const todayAdjusted=[
+            {editorName:'魏磊',personaName:'演示人设 A',shoot:2,edit:2,sent:1,inv:6},
+            {editorName:'魏磊',personaName:'演示人设 B',shoot:1,edit:1,sent:1,inv:1},
+            {editorName:'尚杰',personaName:'演示人设 A',shoot:2,edit:2,sent:1,inv:5},
+            {editorName:'尚杰',personaName:'演示人设 B',shoot:2,edit:1,sent:1,inv:1},
+            {editorName:'十七',personaName:'演示人设 A',shoot:3,edit:1,sent:1,inv:4},
+            {editorName:'十七',personaName:'演示人设 B',shoot:2,edit:0,sent:1,inv:1}
+          ].map((m,idx)=>({id:`demo-ed-${today}-${idx}`,userId:'demo-editor',editorName:m.editorName,businessDate:today,personaName:m.personaName,shootCount:m.shoot,editCount:m.edit,sentToOpsCount:m.sent,finishedCount:0,publishedCount:0,inventorySnapshot:m.inv,inventoryAdjusted:false,recordVersion:1,updatedAt:today+'T03:30:00Z'}));
+          return [...history,...todayAdjusted];
+        })();
+        return json({reports:editors,trendReports:editorTrendSeries});
+      }
       if(path==="/api/notes")return json({notes:[{id:"demo-note-1",authorName:"演示说明",targetDate:today,content:"所有金额和客户记录均为虚构；本演示不会连接本地系统。"}]});
       if(path==="/api/reviews")return json({error:"审核流程已停用"},410);
     }

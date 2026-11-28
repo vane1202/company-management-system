@@ -127,15 +127,18 @@ export default function BossHomeTrend({
             text="选中「今日」自动展示近 7 日走势并高亮今日。总业绩包含直播间与私推；经营毛利按口径 A 含投流日维度汇总；运营成本按已登记日常运营 + 已核报销绘制（不含待核工资）。"
           />
         </h2>
-        <ChartStyleControl style={style} onChange={setStyle} />
       </header>
-      <nav aria-label="首页趋势指标">
-        {(Object.entries(labels) as [Key, string][]).map(([key, label]) => (
-          <button type="button" key={key} aria-pressed={metric === key} onClick={() => setMetric(key)}>
-            {label}
-          </button>
-        ))}
-      </nav>
+      <div className="bh-trend-controls">
+        <nav aria-label="首页趋势指标">
+          {(Object.entries(labels) as [Key, string][]).map(([key, label]) => (
+            <button type="button" key={key} aria-pressed={metric === key} onClick={() => setMetric(key)}>
+              {label}
+            </button>
+          ))}
+        </nav>
+        <span className="chart-controls-divider" aria-hidden="true" />
+        <ChartStyleControl style={style} onChange={setStyle} />
+      </div>
       {error ? (
         <p className="error" role="alert">{error}</p>
       ) : !rows ? (

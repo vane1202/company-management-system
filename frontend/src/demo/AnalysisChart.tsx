@@ -13,7 +13,28 @@ export function useChartStyle(){
   return [style,(value:ChartStyle)=>{chosen=value;try{localStorage.setItem(styleKey,value);}catch{/* Optional appearance preference. */}listeners.forEach(listener=>listener());}] as const;
 }
 export function ChartStyleControl({style,onChange}:{style:ChartStyle;onChange:(style:ChartStyle)=>void}){
-  return <div className="chart-style-control" role="group" aria-label="图表形式">{(['line','bar'] as const).map(value=><button type="button" key={value} aria-pressed={style===value} onClick={()=>onChange(value)}>{value==='line'?'折线图':'柱状图'}</button>)}</div>;
+  return (
+    <div className="chart-style-control" role="group" aria-label="图表形式">
+      <button type="button" aria-pressed={style==='line'} onClick={()=>onChange('line')}>
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <polyline points="2,11 6,7 9.5,9.5 14,4" />
+          <circle cx="2" cy="11" r="1" fill="currentColor" stroke="none" />
+          <circle cx="6" cy="7" r="1" fill="currentColor" stroke="none" />
+          <circle cx="9.5" cy="9.5" r="1" fill="currentColor" stroke="none" />
+          <circle cx="14" cy="4" r="1" fill="currentColor" stroke="none" />
+        </svg>
+        <span>折线</span>
+      </button>
+      <button type="button" aria-pressed={style==='bar'} onClick={()=>onChange('bar')}>
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
+          <rect x="2" y="8" width="2.8" height="6" rx="0.8" />
+          <rect x="6.6" y="4" width="2.8" height="10" rx="0.8" />
+          <rect x="11.2" y="6" width="2.8" height="8" rx="0.8" />
+        </svg>
+        <span>柱状</span>
+      </button>
+    </div>
+  );
 }
 export function chartCeiling(max:number){if(max<=0)return 1;const base=10**Math.floor(Math.log10(max));return [1,2,5,10].map(n=>n*base).find(n=>n>=max)||base*10;}
 const palette=['#177564','#3d6a9e','#7d5a9e','#b0742a','#2e8590','#66803a'];
