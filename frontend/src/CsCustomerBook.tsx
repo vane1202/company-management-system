@@ -3,12 +3,10 @@ import { api, type Order, type User } from "./api";
 import { leadApi, type CustomerLead, type Lead } from "./leadApi";
 import { labelOrderStatus } from "./labels";
 import { yuan } from "./dashboardDisplay";
+import { OrderStatusTags } from "./OrderStatusTagView";
+import { apiOrderFacts, classifyOrderStatus } from "./orderStatusTags";
 import { toErrorMessage } from "./errors";
 import { CreateOrder, Field } from "./OrderWorkspace";
-
-function orderStatus(order: Order) {
-  return order.cancelled ? "已跑单" : labelOrderStatus(order.status);
-}
 
 export function CsCustomerBook({invalid=false,today,user,revision=0,orderRevision=0,onEdit,onOrder}:{
   invalid?:boolean;today:string;user:User;revision?:number;orderRevision?:number;onEdit?:(lead:Lead)=>void;
@@ -84,11 +82,22 @@ export function CsCustomerBook({invalid=false,today,user,revision=0,orderRevisio
     {orderError&&<p className="error" role="alert">{orderError}</p>}
     {orders===null&&!orderError&&<p role="status">正在读取订单…</p>}
     {orders!==null&&!linked.length&&<p className="notice">该客户暂无已关联订单。</p>}
-    <div className="commerce-list">{linked.map(row=><article className="commerce-record" key={row.id}>
-      <span><strong>{row.orderRef}</strong><small>{row.businessDate} · {orderStatus(row)}</small><small>待收尾款 {row.cancelled||row.status==="refunded"?"—":row.customerBalance==null?"待核对":`${Number(row.customerBalance)<=0?"0.00":row.customerBalance} ${row.customerCurrency??""}`}</small></span>
-      <div className="actions"><strong>{yuan(row.amount)}</strong><button type="button" className="secondary" onClick={()=>onOrder?.(row.id)}>查看订单</button>
-      {row.workflowEnabled&&!row.cancelled&&row.status!=="refunded"&&<button type="button" className="secondary" onClick={()=>onOrder?.(row.id,"cost")}>办理售后</button>}</div>
-    </article>)}</div>
+    <div className="commerce-list">{linked.map(row => {
+      const facts = apiOrderFacts(row);
+      const view = classifyOrderStatus(facts);
+      return <article className="commerce-record order-history-card" key={row.id}>
+      <span className="order-card-main">
+        <span className="order-card-title"><strong>{customer.customerLabel}</strong><OrderStatusTags facts={facts} /></span>
+        <small>{row.orderRef} · {row.businessDate}</small>
+        {view.followup && <small className="order-followup">{view.followup}</small>}
+      </span>
+      <div className="order-card-side">
+        <b className={view.voided ? "is-void" : ""}>{yuan(row.amount)}</b>
+        <div className="actions"><button type="button" className="secondary" onClick={() => onOrder?.(row.id)}>查看订单</button>
+        {row.workflowEnabled && !row.cancelled && row.status !== "refunded" && <button type="button" className="secondary" onClick={() => onOrder?.(row.id, "cost")}>办理售后</button>}</div>
+      </div>
+    </article>;
+    })}</div>
     <dialog className="fill-drawer fill-order-drawer" ref={createDrawer} aria-label="登记成交"><div className="fill-drawer-body">
       <header className="commerce-line"><h3>登记成交 · {customer.customerLabel}</h3><button type="button" className="secondary" onClick={()=>createDrawer.current?.close()}>关闭</button></header>
       <CreateOrder today={today} operator={user.displayName} customerName={customer.customerLabel.slice(0,64)} customerLeadId={customer.id}

@@ -10,6 +10,8 @@ import { dashboardPresetRange } from "../dates";
 import { PeriodToolbar, type StandardPreset } from "../PeriodToolbar";
 import type { PersonalFanPreset } from "../leadApi";
 import { yuan } from "../dashboardDisplay";
+import { OrderStatusTags, StatusFilterBar } from "../OrderStatusTagView";
+import { classifyOrderStatus, factsFromCrm, matchesStatusFilter, type StatusFilter } from "../orderStatusTags";
 import { CsFillOverview } from "../CsFillOverview";
 import OrderAfterSalesFill from "./OrderAfterSalesFill";
 import FanFillForm from "./FanFillForm";
@@ -260,12 +262,14 @@ function InvalidRequest({ hasDeal, onSubmit }: { hasDeal: boolean; onSubmit: (re
 function Performance({ today, employeeId, state, onOpen }: { today:string; employeeId: string; onOpen:(id:string)=>void; state: ReturnType<typeof useCustomerCrm>["state"] }) {
   const [preset, setPreset] = useState<StandardPreset>("month");
   const [customRange, setCustomRange] = useState<{ from: string; to: string } | null>(null);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const range = customRange ?? dashboardPresetRange(today, preset);
   const rows = state.orders.filter(order => order.employeeId === employeeId && order.businessDate >= range.from && order.businessDate <= range.to);
   const valid = rows.filter(order => !order.cancelled);
   const live = valid.filter(order => order.channel !== "private");
   const priv = valid.filter(order => order.channel === "private");
   const excluded = rows.filter(order => order.cancelled);
+  const visible = rows.filter(order => matchesStatusFilter(classifyOrderStatus(factsFromCrm(order)), statusFilter));
   const sum = (list: typeof rows) => list.reduce((total, order) => total + (order.cancelled ? order.materialCents + order.feeCents : effectiveOrderCents(order)), 0);
   return <section className="card cs-performance" aria-label="个人业绩">
     <div className="cs-page-row"><h2>个人业绩</h2><span className="cs-count-pill" role="status">有效 <strong>{valid.length}</strong> 单</span></div>
@@ -275,13 +279,22 @@ function Performance({ today, employeeId, state, onOpen }: { today:string; emplo
       <div><small>客服私推</small><small>{priv.length} 单</small><strong>{yuan(centsToYuan(sum(priv)))}</strong></div>
       <div><small>跑单／换料冲抵</small><small>{excluded.length} 单</small><strong>{yuan(centsToYuan(sum(excluded)))}</strong></div>
     </div>
-    <div className="commerce-list">{rows.map(order=>{
-      const customer=state.customers.find(item=>item.id===order.customerId);
-      return <button type="button" key={order.id} className="commerce-record secondary" onClick={()=>onOpen(order.customerId)}>
-        <span><strong>{customer?.name||"客户"}</strong><small>{order.businessDate} · {order.id}</small><small>{order.channel==="private"?"客服私推":"直播间开单"}{order.performanceTeamName?` · ${order.performanceTeamName}`:""}{order.cancelled?" · 已冲抵":""}</small></span>
-        <span className="commerce-amount">{yuan(centsToYuan(effectiveOrderCents(order)))}<small>查看档案 →</small></span>
+    <StatusFilterBar value={statusFilter} onChange={setStatusFilter} />
+    <div className="commerce-list">{visible.map(order => {
+      const customer = state.customers.find(item => item.id === order.customerId);
+      const facts = factsFromCrm(order);
+      const view = classifyOrderStatus(facts);
+      const shown = order.materialCents + (order.channel === "private" ? 0 : order.feeCents);
+      return <button type="button" key={order.id} className="commerce-record secondary order-history-card" onClick={() => onOpen(order.customerId)}>
+        <span className="order-card-main">
+          <span className="order-card-title"><strong>{customer?.name || "客户"}</strong><OrderStatusTags facts={facts} /></span>
+          <small>{order.businessDate} · {order.id} · {order.channel === "private" ? "客服私推" : "直播间开单"}{order.performanceTeamName ? " · " + order.performanceTeamName : ""}</small>
+          {view.followup && <small className="order-followup">{view.followup}</small>}
+        </span>
+        <span className="commerce-amount"><b className={view.voided ? "is-void" : ""}>{yuan(centsToYuan(shown))}</b><small>查看档案 →</small></span>
       </button>;
     })}</div>
     {!rows.length && <p>这个区间还没有开单。</p>}
+    {!!rows.length && !visible.length && <p>这个筛选下没有开单。</p>}
   </section>;
 }

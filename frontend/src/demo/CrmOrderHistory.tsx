@@ -1,7 +1,10 @@
 import {useState,type ReactNode} from 'react';
 import {CreateOrder,Field} from '../OrderWorkspace';
 import {toErrorMessage} from '../errors';
-import {centsToYuan,effectiveOrderCents,orderFunds,type CrmAction,type CrmActor,type CrmOrder,type CrmState} from './customerCrm';
+import {centsToYuan,orderFunds,type CrmAction,type CrmActor,type CrmOrder,type CrmState} from './customerCrm';
+import {yuan} from '../dashboardDisplay';
+import {OrderStatusTags} from '../OrderStatusTagView';
+import {classifyOrderStatus,factsFromCrm} from '../orderStatusTags';
 import './crm-order-history.css';
 
 export default function CrmOrderHistory({state,customerId,today,actor,dispatch,room,onMessage,onAfterSales}:{state:CrmState;customerId:string;today:string;actor?:CrmActor;dispatch?:(action:CrmAction)=>void;room?:{name:string;host:string};onMessage?:(text:string)=>void;onAfterSales?:(order:CrmOrder)=>ReactNode}) {
@@ -10,8 +13,15 @@ export default function CrmOrderHistory({state,customerId,today,actor,dispatch,r
   const transferring=orders.find(order=>order.id===transferId);
   return <div className="crm-order-history">
     {!orders.length&&<p className="notice">还没有开单。售后费用不增加订单笔数。</p>}
-    {orders.map(order=>{const funds=orderFunds(order);return <details className="crm-order-row" key={order.id}>
-      <summary><span><strong>{order.id}</strong><small>{order.businessDate} · {order.channel==='private'?'私推':'直播间'} · {order.employeeName}{order.materialRef?' · 料号 '+order.materialRef:''}{order.sourcingNoSettle?' · 接待（PH）':''}</small></span><span><b>¥{centsToYuan(effectiveOrderCents(order))}</b><small>{order.replacedById?'换料取消':order.cancelled?'已跑单':funds.balance===0?'客户已付清':'待付款'}</small></span></summary>
+    {orders.map(order=>{const funds=orderFunds(order);const facts=factsFromCrm(order);const view=classifyOrderStatus(facts);const shown=order.materialCents+(order.channel==='private'?0:order.feeCents);return <details className="crm-order-row" key={order.id}>
+      <summary>
+        <span className="order-card-main">
+          <span className="order-card-title"><strong>{state.customers.find(item => item.id === customerId)?.name || "客户"}</strong><OrderStatusTags facts={facts} /></span>
+          <small>{order.businessDate} · {order.channel === "private" ? "私推" : "直播间"} · {order.employeeName}{order.materialRef ? " · 料号 " + order.materialRef : ""}{order.replacedById ? " · 换料" : ""}</small>
+          {view.followup && <small className="order-followup">{view.followup}</small>}
+        </span>
+        <span className="crm-order-amount"><b className={view.voided ? "is-void" : ""}>{yuan(centsToYuan(shown))}</b></span>
+      </summary>
       <div className="crm-order-body">
         <p>原开单价 ¥{centsToYuan(order.materialCents)} · 代购费 ¥{centsToYuan(order.feeCents)}</p>
         {order.sourcingNoSettle&&<p className="notice">此单已标「接待（PH）」，原石未售出、不结供应商料款；实际接待费用在售后费用中按「市场配货采购款」登记。</p>}

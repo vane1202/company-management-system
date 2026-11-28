@@ -347,6 +347,14 @@ export type Order = {
   materialCostCny?: string | null;
   materialLotNo?: string | null;
   hasSourcingNoSettle?: boolean;
+  shippedOn?: string | null;
+  customerDue?: string | null;
+  basePaid?: string;
+  basePaymentCount?: number;
+  hasSplitPayment?: boolean;
+  hasFullPayment?: boolean;
+  chargeDue?: string;
+  chargePaid?: string;
 };
 
 export type Currency = "CNY" | "TWD" | "USD" | "SGD" | "HKD";

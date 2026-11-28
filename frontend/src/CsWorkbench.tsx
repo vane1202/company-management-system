@@ -7,7 +7,8 @@ import { csFillPageFromPath, csFillPageIds, csFillPages, type CsFillPage } from 
 import { DashboardIcon } from "./DashboardIcon";
 import { dashboardPresetRange } from "./dates";
 import { toErrorMessage } from "./errors";
-import { labelOrderStatus } from "./labels";
+import { OrderStatusTags, StatusFilterBar } from "./OrderStatusTagView";
+import { apiOrderFacts, classifyOrderStatus, matchesStatusFilter, type StatusFilter } from "./orderStatusTags";
 import { LeadWorkspace } from "./LeadWorkspace";
 import { Field, OrderDetail } from "./OrderWorkspace";
 import { CsCustomerBook } from "./CsCustomerBook";
@@ -213,6 +214,7 @@ function CsPersonalPerformance({
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
   async function load() {
     setLoading(true);
@@ -235,6 +237,7 @@ function CsPersonalPerformance({
   const liveOrders = validOrders.filter(o => o.dealChannel !== "private");
   const privateOrders = validOrders.filter(o => o.dealChannel === "private");
   const excludedOrders = orders.filter(o => o.cancelled || o.status === "refunded");
+  const visibleOrders = orders.filter(order => matchesStatusFilter(classifyOrderStatus(apiOrderFacts(order)), statusFilter));
 
   const sumAmount = (list: Order[]) =>
     money(list.reduce((total, o) => total + (cents(o.bookingAmount ?? o.amount) ?? 0n), 0n));
@@ -269,6 +272,7 @@ function CsPersonalPerformance({
         <div><small>客服私推</small><small>{privateOrders.length} 单</small><strong>{yuan(sumAmount(privateOrders))}</strong></div>
         <div><small>跑单／退款冲抵</small><small>{excludedOrders.length} 单</small><strong>{yuan(sumAmount(excludedOrders))}</strong></div>
       </div>
+            <StatusFilterBar value={statusFilter} onChange={setStatusFilter} />
       <div className="commerce-list">
         {!loading && !orders.length && (
           <div className="empty-state">
@@ -276,31 +280,26 @@ function CsPersonalPerformance({
             <p>可切换日期区间，或返回「开单与售后」登记成交。</p>
           </div>
         )}
-        {orders.map(o => (
-          <button
-            key={o.id}
-            type="button"
-            className="commerce-record secondary"
-            onClick={() => onOpenOrder(o.id)}
-          >
-            <span>
-              <strong>{o.customerLabel || "未登记称呼"}</strong>
-              <small>
-                {o.orderRef} · {o.businessDate}
-                {o.projectLine ? ` · ${o.projectLine}` : ""}
-                {o.hasSourcingNoSettle ? " · 含接待（PH）" : ""}
-              </small>
-              <small>
-                {o.dealChannel === "private" ? "客服私推" : "直播间开单"} ·{" "}
-                {o.cancelled ? "已跑单" : labelOrderStatus(o.status)}
-              </small>
+        {!loading && !!orders.length && !visibleOrders.length && (
+          <div className="empty-state">
+            <strong>这个筛选下没有订单</strong>
+            <p>换一个状态，或切回「全部」。</p>
+          </div>
+        )}
+        {visibleOrders.map(o => {
+          const facts = apiOrderFacts(o);
+          const view = classifyOrderStatus(facts);
+          return (
+          <button key={o.id} type="button" className="commerce-record secondary order-history-card" onClick={() => onOpenOrder(o.id)}>
+            <span className="order-card-main">
+              <span className="order-card-title"><strong>{o.customerLabel || "未登记称呼"}</strong><OrderStatusTags facts={facts} /></span>
+              <small>{o.orderRef} · {o.businessDate}{o.projectLine ? " · " + o.projectLine : ""} · {o.dealChannel === "private" ? "客服私推" : "直播间开单"}</small>
+              {view.followup && <small className="order-followup">{view.followup}</small>}
             </span>
-            <span className="commerce-amount">
-              {yuan(o.bookingAmount ?? o.amount)}
-              <small>查看档案 ›</small>
-            </span>
+            <span className="commerce-amount"><b className={view.voided ? "is-void" : ""}>{yuan(o.bookingAmount ?? o.amount)}</b><small>查看档案 ›</small></span>
           </button>
-        ))}
+          );
+        })}
       </div>
     </section>
   );
