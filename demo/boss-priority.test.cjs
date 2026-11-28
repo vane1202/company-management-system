@@ -23,3 +23,36 @@ test('日常费用只计已登记范围，未录入不当0，工资不重复估�
  assert.equal(build(base).expenses.registered,null);
  for(const patch of [{category:'salary'},{category:'ads'},{category:'goods'},{amount:'-1'},{date:'2026-02-30'},{purpose:''}])assert.throws(()=>expense({date,category:'rent',amount:'1',purpose:'租金',operator:'财务',...patch},date,'财务','e'));
 });
+test('口径 A 经营毛利、7 日趋势自动展开及直播间渠道毛利严格自洽',()=>{
+ const result=build({
+  from:date,to:date,people:base.people,
+  orders:[
+   {id:'o1',date,room:'overseas-one',employeeId:'a',amount:'1000.00',materialCost:'600.00',channel:'live'},
+   {id:'o2',date,room:'overseas-one',employeeId:'a',amount:'500.00',materialCost:null,channel:'private'}
+  ],
+  fans:[{date,employeeId:'a',total:10,effective:6,invalid:null,pendingInvalid:1}],
+  expenses:[expense({date,category:'rent',amount:'100.00',purpose:'房租',operator:'财务'},date,'财务','e1')],
+  reimbursements:[{id:'r1',date,amount:'50.00',status:'approved',postedExpenseId:''}],
+  orderExpenses:[{orderId:'o1',date,category:'shipping',amount:'20.00',room:'overseas-one',channel:'live'}],
+  settlementFees:[{date,amount:'10.00',currency:'CNY',fxRate:null}],
+  adSpends:[{date,spendUsd:'10.00'}],
+  fxUsdRate:7.24
+ });
+ // 有效业绩 1500.00, 料本 600.00 (缺本价 1 单), 售后 20.00, 扣点 10.00, 投流 72.40 => 毛利 797.60
+ assert.equal(result.performance.total,'1500.00');
+ assert.equal(result.performance.avgOrder,'750.00');
+ assert.equal(result.grossProfit.amount,'797.60');
+ assert.equal(result.grossProfit.missingMaterialCostCount,1);
+ assert.equal(result.grossProfit.adSpendCny,'72.40');
+ // 运营成本 = 100.00 + 50.00 = 150.00; 预估净利 = 797.60 - 150.00 = 647.60
+ assert.equal(result.expenses.recordedSubtotal,'150.00');
+ assert.equal(result.structure.estimatedNetProfit,'647.60');
+ assert.equal(result.structure.includesPayroll,false);
+ // 今日选中自动返回 7 天趋势
+ assert.equal(result.trend.length,7);
+ assert.equal(result.trend[6].date,date);
+ assert.equal(result.trend[6].operatingCost,'150.00');
+ // 渠道毛利总和严格等于全局毛利
+ const channelGpSum=result.channelProfits.reduce((s,c)=>s+Math.round(Number(c.grossProfit)*100),0);
+ assert.equal(channelGpSum,79760);
+});

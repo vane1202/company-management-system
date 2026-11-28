@@ -491,11 +491,27 @@
     const foundation=window.CmsAssessmentFoundation.build(today),directory=currentDirectory();
     const people=[...(directory?.people||[]).map(person=>({id:person.id,name:person.name,room:'overseas-one',team:'\u79cb\u83ca\u7ec4',sample:false})),...foundation.employees.map(person=>({id:person.id,name:person.name,room:person.teamId==='demo-team-a'?'overseas-one':'unassigned',team:'\u6f14\u7ec3\u6210\u5458',sample:true}))];
     const owner=name=>people.find(person=>person.name===name);
-    const sales=orders.map(order=>({id:order.id,date:order.businessDate,amount:bookingAmount(order),channel:order.dealChannel==='private'?'private':'live',room:order.dealChannel==='private'?(owner(order.operatorName)?.room||'unassigned'):order.liveRoomCode==='DEMO-LIVE-01'?'overseas-one':order.liveRoomCode==='DEMO-LIVE-02'?'overseas-two':'unassigned',employeeId:owner(order.operatorName)?.id||'',cancelled:order.cancelled,status:order.status}));
+    const roomOfOrder=o=>o.dealChannel==='private'?(owner(o.operatorName)?.room||'unassigned'):o.liveRoomCode==='DEMO-LIVE-01'?'overseas-one':o.liveRoomCode==='DEMO-LIVE-02'?'overseas-two':'unassigned';
+    const sales=orders.map(order=>({id:order.id,date:order.businessDate,amount:bookingAmount(order),materialCost:order.materialCost??null,channel:order.dealChannel==='private'?'private':'live',room:roomOfOrder(order),employeeId:owner(order.operatorName)?.id||'',cancelled:order.cancelled,status:order.status}));
     const daily=fans.map(report=>{
       const tenure=foundation.tenures.find(item=>item.accountId===report.userId&&item.startDate<=report.businessDate&&(!item.endDate||item.endDate>=report.businessDate));
       return{date:report.businessDate,employeeId:tenure?.employeeId||'',total:report.addedCount,effective:report.validToday,invalid:report.commInvalid?null:0,pendingInvalid:report.commInvalid};
     });
+    const orderExpenses=orders.flatMap(o=>{
+      const rec=orderRecord(o);
+      const room=roomOfOrder(o);
+      const channel=o.dealChannel==='private'?'private':'live';
+      return (rec.expenses||[]).filter(e=>!e.voided_at).map(e=>({orderId:o.id,date:e.business_date,category:e.category,amount:e.amount_cny,room,channel,voided:false}));
+    });
+    const charges=orders.flatMap(o=>(orderRecord(o).charges||[]).filter(c=>!c.voided_at).map(c=>({orderId:o.id,date:c.business_date,amount:c.amount_cny,voided:false})));
+    const settlementFees=settlements.filter(s=>!s.voided_at).map(s=>({date:s.settled_on,amount:s.fee_amount,currency:s.fee_currency,fxRate:s.fx_rate,voided:false}));
+    const adSpends=ops.filter(r=>r.spendUsd!=null).map(r=>({date:r.businessDate,spendUsd:r.spendUsd}));
+    const reimState=reimbursementState();
+    const reims=reimState.claims.map(c=>({id:c.id,date:c.expenseDate,amount:c.amount,status:c.status,postedExpenseId:c.postedExpenseId||''}));
+    const whState=warehouseState();
+    const pendingVerifications=payments.filter(p=>!p.voided_at&&p.verify_status==='pending').length;
+    const pendingExpenses=reimState.claims.filter(c=>c.status==='pending'&&(!c.stage||c.stage==='finance')).length;
+    const pendingWarehouse=whState.bills.filter(b=>b.status==='submitted').length;
     try{
       const crm=JSON.parse(window.sessionStorage.getItem('cms-demo-customer-crm-v1')||'null');
       if(crm&&Array.isArray(crm.customers)&&Array.isArray(crm.orders)&&Array.isArray(crm.reviews)){
@@ -503,7 +519,7 @@
         for(const order of crm.orders){
           const customer=customers.find(customer=>customer.id===order.customerId);
           if(!customer||sales.some(row=>row.id===order.id))continue;
-          sales.push({id:order.id,date:order.businessDate,amount:money(BigInt(order.materialCents+(order.channel==='private'?0:order.feeCents))),channel:order.channel,room:people.find(person=>person.id===order.employeeId)?.room||'unassigned',employeeId:order.employeeId,cancelled:order.cancelled,status:'placed'});
+          sales.push({id:order.id,date:order.businessDate,amount:money(BigInt(order.materialCents+(order.channel==='private'?0:order.feeCents))),materialCost:null,channel:order.channel,room:people.find(person=>person.id===order.employeeId)?.room||'unassigned',employeeId:order.employeeId,cancelled:order.cancelled,status:'placed'});
         }
         for(const customer of customers){
           const latest=crm.reviews.filter(review=>review.customerId===customer.id).sort((a,b)=>a.requestedAt.localeCompare(b.requestedAt)).at(-1);
@@ -512,7 +528,7 @@
         }
       }
     }catch{/* Malformed browser trial data never replaces registered source records. */}
-    return window.CmsBossPriority.build({from:period.from,to:period.to,orders:sales,people,fans:daily,expenses:dailyExpenseRows()});
+    return window.CmsBossPriority.build({from:period.from,to:period.to,orders:sales,people,fans:daily,expenses:dailyExpenseRows(),charges,orderExpenses,settlementFees,adSpends,reimbursements:reims,attention:{pendingPaymentVerifications:pendingVerifications,pendingExpensesAndWarehouse:pendingExpenses+pendingWarehouse}});
   }
   window.fetch=async(input,options={})=>{
     const url=new URL(typeof input==="string"?input:input.url,window.location.origin);

@@ -139,6 +139,45 @@ function computeOpsBalances(allRows: OpsRecord[], selectedRows: OpsRecord[], to:
   });
 }
 
+const MATERIAL_EXPENSE_CATEGORIES = new Set(["goods", "sourcing", "material"]);
+const DEFAULT_FX_TO_CNY: Record<string, number> = {
+  CNY: 1,
+  USD: 7.24,
+  TWD: 0.2235,
+  SGD: 5.38,
+  HKD: 0.93
+};
+
+function convertToCnyCents(amountText: string, currency: string, fxRateText: string | null): bigint {
+  const rawCents = moneyToCents(amountText);
+  if (currency === "CNY") return rawCents;
+  const rate = fxRateText ? Number(fxRateText) : (DEFAULT_FX_TO_CNY[currency] ?? 1);
+  if (!Number.isFinite(rate) || rate <= 0) return rawCents;
+  return BigInt(Math.round(Number(rawCents) * rate));
+}
+
+function allocateByWeight(totalCents: bigint, weights: bigint[]): bigint[] {
+  if (!weights.length) return [];
+  const totalWeight = weights.reduce((sum, w) => sum + (w > 0n ? w : 0n), 0n);
+  if (totalCents === 0n || totalWeight <= 0n) return weights.map(() => 0n);
+  const result = weights.map((w) => (w > 0n ? (totalCents * w) / totalWeight : 0n));
+  const allocated = result.reduce((sum, v) => sum + v, 0n);
+  const remainder = totalCents - allocated;
+  if (remainder !== 0n) {
+    let maxIdx = 0;
+    for (let i = 1; i < weights.length; i++) {
+      if (weights[i] > weights[maxIdx]) maxIdx = i;
+    }
+    result[maxIdx] += remainder;
+  }
+  return result;
+}
+
+function ratioPercent(numerator: bigint, denominator: bigint): number {
+  if (denominator <= 0n) return 0;
+  return Number((numerator * 1000n) / denominator) / 10;
+}
+
 export function createBossAnalyticsRouter(db: Pool, config: AppConfig): Router {
   const router = Router();
 
@@ -161,30 +200,34 @@ export function createBossAnalyticsRouter(db: Pool, config: AppConfig): Router {
       } catch (err) {
         throw new HttpError(400, err instanceof Error ? err.message : "日期范围无效");
       }
+      const trendFrom = period.from === period.to ? addDays(period.to, -6) : period.from;
+      const inPeriod = (date: string) => date >= period.from && date <= period.to;
 
       client = await db.connect();
       await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
 
-      const orders = (
+      const allOrders = (
         await client.query<{
           id: string;
           business_date: string;
           status: string;
           cancelled: boolean;
           booking_amount: string;
+          material_cost_cny: string | null;
           deal_channel: string;
           room_code: string;
           operator_name: string;
           user_id: string;
           team_name: string | null;
         }>(
-          `SELECT o.id,
+          `SELECT o.id::text AS id,
                   o.business_date::text AS business_date,
                   o.status,
                   EXISTS(SELECT 1 FROM order_cancellations x WHERE x.order_id = o.id AND x.voided_at IS NULL) AS cancelled,
                   CASE WHEN d.order_id IS NULL THEN o.amount
                        ELSE COALESCE((SELECT SUM(i.price_cny + i.buying_fee_cny) FROM order_items i WHERE i.order_id = o.id), o.amount)
                   END::numeric(14,2)::text AS booking_amount,
+                  o.material_cost_cny::text AS material_cost_cny,
                   COALESCE(NULLIF(trim(d.deal_channel), ''), 'live') AS deal_channel,
                   COALESCE(NULLIF(trim(${liveRoomSql("d.live_room_code")}), ''), 'unassigned') AS room_code,
                   COALESCE(NULLIF(trim(d.operator_name), ''), u.display_name, '') AS operator_name,
@@ -204,7 +247,7 @@ export function createBossAnalyticsRouter(db: Pool, config: AppConfig): Router {
              ) mem ON TRUE
              LEFT JOIN teams t ON t.id = mem.team_id
             WHERE o.business_date BETWEEN $1 AND $2`,
-          [period.from, period.to]
+          [trendFrom, period.to]
         )
       ).rows;
 
@@ -231,9 +274,7 @@ export function createBossAnalyticsRouter(db: Pool, config: AppConfig): Router {
         )
       ).rows;
 
-      await client.query("COMMIT");
-
-            const expenseRows = (
+      const expenseRows = (
         await client.query<{
           id: string;
           category: string;
@@ -243,12 +284,136 @@ export function createBossAnalyticsRouter(db: Pool, config: AppConfig): Router {
           operator: string;
           proof: string;
         }>(
-          "SELECT id::text AS id, category, business_date::text AS date, amount_cny::text AS amount, purpose, operator_name AS operator, proof FROM daily_operating_expenses WHERE voided_at IS NULL AND business_date BETWEEN $1 AND $2 ORDER BY business_date, created_at",
-          [period.from, period.to]
+          `SELECT id::text AS id, category, business_date::text AS date, amount_cny::text AS amount, purpose, operator_name AS operator, proof
+             FROM daily_operating_expenses
+            WHERE voided_at IS NULL AND business_date BETWEEN $1 AND $2
+            ORDER BY business_date, created_at`,
+          [trendFrom, period.to]
         )
       ).rows;
 
-const validOrders = orders.filter((row) => !row.cancelled && row.status !== "refunded");
+      const approvedReimbursementRows = (
+        await client.query<{
+          id: string;
+          date: string;
+          amount: string;
+          claim_type: string;
+        }>(
+          `SELECT id::text AS id, expense_date::text AS date, amount_cny::text AS amount, claim_type
+             FROM reimbursement_claims
+            WHERE status = 'approved'
+              AND posted_expense_id IS NULL
+              AND expense_date BETWEEN $1 AND $2`,
+          [trendFrom, period.to]
+        )
+      ).rows;
+
+      const orderIdsInWindow = allOrders.map((o) => o.id);
+      const orderExpenseRows = (
+        await client.query<{
+          order_id: string;
+          business_date: string;
+          category: string;
+          amount_cny: string;
+          order_cancelled: boolean;
+          order_status: string;
+          deal_channel: string;
+          room_code: string;
+        }>(
+          `SELECT e.order_id::text AS order_id,
+                  e.business_date::text AS business_date,
+                  e.category,
+                  e.amount_cny::text AS amount_cny,
+                  EXISTS(SELECT 1 FROM order_cancellations x WHERE x.order_id = o.id AND x.voided_at IS NULL) AS order_cancelled,
+                  o.status AS order_status,
+                  COALESCE(NULLIF(trim(d.deal_channel), ''), 'live') AS deal_channel,
+                  COALESCE(NULLIF(trim(${liveRoomSql("d.live_room_code")}), ''), 'unassigned') AS room_code
+             FROM order_expenses e
+             JOIN orders o ON o.id = e.order_id
+             LEFT JOIN order_details d ON d.order_id = o.id
+            WHERE e.voided_at IS NULL
+              AND (e.business_date BETWEEN $1 AND $2 OR e.order_id = ANY($3::uuid[]))`,
+          [trendFrom, period.to, orderIdsInWindow]
+        )
+      ).rows;
+
+      const chargeRows = (
+        await client.query<{
+          business_date: string;
+          amount_cny: string;
+        }>(
+          `SELECT c.business_date::text AS business_date, c.amount_cny::text AS amount_cny
+             FROM order_charges c
+             JOIN orders o ON o.id = c.order_id
+            WHERE c.voided_at IS NULL
+              AND o.status <> 'refunded'
+              AND NOT EXISTS(SELECT 1 FROM order_cancellations x WHERE x.order_id = o.id AND x.voided_at IS NULL)
+              AND c.business_date BETWEEN $1 AND $2`,
+          [trendFrom, period.to]
+        )
+      ).rows;
+
+      const settlementRows = (
+        await client.query<{
+          settled_on: string;
+          fee_amount: string;
+          fee_currency: string;
+          fx_rate: string | null;
+        }>(
+          `SELECT settled_on::text AS settled_on,
+                  fee_amount::text AS fee_amount,
+                  fee_currency,
+                  fx_rate::text AS fx_rate
+             FROM finance_settlements
+            WHERE voided_at IS NULL AND settled_on BETWEEN $1 AND $2`,
+          [trendFrom, period.to]
+        )
+      ).rows;
+
+      const opsAdRows = (
+        await client.query<{
+          business_date: string;
+          spend_usd: string | null;
+        }>(
+          `SELECT business_date::text AS business_date, spend_usd::text AS spend_usd
+             FROM ops_reports
+            WHERE business_date BETWEEN $1 AND $2 AND spend_usd IS NOT NULL`,
+          [trendFrom, period.to]
+        )
+      ).rows;
+
+      const payMonth = period.to.slice(0, 7);
+      const payrollRows = (
+        await client.query<{
+          status: string;
+          locked_net: string | null;
+        }>(
+          `SELECT status, locked_net::text AS locked_net
+             FROM payroll_months
+            WHERE pay_month = $1`,
+          [payMonth]
+        )
+      ).rows;
+
+      const attentionCounts = (
+        await client.query<{
+          pending_verifications: string;
+          pending_expenses: string;
+          pending_warehouse: string;
+        }>(
+          `SELECT
+             (SELECT count(*)::text FROM customer_payments WHERE voided_at IS NULL AND verify_status = 'pending') AS pending_verifications,
+             (SELECT count(*)::text FROM reimbursement_claims WHERE workflow_stage = 'finance' AND status = 'pending') AS pending_expenses,
+             (SELECT count(*)::text FROM warehouse_bills WHERE status = 'submitted') AS pending_warehouse`
+        )
+      ).rows[0];
+
+      await client.query("COMMIT");
+
+      const periodOrders = allOrders.filter((row) => inPeriod(row.business_date));
+      const validWindowOrders = allOrders.filter((row) => !row.cancelled && row.status !== "refunded");
+      const validOrders = validWindowOrders.filter((row) => inPeriod(row.business_date));
+
       const statsOf = (rows: typeof validOrders) => {
         let liveCents = 0n;
         let privateCents = 0n;
@@ -267,8 +432,87 @@ const validOrders = orders.filter((row) => !row.cancelled && row.status !== "ref
         };
       };
 
+      // Map material expenses per order (from order_expenses) as fallback when material_cost_cny is null
+      const orderMaterialExpenseMap = new Map<string, bigint>();
+      for (const exp of orderExpenseRows) {
+        if (!MATERIAL_EXPENSE_CATEGORIES.has(exp.category)) continue;
+        orderMaterialExpenseMap.set(
+          exp.order_id,
+          (orderMaterialExpenseMap.get(exp.order_id) ?? 0n) + moneyToCents(exp.amount_cny)
+        );
+      }
+
+      const materialCostForOrder = (order: (typeof validWindowOrders)[number]): { cents: bigint; missing: boolean } => {
+        if (order.material_cost_cny != null) return { cents: moneyToCents(order.material_cost_cny), missing: false };
+        const fallback = orderMaterialExpenseMap.get(order.id);
+        if (fallback != null && fallback > 0n) return { cents: fallback, missing: false };
+        return { cents: 0n, missing: true };
+      };
+
+      const validAfterSaleExpenses = orderExpenseRows.filter(
+        (exp) => !MATERIAL_EXPENSE_CATEGORIES.has(exp.category) && !exp.order_cancelled && exp.order_status !== "refunded"
+      );
+
+      const periodPerf = statsOf(validOrders);
+      const periodTurnoverCents = moneyToCents(periodPerf.total);
+      const periodAvgOrderCents = validOrders.length > 0 ? periodTurnoverCents / BigInt(validOrders.length) : 0n;
+      const periodAfterSalesCents = chargeRows
+        .filter((c) => inPeriod(c.business_date))
+        .reduce((sum, c) => sum + moneyToCents(c.amount_cny), 0n);
+
+      let periodMaterialCostCents = 0n;
+      let missingMaterialCostCount = 0;
+      for (const o of validOrders) {
+        const mc = materialCostForOrder(o);
+        periodMaterialCostCents += mc.cents;
+        if (mc.missing) missingMaterialCostCount += 1;
+      }
+
+      const periodAfterSaleCostCents = validAfterSaleExpenses
+        .filter((e) => inPeriod(e.business_date))
+        .reduce((sum, e) => sum + moneyToCents(e.amount_cny), 0n);
+
+      const periodThirdPartyFeeCents = settlementRows
+        .filter((s) => inPeriod(s.settled_on))
+        .reduce((sum, s) => sum + convertToCnyCents(s.fee_amount, s.fee_currency, s.fx_rate), 0n);
+
+      const periodAdSpendUsdCents = opsAdRows
+        .filter((a) => inPeriod(a.business_date) && a.spend_usd != null)
+        .reduce((sum, a) => sum + moneyToCents(a.spend_usd!), 0n);
+      const periodAdSpendCnyCents = convertToCnyCents(centsToMoney(periodAdSpendUsdCents), "USD", null);
+
+      const periodGrossProfitCents =
+        periodTurnoverCents -
+        periodMaterialCostCents -
+        periodAfterSaleCostCents -
+        periodThirdPartyFeeCents -
+        periodAdSpendCnyCents;
+      const periodGrossMargin = ratioPercent(periodGrossProfitCents, periodTurnoverCents);
+
+      const periodDailyExpenses = expenseRows.filter((row) => inPeriod(row.date));
+      const periodDailyTotalCents = periodDailyExpenses.reduce((sum, row) => sum + moneyToCents(row.amount), 0n);
+      const periodReimRows = approvedReimbursementRows.filter((row) => inPeriod(row.date));
+      const periodReimTotalCents = periodReimRows.reduce((sum, row) => sum + moneyToCents(row.amount), 0n);
+
+      const hasLockedPayroll = payrollRows.length > 0 && payrollRows.every((p) => p.status === "locked");
+      const payrollTotalCents = hasLockedPayroll
+        ? payrollRows.reduce((sum, p) => sum + (p.locked_net ? moneyToCents(p.locked_net) : 0n), 0n)
+        : 0n;
+      const recordedSubtotalCents = periodDailyTotalCents + periodReimTotalCents + payrollTotalCents;
+
+      const estimatedNetProfitCents = periodGrossProfitCents - recordedSubtotalCents;
+      const netMargin = ratioPercent(estimatedNetProfitCents, periodTurnoverCents);
+
       const fansByName = new Map<string, { total: number; effective: number | null; invalid: number | null; pendingInvalid: number }>();
+      let totalFansCount = 0;
+      let effectiveFansCount = 0;
+      let hasEffectiveFans = false;
       for (const f of fanRows) {
+        totalFansCount += f.added_count || 0;
+        if (f.valid_today != null) {
+          effectiveFansCount += f.valid_today;
+          hasEffectiveFans = true;
+        }
         const key = f.display_name || f.user_id;
         const prev = fansByName.get(key) ?? { total: 0, effective: 0, invalid: 0, pendingInvalid: 0 };
         prev.total += f.added_count || 0;
@@ -277,6 +521,10 @@ const validOrders = orders.filter((row) => !row.cancelled && row.status !== "ref
         prev.pendingInvalid += f.comm_invalid || 0;
         fansByName.set(key, prev);
       }
+      const costPerEffectiveFanCny =
+        hasEffectiveFans && effectiveFansCount > 0
+          ? centsToMoney(periodAdSpendCnyCents / BigInt(effectiveFansCount))
+          : null;
 
       const roomMap = new Map<string, typeof validOrders>();
       for (const row of validOrders) {
@@ -319,8 +567,108 @@ const validOrders = orders.filter((row) => !row.cancelled && row.status !== "ref
           };
         });
 
+      // Channel profit breakdown: live rooms + private channel
+      type ChannelBucket = { id: string; name: string; roomCode: string; isPrivate: boolean; count: number; turnoverCents: bigint; materialCostCents: bigint; afterSaleCostCents: bigint };
+      const channelMap = new Map<string, ChannelBucket>();
+      for (const o of validOrders) {
+        const isPrivate = o.deal_channel === "private";
+        const key = isPrivate ? "__private__" : o.room_code;
+        const name = isPrivate ? "客服私推渠道" : o.room_code === "unassigned" ? "归属待核对" : o.room_code;
+        const bucket = channelMap.get(key) ?? {
+          id: key,
+          name,
+          roomCode: isPrivate ? "" : o.room_code,
+          isPrivate,
+          count: 0,
+          turnoverCents: 0n,
+          materialCostCents: 0n,
+          afterSaleCostCents: 0n
+        };
+        bucket.count += 1;
+        bucket.turnoverCents += moneyToCents(o.booking_amount);
+        bucket.materialCostCents += materialCostForOrder(o).cents;
+        channelMap.set(key, bucket);
+      }
+      for (const exp of validAfterSaleExpenses.filter((e) => inPeriod(e.business_date))) {
+        const isPrivate = exp.deal_channel === "private";
+        const key = isPrivate ? "__private__" : exp.room_code;
+        const name = isPrivate ? "客服私推渠道" : exp.room_code === "unassigned" ? "归属待核对" : exp.room_code;
+        const bucket = channelMap.get(key) ?? {
+          id: key,
+          name,
+          roomCode: isPrivate ? "" : exp.room_code,
+          isPrivate,
+          count: 0,
+          turnoverCents: 0n,
+          materialCostCents: 0n,
+          afterSaleCostCents: 0n
+        };
+        bucket.afterSaleCostCents += moneyToCents(exp.amount_cny);
+        channelMap.set(key, bucket);
+      }
+      const channelBuckets = [...channelMap.values()].sort((a, b) => {
+        if (a.isPrivate !== b.isPrivate) return a.isPrivate ? 1 : -1;
+        return Number(b.turnoverCents - a.turnoverCents);
+      });
+      const channelWeights = channelBuckets.map((b) => b.turnoverCents);
+      const allocatedAds = allocateByWeight(periodAdSpendCnyCents, channelWeights);
+      const allocatedFees = allocateByWeight(periodThirdPartyFeeCents, channelWeights);
+      const channelProfits = channelBuckets.map((b, idx) => {
+        const matAndAfter = b.materialCostCents + b.afterSaleCostCents;
+        const adCents = allocatedAds[idx] ?? 0n;
+        const feeCents = allocatedFees[idx] ?? 0n;
+        const gpCents = b.turnoverCents - matAndAfter - feeCents - adCents;
+        return {
+          id: b.id,
+          name: b.name,
+          roomCode: b.roomCode,
+          isPrivate: b.isPrivate,
+          count: b.count,
+          turnover: centsToMoney(b.turnoverCents),
+          materialAndAfterSale: centsToMoney(matAndAfter),
+          thirdPartyFee: centsToMoney(feeCents),
+          adSpendCny: centsToMoney(adCents),
+          grossProfit: centsToMoney(gpCents),
+          grossMargin: ratioPercent(gpCents, b.turnoverCents)
+        };
+      });
+
+      const buildDayRow = (date: string) => {
+        const dayOrders = allOrders.filter((row) => row.business_date === date);
+        const dayValid = validWindowOrders.filter((row) => row.business_date === date);
+        const dayTurnover = dayValid.reduce((s, r) => s + moneyToCents(r.booking_amount), 0n);
+        const dayMat = dayValid.reduce((s, r) => s + materialCostForOrder(r).cents, 0n);
+        const dayAfterSale = validAfterSaleExpenses
+          .filter((e) => e.business_date === date)
+          .reduce((s, e) => s + moneyToCents(e.amount_cny), 0n);
+        const dayFee = settlementRows
+          .filter((s) => s.settled_on === date)
+          .reduce((s, item) => s + convertToCnyCents(item.fee_amount, item.fee_currency, item.fx_rate), 0n);
+        const dayAdUsd = opsAdRows
+          .filter((a) => a.business_date === date && a.spend_usd != null)
+          .reduce((s, a) => s + moneyToCents(a.spend_usd!), 0n);
+        const dayAdCny = convertToCnyCents(centsToMoney(dayAdUsd), "USD", null);
+        const dayDailyOp = expenseRows
+          .filter((e) => e.date === date)
+          .reduce((s, e) => s + moneyToCents(e.amount), 0n);
+        const dayReimOp = approvedReimbursementRows
+          .filter((r) => r.date === date)
+          .reduce((s, r) => s + moneyToCents(r.amount), 0n);
+        const dayOp = dayDailyOp + dayReimOp;
+        const hasSalesOrActivity = dayOrders.length > 0 || dayAdUsd > 0n || dayAfterSale > 0n || dayFee > 0n;
+        const hasGrossActivity = dayOrders.length > 0 || dayAdUsd > 0n || dayAfterSale > 0n || dayFee > 0n;
+        return {
+          date,
+          total: dayOrders.length > 0 ? centsToMoney(dayTurnover) : null,
+          grossProfit: hasGrossActivity ? centsToMoney(dayTurnover - dayMat - dayAfterSale - dayFee - dayAdCny) : null,
+          adSpendCny: dayAdUsd > 0n ? centsToMoney(dayAdCny) : (hasSalesOrActivity ? "0.00" : null),
+          adSpendUsd: dayAdUsd > 0n ? centsToMoney(dayAdUsd) : null,
+          operatingCost: (dayDailyOp > 0n || dayReimOp > 0n || hasSalesOrActivity) ? centsToMoney(dayOp) : null
+        };
+      };
+
       const days = daysBetween(period.from, period.to).map((date) => {
-        const hasAny = orders.some((row) => row.business_date === date);
+        const hasAny = periodOrders.some((row) => row.business_date === date);
         const dayValid = validOrders.filter((row) => row.business_date === date);
         return {
           date,
@@ -329,30 +677,88 @@ const validOrders = orders.filter((row) => !row.cancelled && row.status !== "ref
         };
       });
 
+      const trend = daysBetween(trendFrom, period.to).map(buildDayRow);
+
       res.set("Cache-Control", "private, no-store").json({
         version: "boss-priority/v1",
         period,
-        performance: statsOf(validOrders),
+        performance: {
+          ...periodPerf,
+          afterSales: centsToMoney(periodAfterSalesCents),
+          avgOrder: centsToMoney(periodAvgOrderCents)
+        },
+        grossProfit: {
+          amount: centsToMoney(periodGrossProfitCents),
+          margin: periodGrossMargin,
+          materialCost: centsToMoney(periodMaterialCostCents),
+          afterSaleCost: centsToMoney(periodAfterSaleCostCents),
+          thirdPartyFee: centsToMoney(periodThirdPartyFeeCents),
+          adSpendUsd: centsToMoney(periodAdSpendUsdCents),
+          adSpendCny: centsToMoney(periodAdSpendCnyCents),
+          missingMaterialCostCount
+        },
+        acquisition: {
+          totalFans: totalFansCount,
+          effectiveFans: hasEffectiveFans ? effectiveFansCount : null,
+          costPerEffectiveFanCny
+        },
+        structure: {
+          estimatedNetProfit: centsToMoney(estimatedNetProfitCents),
+          netMargin,
+          includesPayroll: hasLockedPayroll,
+          items: [
+            { key: "material", label: "料子本钱", amount: centsToMoney(periodMaterialCostCents), ratio: ratioPercent(periodMaterialCostCents, periodTurnoverCents) },
+            { key: "afterSaleAndFee", label: "售后与扣点", amount: centsToMoney(periodAfterSaleCostCents + periodThirdPartyFeeCents), ratio: ratioPercent(periodAfterSaleCostCents + periodThirdPartyFeeCents, periodTurnoverCents) },
+            { key: "ads", label: "投流成本", amount: centsToMoney(periodAdSpendCnyCents), ratio: ratioPercent(periodAdSpendCnyCents, periodTurnoverCents) },
+            { key: "operating", label: "已录运营成本", amount: centsToMoney(recordedSubtotalCents), ratio: ratioPercent(recordedSubtotalCents, periodTurnoverCents) },
+            { key: "netProfit", label: "预估净利", amount: centsToMoney(estimatedNetProfitCents), ratio: netMargin }
+          ]
+        },
+        attention: {
+          pendingPaymentVerifications: Number(attentionCounts?.pending_verifications || 0),
+          missingMaterialCostOrders: missingMaterialCostCount,
+          pendingExpensesAndWarehouse: Number(attentionCounts?.pending_expenses || 0) + Number(attentionCounts?.pending_warehouse || 0)
+        },
         days,
+        trend,
         rooms,
-        expenses: (() => {
-          const recorded = expenseRows.reduce((sum, row) => sum + moneyToCents(row.amount), 0n);
-          return {
-            registered: expenseRows.length ? centsToMoney(recorded) : null,
-            status: "incomplete",
-            categories: EXPENSE_CATEGORIES.map((c) => {
-              if (c.key === "salary") return { key: c.key, label: c.label, amount: null, count: 0, status: "pending_payroll" };
-              const rows = expenseRows.filter((row) => row.category === c.key);
-              const amount = rows.reduce((sum, row) => sum + moneyToCents(row.amount), 0n);
-              return { key: c.key, label: c.label, amount: rows.length ? centsToMoney(amount) : null, count: rows.length, status: rows.length ? "recorded" : "unreported" };
-            }),
-            records: expenseRows
-          };
-        })(),
+        channelProfits,
+        expenses: {
+          registered: periodDailyExpenses.length ? centsToMoney(periodDailyTotalCents) : null,
+          recordedSubtotal: centsToMoney(recordedSubtotalCents),
+          dailyTotal: centsToMoney(periodDailyTotalCents),
+          approvedReimbursements: centsToMoney(periodReimTotalCents),
+          approvedReimbursementCount: periodReimRows.length,
+          payrollTotal: hasLockedPayroll ? centsToMoney(payrollTotalCents) : null,
+          payrollStatus: hasLockedPayroll ? "ready" : "pending_payroll",
+          status: hasLockedPayroll ? "ready" : "incomplete",
+          categories: EXPENSE_CATEGORIES.map((c) => {
+            if (c.key === "salary") {
+              return {
+                key: c.key,
+                label: c.label,
+                amount: hasLockedPayroll ? centsToMoney(payrollTotalCents) : null,
+                count: hasLockedPayroll ? payrollRows.length : 0,
+                status: hasLockedPayroll ? "recorded" : "pending_payroll"
+              };
+            }
+            const rows = periodDailyExpenses.filter((row) => row.category === c.key);
+            const amount = rows.reduce((sum, row) => sum + moneyToCents(row.amount), 0n);
+            return {
+              key: c.key,
+              label: c.label,
+              amount: rows.length ? centsToMoney(amount) : null,
+              count: rows.length,
+              status: rows.length ? "recorded" : "unreported"
+            };
+          }),
+          records: periodDailyExpenses
+        },
         definitions: {
-          performance: "直播间料价＋代购费，加客服私推料价；未付款开单计入，跑单和退款源单排除，追加收费另列。",
+          performance: "直播间料价＋代购费，加客服私推料价；未付款开单计入，跑单和退款源单排除，售后追加另列。",
+          grossProfit: "计算公式：有效业绩 - 料子本钱（白条价/库房结算价） - 售后公司成本 - 第三方扣点 - 投流成本（折合人民币）。",
           fans: "加粉及有效粉按业务日日报汇总；无效粉仅计主管已确认的客资，缺少复核明细显示待复核，不按零处理。",
-          expenses: "日常运营费用包括房租、水电、工资、接待和其他；广告消耗留在运营数据，商品、加工和发货留在业务费用。工资待财务核算，当前仅展示已登记费用，不声称完整总费用。"
+          expenses: "公司运营成本包含日常运营（房租/水电/招待/其他）、已核报销（含直播间费用，不含已计入订单成本的业务垫付）与固定薪资；工资未核算时仍展示已登记运营开支并标注「工资待核」。"
         }
       });
     } catch (error) {

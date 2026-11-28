@@ -29,8 +29,7 @@ export function CustomerPaymentSummary({ records, totals, loading, onOpen, detai
   }, []);
   const fx = result?.key === inputKey ? result.value : null;
   const pending = loading || !!totals && !fx;
-  const rates = fx?.quotes.map(q => `${q.date}：1 ${q.currency} = ${Number(q.rate)} CNY；行情时间 ${new Date(q.updatedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })}（UTC+8）${q.sourceDate !== q.date ? `；沿用 ${q.sourceDate} 已发布汇率` : ""}${q.delayed ? "；行情约延迟15分钟" : ""}${q.stale ? "；更新延迟" : ""}`).join("。") ?? "";
-  const tip = `按付款日汇总所选区间有效客户付款，包含定金、尾款、售后及历史订单付款。人民币按原额计入，台币和美元按付款日参考汇率折算后合计。今日每小时检查最新行情，历史使用对应日期参考汇率。客户付给公司或第三方均计入，不扣第三方费用或汇差，不代表公司已到账，也不改动客户原币付款及欠款。${rates ? ` ${rates}。` : ""}${fx?.missingDates.length ? ` 缺少汇率：${fx.missingDates.join("、")}。` : ""}${fx?.incomplete ? " 付款明细待核对，暂不汇总折算。" : ""}`;
+  const tip = "按付款日汇总所选区间有效客户付款，包含定金、尾款、售后及历史订单付款。";
   const value=pending ? "…" : !fx ? "—" : fx.cny === null ? "待折算" : `${fx.hasForeign ? "约 " : ""}¥${formatCashValue(fx.cny)}`;
   return <>
     <header><h2>客户已付款</h2><InfoTip scrollable label="客户已付款口径" text={tip} /></header>
