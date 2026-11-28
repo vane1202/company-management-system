@@ -7,9 +7,9 @@ test('客服报销凭证需由主管提交，财务才可核对',async()=>{
  const store=new Map(), path='/api/demo/reimbursements';
  const staff=environment('cs','',undefined,store), supervisor=environment('cs_supervisor','',undefined,store), finance=environment('finance','',undefined,store);
  const snapshot=await finance.json(path);
+ const csSnap=await staff.json(path);
  const expenseDate=(await finance.json('/api/finance/payables')).body.expenses[0].business_date;
- const draft={action:'create',category:'advance',purpose:'演示售后垫付',amount:'10',expenseDate,claimDate:expenseDate,requestKey:'cs-reimbursement-1',proofs:['data:image/png;base64,iVBORw0KGgo=']};
- assert.equal((await supervisor.json(path,'POST',draft)).status,403);
+ const draft={action:'create',claimType:'office',teamId:csSnap.body.teams[0].id,category:'advance',purpose:'演示售后垫付',amount:'10',expenseDate,claimDate:expenseDate,requestKey:'cs-reimbursement-1',proofs:['data:image/png;base64,iVBORw0KGgo=']};
  const created=await staff.json(path,'POST',draft);
  assert.equal(created.status,200);
  const claim=created.body.state.claims.find(row=>row.purpose===draft.purpose);
@@ -23,6 +23,84 @@ test('客服报销凭证需由主管提交，财务才可核对',async()=>{
  assert.equal(forwarded.stage,'finance');
  assert.deepEqual(forwarded.proofs,draft.proofs);
  assert.equal((await supervisor.json(path,'POST',forward)).status,409);
+});
+
+test('客服主管本人填报费用直达待财务核对，支持关联直播间、撤回与退回重提',async()=>{
+ const store=new Map(), path='/api/demo/reimbursements';
+ const supervisor=environment('cs_supervisor','',undefined,store), finance=environment('finance','',undefined,store);
+ const supSnap=await supervisor.json(path);
+ assert.equal(supSnap.status,200);
+ assert.ok(Array.isArray(supSnap.body.liveRooms)&&supSnap.body.liveRooms.length>=2);
+ const date=supSnap.body.orders[0].businessDate;
+ const proof=['data:image/png;base64,iVBORw0KGgo='];
+
+ const created=await supervisor.json(path,'POST',{
+  action:'create',
+  claimType:'live_room',
+  liveRoomId:'一号直播间',
+  liveRoomName:'一号直播间',
+  category:'temporary',
+  purpose:'直播间灯光补光道具采购',
+  amount:'128.50',
+  expenseDate:date,
+  note:'现场耗材补充',
+  requestKey:'sup-live-1',
+  proofs:proof
+ });
+ assert.equal(created.status,200);
+ const own=created.body.state.claims.find(c=>c.requestKey==='sup-live-1');
+ assert.ok(own);
+ assert.equal(own.stage,'finance');
+ assert.equal(own.status,'pending');
+ assert.equal(own.claimType,'live_room');
+ assert.equal(own.liveRoomName,'一号直播间');
+ assert.equal(own.ownerRole,'cs_supervisor');
+
+ const finView=(await finance.json(path)).body.state.claims.find(c=>c.id===own.id);
+ assert.ok(finView);
+ assert.equal(finView.liveRoomName,'一号直播间');
+
+ const withdrawn=await supervisor.json(path,'POST',{action:'withdraw',id:own.id,version:own.version});
+ assert.equal(withdrawn.status,200);
+ assert.equal(withdrawn.body.state.claims.some(c=>c.id===own.id),false);
+
+ const created2=await supervisor.json(path,'POST',{
+  action:'create',
+  claimType:'live_room',
+  liveRoomId:'二号直播间',
+  liveRoomName:'二号直播间',
+  category:'purchase',
+  purpose:'直播间日常耗材',
+  amount:'88.00',
+  expenseDate:date,
+  requestKey:'sup-live-2',
+  proofs:proof
+ });
+ assert.equal(created2.status,200);
+ const own2=created2.body.state.claims.find(c=>c.requestKey==='sup-live-2');
+ const rejected=await finance.json(path,'POST',{action:'review',id:own2.id,version:own2.version,decision:'rejected',reason:'请补充明细金额说明'});
+ assert.equal(rejected.status,200);
+
+ const resubmitted=await supervisor.json(path,'POST',{
+  action:'resubmit',
+  id:own2.id,
+  version:own2.version+1,
+  claimType:'live_room',
+  liveRoomId:'二号直播间',
+  liveRoomName:'二号直播间',
+  category:'purchase',
+  purpose:'直播间日常耗材（补充胶带与标签纸明细）',
+  amount:'86.00',
+  expenseDate:date,
+  note:'已核减差异',
+  requestKey:'sup-live-2-resubmit'
+ });
+ assert.equal(resubmitted.status,200);
+ const updated=resubmitted.body.state.claims.find(c=>c.id===own2.id);
+ assert.equal(updated.stage,'finance');
+ assert.equal(updated.status,'pending');
+ assert.equal(updated.amount,'86.00');
+ assert.equal(updated.reviewNote,'');
 });
 
 test('财务报销登记核对分次付款独立汇总，不增加运营成本或重复业务成本',async()=>{

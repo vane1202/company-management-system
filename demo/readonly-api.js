@@ -556,18 +556,23 @@
       if(!['finance','cs','cs_supervisor'].includes(role))return json({error:'Reimbursement access required'},403);
       if(!window.CmsReimbursements)return json({error:'Reimbursement module unavailable'},503);
       try{
+        const liveRooms=(()=>{
+          const seen=new Set(['一号直播间','二号直播间']);
+          for(const o of orders){if(o.liveRoomCode)seen.add(roomTitle(o.liveRoomCode));}
+          return [...seen].map(name=>({id:name,name}));
+        })();
         const snapshot=()=>{
           const state=reimbursementState();
-          const claims=state.claims.filter(c=>role==='finance'?(!c.stage||c.stage==='finance'):c.ownerRole==='cs');
+          const claims=state.claims.filter(c=>role==='finance'?(!c.stage||c.stage==='finance'):role==='cs_supervisor'?(c.ownerRole==='cs'||c.ownerRole==='cs_supervisor'):c.ownerRole==='cs');
           const claimTeams=role==='cs_supervisor'?[teams[0]]:teams.map(t=>({id:t.id,name:t.name}));
           const claimOrders=(role==='finance'?orders:visibleOrders()).map(o=>({id:o.id,orderRef:o.orderRef,customerLabel:o.customerLabel||'',businessDate:o.businessDate,amount:o.amount,teamId:o.teamId||teams[0]?.id||'',teamName:o.teamName||teams[0]?.name||''}));
-          return {state:{claims:claims.map(c=>({...c,paidAmount:window.CmsReimbursements.money(state.payments.filter(p=>p.claimId===c.id).reduce((n,p)=>n+cents(p.amount),0n))})),payments:role==='finance'?state.payments:[]},categories:window.CmsReimbursements.categories,expenses:role==='finance'?payables().expenses.filter(e=>!e.voided_at&&e.pending_cny!==null&&cents(e.pending_cny)>0n):[],teams:claimTeams,orders:claimOrders};
+          return {state:{claims:claims.map(c=>({...c,paidAmount:window.CmsReimbursements.money(state.payments.filter(p=>p.claimId===c.id).reduce((n,p)=>n+cents(p.amount),0n))})),payments:role==='finance'?state.payments:[]},categories:window.CmsReimbursements.categories,expenses:role==='finance'?payables().expenses.filter(e=>!e.voided_at&&e.pending_cny!==null&&cents(e.pending_cny)>0n):[],teams:claimTeams,orders:claimOrders,liveRooms,currentUserId:currentUser().id,currentUserName:currentUser().displayName};
         };
         if(method==='GET')return json(snapshot());
         if(method!=='POST')return json({error:'Unsupported method'},405);
         const claimTeams=role==='cs_supervisor'?[teams[0]]:teams.map(t=>({id:t.id,name:t.name}));
         const claimOrders=(role==='finance'?orders:visibleOrders()).map(o=>({id:o.id,orderRef:o.orderRef,customerLabel:o.customerLabel||'',businessDate:o.businessDate,amount:o.amount,teamId:o.teamId||teams[0]?.id||'',teamName:o.teamName||teams[0]?.name||''}));
-        const next=window.CmsReimbursements.apply(reimbursementState(),JSON.parse(options.body||'{}'),{role,today,actor:currentUser().displayName,expenses:payables().expenses,teams:claimTeams,orders:claimOrders,references:allPaymentReferences(),id:'reim-'+Date.now()+'-'+Math.random().toString(36).slice(2,9),now:new Date().toISOString()});
+        const next=window.CmsReimbursements.apply(reimbursementState(),JSON.parse(options.body||'{}'),{role,today,actor:currentUser().displayName,actorId:currentUser().id,expenses:payables().expenses,teams:claimTeams,orders:claimOrders,liveRooms,references:allPaymentReferences(),id:'reim-'+Date.now()+'-'+Math.random().toString(36).slice(2,9),now:new Date().toISOString()});
         window.sessionStorage.setItem(reimbursementKey,JSON.stringify(next));return json(snapshot());
       }catch(error){return json({error:error.message||'Reimbursement request failed'},error.status||400);}
     }

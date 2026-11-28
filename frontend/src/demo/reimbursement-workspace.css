@@ -1,11 +1,19 @@
-.reim-create{margin:0 0 16px;padding:12px 18px;min-height:44px}.reimbursement-form label,.reim-filters label{display:grid;gap:7px;min-width:0;font-size:12px;color:var(--muted)}.reimbursement-form input,.reimbursement-form textarea,.reimbursement-form select,.reim-filters input,.reim-filters select{width:100%;min-width:0;min-height:44px}.reimbursement-form textarea{min-height:80px;resize:vertical}.reimbursement-form small{font-size:12px;line-height:1.6}.reim-filters{display:grid;grid-template-columns:2fr 1fr 1fr;gap:12px;margin:16px 0}.reimbursement-form>.actions{margin:12px 0}.reimbursement-workspace h1{display:flex;gap:6px;align-items:center}.reimbursement-workspace .wh-bill summary>span:first-child{overflow-wrap:anywhere}@media(max-width:799px){.reim-filters{grid-template-columns:1fr 1fr;gap:10px}.reim-filters label:first-child{grid-column:1/-1}.reimbursement-workspace .wh-bill summary>span:first-child small{max-width:200px}.reimbursement-workspace .commerce-heading .actions{gap:5px}.reimbursement-workspace .commerce-heading button{font-size:12px;padding:8px 10px}}
+.reim-create{margin:0 0 16px;padding:12px 18px;min-height:44px}
+.reimbursement-form label,.reim-filters label{display:grid;gap:7px;min-width:0;font-size:12px;color:var(--muted)}
+.reimbursement-form input,.reimbursement-form textarea,.reimbursement-form select,.reim-filters input,.reim-filters select{width:100%;min-width:0;min-height:44px}
+.reimbursement-form textarea{min-height:80px;resize:vertical}
+.reimbursement-form small{font-size:12px;line-height:1.6}
+.reim-filters{display:grid;grid-template-columns:2fr 1fr 1fr;gap:12px;margin:16px 0}
+.reimbursement-form>.actions{margin:12px 0}
+.reimbursement-workspace h1{display:flex;gap:6px;align-items:center}
+.reimbursement-workspace .wh-bill summary>span:first-child{overflow-wrap:anywhere}
 .reimbursement-workspace .reim-proofs { display: flex; flex-wrap: wrap; gap: 12px; }
 .reimbursement-workspace .reim-proofs img { width: 120px; height: 96px; object-fit: contain; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
 .reimbursement-workspace .reim-proof-file { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-block: 5px; }
 .reimbursement-workspace .reim-proof-file span { overflow-wrap: anywhere; }
 .reimbursement-workspace .reim-filters { grid-template-columns: 1.2fr 1.2fr 1fr 1fr; }
 .reimbursement-workspace .reim-section-label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 7px; }
-.reimbursement-workspace .reim-type-picker { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 6px; }
+.reimbursement-workspace .reim-type-picker { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 6px; }
 .reimbursement-workspace .reim-type-btn { min-height: 40px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; font-weight: 600; cursor: pointer; }
 .reimbursement-workspace .reim-type-btn.is-active { background: var(--jade-dark) !important; color: #ffffff !important; border-color: var(--jade-dark) !important; }
 .reimbursement-workspace .reim-type-line { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
@@ -14,4 +22,267 @@
 .reimbursement-workspace .reim-bind-box .notice { margin: 0; }
 .reimbursement-workspace .reim-bind-row { display: flex; gap: 8px; align-items: center; }
 .reimbursement-workspace .reim-bind-row select { flex: 1; min-width: 0; min-height: 40px; }
-@media(max-width:799px){.reimbursement-workspace .reim-filters{grid-template-columns:1fr 1fr}.reimbursement-workspace .reim-type-picker{grid-template-columns:1fr}.reimbursement-workspace .reim-bind-row{flex-direction:column;align-items:stretch}}
+
+/* Supervisor 2-segment switcher */
+.reimbursement-workspace .reim-seg-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  margin: 0 0 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--card);
+}
+.reimbursement-workspace .reim-seg-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: none;
+  cursor: pointer;
+}
+.reimbursement-workspace .reim-seg-tabs button.is-active {
+  background: var(--jade-dark);
+  color: #ffffff;
+  font-weight: 600;
+}
+.reimbursement-workspace .reim-seg-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-style: normal;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  background: #edf3ef;
+  color: var(--jade-dark);
+}
+.reimbursement-workspace .reim-seg-tabs button.is-active .reim-seg-count {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+/* Live room badge */
+.reimbursement-workspace .fin-badge.is-room {
+  background: #edf4f1;
+  color: var(--jade-dark);
+  border: 1px solid #c9ded5;
+}
+
+/* Supervisor "我的填报" cards */
+.reimbursement-workspace .reim-my-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.reimbursement-workspace .reim-my-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  min-width: 0;
+}
+.reimbursement-workspace .reim-my-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.reimbursement-workspace .reim-my-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.reimbursement-workspace .reim-cat-tag {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.reimbursement-workspace .reim-my-main {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.reimbursement-workspace .reim-my-purpose {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.reimbursement-workspace .reim-my-amount {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+  flex-shrink: 0;
+}
+.reimbursement-workspace .reim-my-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.reimbursement-workspace .reim-reject-reason {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #ecc6c6;
+  background: #fdf4f4;
+  color: #9b2c2c;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.reimbursement-workspace .reim-my-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.reimbursement-workspace .reim-my-actions button {
+  min-height: 36px;
+  padding: 6px 12px;
+  font-size: 13px;
+}
+.reimbursement-workspace .reim-danger-btn {
+  color: #9b2c2c;
+  border-color: #e4bebe;
+}
+
+/* Supervisor centered modal (PC) / bottom sheet (390px mobile) - no entrance animation */
+.reim-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 85;
+  background: rgb(10 31 27 / 45%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.reim-sheet-panel {
+  width: min(560px, 94vw);
+  max-height: 90dvh;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 18px 42px rgba(14, 44, 39, 0.22);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: none;
+}
+.reimbursement-workspace .reim-supervisor-tip {
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: #edf5f1;
+  border: 1px solid #c2ddd2;
+  color: var(--jade-dark);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+.reimbursement-workspace .reim-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.reimbursement-workspace .reim-proof-upload {
+  display: grid;
+  gap: 6px;
+}
+.reimbursement-workspace .reim-thumb-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 4px;
+}
+.reimbursement-workspace .reim-thumb-item {
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+}
+.reimbursement-workspace .reim-thumb-item img {
+  width: 100%;
+  height: 76px;
+  object-fit: cover;
+  border-radius: 6px;
+  display: block;
+}
+.reimbursement-workspace .reim-thumb-item span {
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+}
+.reimbursement-workspace .reim-thumb-item button {
+  min-height: 30px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+@media(max-width:799px){
+  .reim-filters{grid-template-columns:1fr 1fr;gap:10px}
+  .reim-filters label:first-child{grid-column:1/-1}
+  .reimbursement-workspace .wh-bill summary>span:first-child small{max-width:200px}
+  .reimbursement-workspace .commerce-heading .actions{gap:6px}
+  .reimbursement-workspace .commerce-heading button{font-size:13px;padding:8px 12px;min-height:40px}
+  .reimbursement-workspace .reim-filters{grid-template-columns:1fr 1fr}
+  .reimbursement-workspace .reim-type-picker{grid-template-columns:1fr}
+  .reimbursement-workspace .reim-bind-row{flex-direction:column;align-items:stretch}
+  .reimbursement-workspace .reim-my-cards{grid-template-columns:1fr}
+  .reimbursement-workspace .reim-seg-tabs{width:100%}
+  .reimbursement-workspace .reim-seg-tabs button{flex:1;justify-content:center}
+
+  /* 390px mobile bottom drawer */
+  .reim-sheet-backdrop{
+    align-items:flex-end;
+    justify-content:stretch;
+    padding:0;
+  }
+  .reim-sheet-panel{
+    width:100%;
+    max-width:100%;
+    max-height:92dvh;
+    border-radius:16px 16px 0 0;
+    border-bottom:0;
+  }
+  .reim-sheet-panel .fin-drawer-foot{
+    padding-bottom:calc(14px + env(safe-area-inset-bottom));
+  }
+  .reim-sheet-panel .fin-drawer-foot button{
+    flex:1;
+  }
+
+  /* Force 16px font-size on all mobile form controls to prevent iOS/WeChat zoom */
+  .reimbursement-workspace input,
+  .reimbursement-workspace select,
+  .reimbursement-workspace textarea,
+  .reim-sheet-panel input,
+  .reim-sheet-panel select,
+  .reim-sheet-panel textarea {
+    font-size: 16px;
+  }
+}
