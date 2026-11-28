@@ -1,4 +1,4 @@
-﻿-- Payment proof and finance arrival check. Historical rows stay confirmed.
+-- Payment proof and finance arrival check. Historical rows stay confirmed.
 ALTER TABLE customer_payments
   ADD COLUMN IF NOT EXISTS verify_status TEXT NOT NULL DEFAULT 'confirmed',
   ADD COLUMN IF NOT EXISTS verify_reason TEXT,
