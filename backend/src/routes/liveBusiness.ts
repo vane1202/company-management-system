@@ -128,12 +128,12 @@ export function createLiveBusinessRouter(db:Pool,config:AppConfig){
             o.business_date::text AS business_date,
             COALESCE(sum(CASE WHEN o.legacy THEN o.amount ELSE COALESCE((SELECT sum(i.price_cny+i.buying_fee_cny) FROM order_items i WHERE i.order_id=o.id),o.amount) END),0)::numeric(14,2)::text AS amount
        FROM scoped o
-      WHERE o.business_date BETWEEN $7 AND $2
+      WHERE o.business_date BETWEEN $1 AND $2
         AND o.status <> 'refunded'
         AND COALESCE(o.deal_channel,'live') <> 'private'
         AND NOT EXISTS(SELECT 1 FROM order_cancellations x WHERE x.order_id=o.id AND x.voided_at IS NULL)
       GROUP BY room_key, o.business_date`,
-    [...params, trendFrom]
+    [trendFrom, period.to, selected.room, selected.host, selected.persona, selected.operator]
    )).rows;
 
    await c.query('COMMIT');
