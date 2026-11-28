@@ -13,12 +13,12 @@ export function createSupplierPaymentsRouter(db:Pool,config:AppConfig) {
   router.use((req,_res,next)=>['boss','finance'].includes(req.actor!.role)?next():next(new HttpError(403,'无供应商付款权限')));
   router.get('/:expenseId/attachments',async(req,res,next)=>{try{
     const e=(await db.query('SELECT order_id,item_id FROM order_expenses WHERE id=$1',[uuid(req.params.expenseId)])).rows[0];if(!e)throw new HttpError(404,'费用不存在');
-    const attachments=(await db.query('SELECT id,filename,mime_type FROM order_attachments WHERE order_id=$1 AND ($2::uuid IS NULL OR item_id=$2 OR item_id IS NULL) ORDER BY created_at,id',[e.order_id,e.item_id])).rows;
+    const attachments=(await db.query('SELECT id,filename,mime_type FROM order_attachments WHERE order_id=$1 AND kind=\'card\' AND ($2::uuid IS NULL OR item_id=$2 OR item_id IS NULL) ORDER BY created_at,id',[e.order_id,e.item_id])).rows;
     res.set('Cache-Control','private, no-store').json({attachments});
   }catch(e){next(e);}});
   router.get('/:expenseId/attachments/:attachmentId',async(req,res,next)=>{try{
     const e=(await db.query('SELECT order_id,item_id FROM order_expenses WHERE id=$1',[uuid(req.params.expenseId)])).rows[0];if(!e)throw new HttpError(404,'费用不存在');
-    const a=(await db.query('SELECT mime_type,image_bytes FROM order_attachments WHERE id=$1 AND order_id=$2 AND ($3::uuid IS NULL OR item_id=$3 OR item_id IS NULL)',[uuid(req.params.attachmentId),e.order_id,e.item_id])).rows[0];if(!a)throw new HttpError(404,'原图不存在或不对应此项成本');
+    const a=(await db.query('SELECT mime_type,image_bytes FROM order_attachments WHERE id=$1 AND order_id=$2 AND kind=\'card\' AND ($3::uuid IS NULL OR item_id=$3 OR item_id IS NULL)',[uuid(req.params.attachmentId),e.order_id,e.item_id])).rows[0];if(!a)throw new HttpError(404,'原图不存在或不对应此项成本');
     res.set({'Content-Type':a.mime_type,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}).send(a.image_bytes);
   }catch(e){next(e);}});
   const mutate=(handler:(c:PoolClient,req:Request)=>Promise<unknown>)=>(req:Request,res:Response,next:NextFunction)=>{

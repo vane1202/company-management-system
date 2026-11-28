@@ -19,13 +19,14 @@ const describe = (parts: [number, string][]) => {
 };
 
 export function buildFinanceBadges(input: {
-  bills: Bill[]; billPayments: Payment[]; claims: Claim[]; claimPayments: Payment[]; expenses: DailyExpense[]; month: string;
+  bills: Bill[]; billPayments: Payment[]; claims: Claim[]; claimPayments: Payment[]; expenses: DailyExpense[]; month: string; batches?: { status: string }[];
 }): FinanceBadges {
-  const unpaidBills = input.bills.filter(bill => bill.status === "approved" && paidFor(input.billPayments, "billId", bill.id) < cents(bill.amount)).length;
+  const batches = input.batches ?? [];
+  const unpaidBills = input.bills.filter(bill => bill.status === "approved" && paidFor(input.billPayments, "billId", bill.id) < cents(bill.amount)).length + batches.filter(batch => batch.status === "approved").length;
   const unpaidClaims = input.claims.filter(claim => claim.status === "approved" && paidFor(input.claimPayments, "claimId", claim.id) < cents(claim.amount)).length;
   const monthCount = input.expenses.filter(expense => expense.date.startsWith(input.month)).length;
   return {
-    warehouse: describe([[input.bills.filter(bill => bill.status === "submitted").length, "待审核"], [unpaidBills, "待付款"]]),
+    warehouse: describe([[input.bills.filter(bill => bill.status === "submitted").length + batches.filter(batch => batch.status === "submitted").length, "待审核"], [unpaidBills, "待付款"]]),
     reimbursement: describe([[input.claims.filter(claim => claim.status === "pending").length, "待核对"], [unpaidClaims, "待付款"]]),
     dailyExpenses: monthCount ? { text: `本月已登记 ${monthCount} 笔`, attention: false } : { text: "本月未登记", attention: true },
   };
@@ -47,11 +48,11 @@ export function useFinanceBadges(enabled: boolean, month: string, refreshKey: un
     if (!enabled) return;
     let live = true;
     Promise.all([
-      read<{ state: { bills: Bill[]; payments: Payment[] } }>(warehouseUrl),
+      read<{ state: { bills: Bill[]; payments: Payment[] }; batches?: { status: string }[] }>(warehouseUrl),
       read<{ state: { claims: Claim[]; payments: Payment[] } }>(reimbursementUrl),
       read<{ records: DailyExpense[] }>(dailyUrl),
     ]).then(([warehouse, reimbursements, daily]) => {
-      if (live) setBadges(buildFinanceBadges({ bills: warehouse.state.bills, billPayments: warehouse.state.payments, claims: reimbursements.state.claims, claimPayments: reimbursements.state.payments, expenses: daily.records, month }));
+      if (live) setBadges(buildFinanceBadges({ bills: warehouse.state.bills, billPayments: warehouse.state.payments, batches: warehouse.batches, claims: reimbursements.state.claims, claimPayments: reimbursements.state.payments, expenses: daily.records, month }));
     }).catch(() => { if (live) setBadges({}); });
     return () => { live = false; };
   }, [enabled, month, refreshKey]);

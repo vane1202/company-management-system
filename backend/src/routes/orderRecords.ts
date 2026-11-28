@@ -111,7 +111,7 @@ export function createOrderRecordsRouter(db: Pool, config: AppConfig) {
       const items=(await c.query("SELECT * FROM order_items WHERE order_id=$1 ORDER BY id",[order.id])).rows;
       const payments=(await c.query(`SELECT p.id,p.payment_date,p.amount,p.currency,p.credit_amount,p.received_cny,p.purpose,p.channel,p.third_party,p.reference,p.note,p.created_at,p.voided_at,p.void_reason,p.after_sale_charge_id,COALESCE((SELECT sum(a.foreign_amount) FROM settlement_allocations a JOIN finance_settlements s ON s.id=a.settlement_id WHERE a.payment_id=p.id AND s.voided_at IS NULL),0)::numeric(14,2) AS settled_amount FROM customer_payments p WHERE p.order_id=$1 ORDER BY p.created_at,p.id`,[order.id])).rows;
       const expenses=(await c.query("SELECT id,business_date,category,label,amount_cny,counterparty,item_id,note,created_at,voided_at,void_reason,after_sale_charge_id FROM order_expenses WHERE order_id=$1 ORDER BY created_at,id",[order.id])).rows;
-      const attachments=(await c.query("SELECT id,item_id,filename,mime_type,created_at FROM order_attachments WHERE order_id=$1 ORDER BY created_at,id",[order.id])).rows;
+      const attachments=(await c.query("SELECT id,item_id,filename,mime_type,created_at,kind FROM order_attachments WHERE order_id=$1 ORDER BY created_at,id",[order.id])).rows;
       const charges=(await c.query("SELECT a.*,COALESCE((SELECT sum(e.amount_cny) FROM order_expenses e WHERE e.after_sale_charge_id=a.id AND e.voided_at IS NULL),0)::numeric(14,2)::text AS cost_cny FROM order_charges a WHERE a.order_id=$1 ORDER BY a.created_at,a.id",[order.id])).rows.map(a=>({...a,margin_cny:a.costs_completed_at?centsToMoney(moneyToCents(a.amount_cny)-moneyToCents(a.cost_cny)):null}));
       const totalDue=await effectiveDue(c,String(order.id),String(details.customer_due));
       const paid=addMoney(payments.filter(p=>!p.voided_at).map(p=>p.credit_amount));
@@ -330,13 +330,28 @@ export function createOrderRecordsRouter(db: Pool, config: AppConfig) {
     const mime=bytes.subarray(0,3).equals(Buffer.from([255,216,255]))?"image/jpeg":bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))?"image/png":bytes.toString("ascii",0,4)==="RIFF"&&bytes.toString("ascii",8,12)==="WEBP"?"image/webp":"";
     if(!mime||mime!==req.get("content-type")?.split(";")[0])throw new HttpError(400,"图片内容与格式不符");
     const sha=createHash("sha256").update(bytes).digest("hex");
-    const old=(await c.query("SELECT id FROM order_attachments WHERE order_id=$1 AND sha256=$2",[id,sha])).rows[0];if(old)return {id:old.id};
-    if(Number((await c.query("SELECT count(*) FROM order_attachments WHERE order_id=$1",[id])).rows[0].count)>=12)throw new HttpError(409,"每单最多留存12张原图");
-    const itemId=req.query.itemId?uuid(req.query.itemId):null;
+    const kind=req.query.kind==="shipping_proof"?"shipping_proof":"card";
+    if(req.query.kind&&req.query.kind!=="card"&&req.query.kind!=="shipping_proof")throw new HttpError(400,"图片分类无效");
+    const old=(await c.query("SELECT id,kind FROM order_attachments WHERE order_id=$1 AND sha256=$2",[id,sha])).rows[0];
+    if(old){if(old.kind===kind)return {id:old.id};throw new HttpError(409,kind==="shipping_proof"?"这张图片已用作开单卡原图，请另选快递截图":"这张图片已用作快递记录截图");}
+    const itemId=kind==="shipping_proof"?null:(req.query.itemId?uuid(String(req.query.itemId)):null);
+    if(kind==="shipping_proof"&&req.query.itemId)throw new HttpError(400,"快递截图不挂到单件商品");
     if(itemId&&!(await c.query("SELECT 1 FROM order_items WHERE id=$1 AND order_id=$2",[itemId,id])).rowCount)throw new HttpError(400,"照片对应料子不属于此单");
-    const filename=textField(req.query.filename??"留底照片","文件名",180).replace(/[\\/\r\n\u0000-\u001f]/g,"_");
-    const row=(await c.query("INSERT INTO order_attachments(order_id,item_id,filename,mime_type,image_bytes,sha256,created_by) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id",[id,itemId,filename,mime,bytes,sha,req.actor!.id])).rows[0];
-    await audit(c,req,"order_photo_create",id,{id:row.id,filename,sha256:sha,itemId});return {id:row.id};
+    const limit=kind==="shipping_proof"?3:12;
+    const message=kind==="shipping_proof"?"每单最多 3 张快递记录截图":"每单最多留存12张原图";
+    if(Number((await c.query("SELECT count(*) FROM order_attachments WHERE order_id=$1 AND kind=$2",[id,kind])).rows[0].count)>=limit)throw new HttpError(409,message);
+    const filename=textField(req.query.filename??(kind==="shipping_proof"?"快递记录截图":"留底照片"),"文件名",180).replace(/[\\/\r\n\u0000-\u001f]/g,"_");
+    const row=(await c.query("INSERT INTO order_attachments(order_id,item_id,filename,mime_type,image_bytes,sha256,created_by,kind) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id",[id,itemId,filename,mime,bytes,sha,req.actor!.id,kind])).rows[0];
+    await audit(c,req,kind==="shipping_proof"?"order_shipping_proof_create":"order_photo_create",id,{id:row.id,filename,sha256:sha,itemId,kind});return {id:row.id};
+  }));
+  router.delete("/:id/attachments/:attachmentId",mutate(async(c,req)=>{
+    const id=uuid(req.params.id);await writeOrder(c,req.actor!,id);
+    const attachmentId=uuid(req.params.attachmentId);
+    const row=(await c.query("SELECT id,kind FROM order_attachments WHERE order_id=$1 AND id=$2",[id,attachmentId])).rows[0];
+    if(!row)throw new HttpError(404,"图片不存在");
+    if(row.kind!=="shipping_proof")throw new HttpError(409,"开单卡原图不在这里删除");
+    await c.query("DELETE FROM order_attachments WHERE id=$1",[row.id]);
+    await audit(c,req,"order_shipping_proof_delete",id,{id:row.id});return {id:row.id};
   }));
   router.get("/:id/attachments/:attachmentId",async(req,res,next)=>{try{
     await visibleOrder(db,req.actor!,req.params.id);

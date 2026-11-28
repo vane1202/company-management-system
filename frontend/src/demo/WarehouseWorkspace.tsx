@@ -1,125 +1,86 @@
-import {useEffect,useRef,useState} from 'react';
-import {requestInner, type CompanyExpense} from '../api';
-import {newRequestKey} from '../commerceUi';
-import {toErrorMessage} from '../errors';
-import {createRequestGate} from '../requestGate';
-import {demoOrderRooms} from './orderIdentity';
-import './warehouse-workspace.css';
+import {useEffect,useMemo,useRef,useState} from "react";
+import {requestInner,type CompanyExpense} from "../api";
+import {newRequestKey} from "../commerceUi";
+import {toErrorMessage} from "../errors";
+import {createRequestGate} from "../requestGate";
+import "./warehouse-workspace.css";
+import { ShippingProofViewer, type ShippingShot } from "../ShippingProofs";
 
-type Bill={id:string;orderId:string;expenseId:string;afterSaleChargeId?:string;createdById?:string;category:string;label:string;counterparty:string;amount:string;date:string;materialRef:string;proof:string;note:string;status:'submitted'|'approved'|'rejected';version:number;createdBy:string;createdAt:string;reviewNote?:string;reviewedBy?:string};
+type Bill={id:string;orderId:string;expenseId:string;afterSaleChargeId?:string;createdById?:string;category:string;label:string;counterparty:string;amount:string;date:string;materialRef:string;proof:string;note:string;status:"submitted"|"approved"|"rejected";version:number;createdBy:string;createdAt:string;reviewNote?:string;reviewedBy?:string};
 type Payment={id:string;billId:string;amount:string;date:string;payee:string;account:string;reference:string};
-type Data={state:{bills:Bill[];payments:Payment[]};expenses:CompanyExpense[];orders:{id:string;orderRef:string;customerLabel:string;liveRoomCode:string;hostName:string;operatorName:string;personaName:string;customerCode:string;canCreate?:boolean}[];charges?:{id:string;orderId:string;label:string}[];kinds:Record<string,string>};
-const demo=import.meta.env.MODE==='demo';
-const roomLabel=(code?:string)=>demo?(demoOrderRooms.find(room=>room.code===code)?.name||'客服私推'):(code||'未登记直播间');
-const c=(value:string)=>{const [a,b='']=value.split('.');return BigInt(a)*100n+BigInt(b.padEnd(2,'0'));};
-const m=(value:bigint)=>`${value/100n}.${String(value%100n).padStart(2,'0')}`;
-const yuan=(value:string)=>'¥'+Number(value).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});
+type QueueItem={key:string;orderId:string;itemId:string;queueKind:"material"|"finished";label:string;materialRef:string;referenceCny:string|null;customerLabel:string;operatorName:string;orderRef:string;triggerLabel:string;attachmentId:string|null;shippingProofs?:{id:string;url?:string}[];businessDate:string};
+type Line={id:string;queueKind:"material"|"finished"|"other";orderId:string|null;itemId:string|null;orderRef?:string|null;label:string;materialRef:string;referenceCny:string|null;customerLabel:string;operatorName:string;triggerLabel:string;attachmentId:string|null;shippingProofs?:{id:string;url?:string}[];counterparty:string;amount:string;date:string;status:"priced"|"batched";batchId:string|null;version:number;offsetNote?:string};
+type Batch={id:string;batchRef:string;counterparty:string;status:"submitted"|"approved"|"rejected"|"paid"|"withdrawn";amount:string;date:string;version:number;reviewNote?:string;paidOn?:string|null;payee?:string;lineIds?:string[]};
+type Data={state:{bills:Bill[];payments:Payment[]};expenses:CompanyExpense[];orders:{id:string;orderRef:string;customerLabel:string}[];kinds:Record<string,string>;queue?:QueueItem[];lines?:Line[];batches?:Batch[]};
+const demo=import.meta.env.MODE==="demo";
+const kindName={material:"原石料子",finished:"成品配货",other:"其他费用"};
+const batchName={submitted:"待财务审核",approved:"已审核待打款",rejected:"财务已退回",paid:"财务已打款",withdrawn:"已撤回"};
+const yuan=(value?:string|null)=>value?"¥"+Number(value).toLocaleString("zh-CN",{minimumFractionDigits:2,maximumFractionDigits:2}):"未登记";
+const cents=(value:string)=>{const [a,b=""]=value.split(".");return BigInt(a)*100n+BigInt(b.padEnd(2,"0"));};
+const money=(value:bigint)=>`${value/100n}.${String(value%100n).padStart(2,"0")}`;
 async function call(finance:boolean,input?:object):Promise<Data>{
- const endpoint=demo?'/api/demo/warehouse':finance?'/api/finance/warehouse':'/api/warehouse';
- if(!demo)return requestInner<Data>(endpoint,input?{method:'POST',body:JSON.stringify(input)}:{cache:'no-store'});
- const r=await fetch(endpoint,input?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input)}:{cache:'no-store'});const d=await r.json();if(!r.ok)throw Error(d.error||'结账台账读取失败');return d;
+ const endpoint=demo?"/api/demo/warehouse":finance?"/api/finance/warehouse":"/api/warehouse";
+ if(!demo)return requestInner<Data>(endpoint,input?{method:"POST",body:JSON.stringify(input)}:{cache:"no-store"});
+ const response=await fetch(endpoint,input?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(input)}:{cache:"no-store"});
+ const body=await response.json();if(!response.ok)throw Error(body.error||"结账台账读取失败");return body;
 }
-const labels={submitted:'待财务审核',approved:'已审核',rejected:'已退回'};
-export default function WarehouseWorkspace({today,finance=false,onBack,userId}:{today:string;finance?:boolean;onBack?:()=>void;userId?:string}){
- const [data,setData]=useState<Data|null>(null),[error,setError]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false);
- const [query,setQuery]=useState(''),[status,setStatus]=useState('');
- const requests=useRef(new Map<string,string>()),[revision,setRevision]=useState<Bill|null>(null);
- const gate=useRef(createRequestGate());
- const blank=()=>({orderId:'',expenseId:'',afterSaleChargeId:'',category:'goods',label:'',counterparty:'',amount:'',date:today,materialRef:'',proof:'',note:'',requestKey:newRequestKey()});
- const [form,setForm]=useState(blank),[selected,setSelected]=useState<Bill|null>(null),[review,setReview]=useState('');
- const [withdraw,setWithdraw]=useState(false);
- const createDrawer=useRef<HTMLDialogElement>(null);
- const actionDrawer=useRef<HTMLDialogElement>(null);
- const detailDrawer=useRef<HTMLDialogElement>(null);
- const [detail,setDetail]=useState<Bill|null>(null);
- function openAction(bill:Bill,isWithdrawal=false){
-  setError('');setReview('');setWithdraw(isWithdrawal);setSelected(bill);
-  setPayment({amount:m(remaining(bill)),date:today,payee:bill.counterparty,account:'',reference:''});
-  actionDrawer.current?.showModal();
- }
- const [payment,setPayment]=useState({amount:'',date:today,payee:'',account:'',reference:''});
- async function refresh(){const ticket=gate.current.next();setError('');try{const next=await call(finance);if(ticket.isCurrent())setData(next);}catch(e){if(ticket.isCurrent())setError(toErrorMessage(e));}}
+function Thumb({orderId,attachmentId}:{orderId?:string|null;attachmentId?:string|null}){
+ if(!attachmentId||!orderId||demo)return <span className="wh-thumb wh-thumb-empty">无原图</span>;
+ return <img className="wh-thumb" alt="" src={`/api/warehouse/attachments/${orderId}/${attachmentId}`}/>;
+}
+export default function WarehouseWorkspace({today,finance=false,onBack}:{today:string;finance?:boolean;onBack?:()=>void;userId?:string}){
+ const [proofView,setProofView]=useState<ShippingShot[]|null>(null),[proofIndex,setProofIndex]=useState(0);
+ function openProofs(orderId?:string|null,proofs?:{id:string;url?:string}[]){const shots=(proofs??[]).filter(proof=>proof.id).map(proof=>({id:proof.id,name:"快递凭证",src:proof.url||(orderId?`/api/warehouse/attachments/${orderId}/${proof.id}`:"")}));if(!shots.length)return;setProofIndex(0);setProofView(shots);}
+ const [data,setData]=useState<Data|null>(null),[error,setError]=useState(""),[message,setMessage]=useState(""),[busy,setBusy]=useState(false);
+ const [tab,setTab]=useState<"queue"|"pack"|"record">("queue"),[filter,setFilter]=useState("all"),[recordFilter,setRecordFilter]=useState("");
+ const [picked,setPicked]=useState<string[]>([]),[manual,setManual]=useState(false),[draft,setDraft]=useState({label:"",counterparty:"",amount:"",date:today});
+ const requests=useRef(new Map<string,string>()),gate=useRef(createRequestGate()),manualDialog=useRef<HTMLDialogElement>(null);
+ async function refresh(){const ticket=gate.current.next();setError("");try{const next=await call(finance);if(ticket.isCurrent())setData(next);}catch(e){if(ticket.isCurrent())setError(toErrorMessage(e));}}
  useEffect(()=>{void refresh();return()=>{gate.current.next();};},[finance]);
- async function act(input:object,success:string){if(busy)return;setBusy(true);setError('');setMessage('');const signature=JSON.stringify(input);const key=requests.current.get(signature)||newRequestKey();requests.current.set(signature,key);try{setData(await call(finance,{...input,requestKey:key}));requests.current.delete(signature);actionDrawer.current?.close();setSelected(null);setMessage(success);return true;}catch(e){setError(toErrorMessage(e));return false;}finally{setBusy(false);}}
- const paid=(b:Bill)=>(data?.state.payments||[]).filter(p=>p.billId===b.id).reduce((n,p)=>n+c(p.amount),0n);
- const remaining=(b:Bill)=>c(b.amount)-paid(b);
- const state=(b:Bill)=>b.status==='approved'?(remaining(b)===0n?'已结清':paid(b)>0n?'部分付款':'待付款'):labels[b.status];
- const order=data?.orders.find(o=>o.id===form.orderId);
- const rows=data?.state.bills.filter(b=>{const o=data.orders.find(o=>o.id===b.orderId);return(!status||(status==='已审核待付'?b.status==='approved'&&remaining(b)>0n:state(b)===status))&&`${o?.orderRef} ${o?.customerLabel} ${o?.operatorName} ${b.counterparty} ${b.materialRef} ${b.label}`.toLowerCase().includes(query.trim().toLowerCase());})||[];
- const expenses=data?.expenses.filter(e=>e.order_id===form.orderId&&e.category===form.category&&!e.voided_at&&e.pending_cny!==null&&c(e.pending_cny)>0n)||[];
- const bills=data?.state.bills??[];
- const inReview=bills.filter(b=>b.status==='submitted');
- const payable=bills.filter(b=>b.status==='approved'&&remaining(b)>0n);
- const returned=bills.filter(b=>b.status==='rejected');
- const statuses=['','待财务审核','已退回','已审核待付','已结清'];
- const entries=[['goods','原石出库结账'],['sourcing','售后接待结账'],['other','其他对外结账']] as const;
- function start(category:string){setRevision(null);setForm({...blank(),category});setSelected(null);createDrawer.current?.showModal();setMessage('');setError('');}
- return <div className="warehouse-workspace" aria-busy={busy}>
-  <header className="commerce-heading"><div><h1>{finance?'库房结账':'库房工作台'}</h1><small>{finance?'核对账单 · 登记实际付款':'出库结账 · 售后接待 · 对外结账'}</small></div><div className="actions">{onBack&&<button type="button" className="secondary" onClick={onBack}>返回</button>}<button type="button" className="secondary" disabled={busy} onClick={refresh}>刷新</button></div>{!finance&&data&&<div className="wh-header-entry">{entries.map(([key,label],i)=><button key={key} type="button" className={i?'secondary':undefined} disabled={busy} onClick={()=>start(key)}>＋ {label}</button>)}</div>}</header>
+ async function act(input:object,success:string){if(busy)return false;setBusy(true);setError("");setMessage("");const signature=JSON.stringify(input);const key=requests.current.get(signature)||newRequestKey();requests.current.set(signature,key);try{setData(await call(finance,{...input,requestKey:key}));requests.current.delete(signature);setMessage(success);return true;}catch(e){setError(toErrorMessage(e));return false;}finally{setBusy(false);}}
+ const queue=data?.queue??[],lines=(data?.lines??[]).filter(line=>line.status==="priced"),batches=(data?.batches??[]).filter(batch=>batch.status!=="withdrawn");
+ const visibleQueue=queue.filter(item=>filter==="all"||item.queueKind===filter);
+ const visibleLines=lines.filter(line=>filter==="all"||line.queueKind===filter);
+ const groups=useMemo(()=>{const map=new Map<string,Line[]>();for(const line of visibleLines){const key=line.counterparty||"未填供应商";map.set(key,[...(map.get(key)??[]),line]);}return [...map.entries()];},[visibleLines]);
+ const reviewing=batches.filter(batch=>batch.status==="submitted"||batch.status==="approved").length;
+ const settled=batches.filter(batch=>batch.status==="paid"&&(batch.paidOn||batch.date).startsWith(today.slice(0,7))).length;
+ const legacy=(bill:Bill)=>(data?.state.payments??[]).filter(payment=>payment.billId===bill.id).reduce((sum,payment)=>sum+cents(payment.amount),0n);
+ const recordBatches=batches.filter(batch=>!recordFilter||batchName[batch.status]===recordFilter);
+ return <div className="warehouse-workspace wh-flow" aria-busy={busy}>
+  <header className="wh-top"><div><h1>{finance?"库房结账":"库房工作台"}</h1></div><div className="actions">{onBack&&<button type="button" className="secondary" onClick={onBack}>返回</button>}{!finance&&<button type="button" disabled={busy} onClick={()=>{setDraft({label:"",counterparty:"",amount:"",date:today});setManual(true);manualDialog.current?.showModal();}}>+ 手动补录</button>}<button type="button" className="secondary" disabled={busy} onClick={()=>void refresh()}>刷新</button></div></header>
   {error&&<p className="error" role="alert">{error}</p>}{message&&<p className="ok" role="status">{message}</p>}
-  {!data?(error?<div className="overview-error" role="alert"><p>台账加载失败，请重试。</p><button type="button" className="secondary" disabled={busy} onClick={()=>void refresh()}>重新读取</button></div>:<p role="status">正在读取结账台账…</p>):<>
-  <div className="wh-kpis">
-   <button type="button" className="wh-kpi-hero" aria-pressed={status==='待财务审核'} onClick={()=>setStatus('待财务审核')}><span>待财务审核 · {inReview.length} 单</span><b>{yuan(m(inReview.reduce((n,b)=>n+c(b.amount),0n)))}</b></button>
-   <button type="button" className="wh-kpi-payable" aria-pressed={status==='已审核待付'} onClick={()=>setStatus('已审核待付')}><span>已审核待付 · {payable.length} 单</span><b>{yuan(m(payable.reduce((n,b)=>n+remaining(b),0n)))}</b></button>
-   <button type="button" className="wh-kpi-returned" data-warning={returned.length>0} aria-pressed={status==='已退回'} onClick={()=>setStatus('已退回')}><span>已退回需修改 · {returned.length} 单</span><b>{yuan(m(returned.reduce((n,b)=>n+c(b.amount),0n)))}</b></button>
+  {!data?error?<button type="button" className="secondary" onClick={()=>void refresh()}>重新读取</button>:<p role="status">正在读取结账台账…</p>:<>
+  <div className="wh-kpis wh-kpis-four">
+   <button type="button" className="wh-kpi-hero" aria-pressed={tab==="queue"} onClick={()=>setTab("queue")}><b className="wh-num">{queue.length}</b><span>待核算</span></button>
+   <button type="button" aria-pressed={tab==="pack"} onClick={()=>setTab("pack")}><b className="wh-num">{lines.length}</b><span>待打包</span></button>
+   <button type="button" aria-pressed={tab==="record"&&recordFilter===""} onClick={()=>{setTab("record");setRecordFilter("");}}><b className="wh-num">{reviewing}</b><span>审核中</span></button>
+   <button type="button" aria-pressed={tab==="record"&&recordFilter==="财务已打款"} onClick={()=>{setTab("record");setRecordFilter("财务已打款");}}><b className="wh-num">{settled}</b><span>本月已结</span></button>
   </div>
-  {!finance&&<dialog ref={createDrawer} className="wh-drawer" aria-label="登记待结账单" onCancel={e=>{if(busy)e.preventDefault();}}><div className="wh-drawer-body"><header className="commerce-line"><h2>{revision?'修改退回账单':'登记待结账单'}</h2><button type="button" className="secondary" disabled={busy} onClick={()=>createDrawer.current?.close()}>关闭</button></header>{error&&<p className="error" role="alert">{error}</p>}<form className="warehouse-form" onSubmit={async e=>{e.preventDefault();if(await act({action:revision?'resubmit':'create',...(revision?{id:revision.id,version:revision.version}:{}),...form},'结账单已提交，等待财务审核')){setRevision(null);setForm(blank());createDrawer.current?.close();}}}>
-   <fieldset className="wh-form-step"><legend>第 1 步：关联业务订单</legend><div className="wh-fields"><label>关联订单<select required disabled={!!revision} aria-label="库房关联订单" value={form.orderId} onChange={e=>setForm({...form,orderId:e.target.value,expenseId:'',afterSaleChargeId:'',label:'',counterparty:'',amount:'',materialRef:''})}><option value="">选择订单／客户</option>{data.orders.filter(o=>o.canCreate!==false||o.id===form.orderId).map(o=><option key={o.id} value={o.id}>{o.orderRef} · {o.customerLabel}</option>)}</select></label><label>结账类别<select aria-label="库房结账类别" value={form.category} onChange={e=>setForm({...form,category:e.target.value,expenseId:'',amount:''})}>{Object.entries(data.kinds).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
-   {order&&<p className="wh-order-context">{roomLabel(order.liveRoomCode)} · 主播 {order.hostName||'—'} · 客服 {order.operatorName||'待补'} · 人设 {order.personaName||'待补'} · 客户 {order.customerLabel}（{order.customerCode||'ID待补'}）</p>}
-   <label className="wh-full">关联已登记成本<select aria-label="库房关联成本" value={form.expenseId} onChange={e=>{const source=expenses.find(x=>x.id===e.target.value);setForm({...form,expenseId:e.target.value,...(source?{label:source.label,counterparty:source.counterparty||'',amount:source.pending_cny||'',materialRef:source.material_ref||'',date:source.business_date,afterSaleChargeId:source.after_sale_charge_id||''}:{amount:'',afterSaleChargeId:''})});}}><option value="">新增成本账单（财务审核后纳入成本）</option>{expenses.map(e=><option key={e.id} value={e.id}>{e.label} · 待付 {yuan(e.pending_cny!)}</option>)}</select><small>已由客服登记的同项成本，请选择关联，避免重复入账。</small></label>
-   {!demo&&<label className="wh-full">关联售后收费<select aria-label="关联售后收费" disabled={!!form.expenseId} value={form.afterSaleChargeId} onChange={e=>setForm({...form,afterSaleChargeId:e.target.value})}><option value="">不关联售后收费</option>{data.charges?.filter(charge=>charge.orderId===form.orderId).map(charge=><option key={charge.id} value={charge.id}>{charge.label}</option>)}</select></label>}
-   </div></fieldset>
-   <fieldset className="wh-form-step"><legend>第 2 步：结账明细与留底凭证</legend><div className="wh-fields">
-   {([['label','结账项目'],['counterparty','供货／服务方'],['materialRef','商品编号／料号'],['proof','单据／成本留底凭证编号'],['amount','待结账金额 · ¥'],['date','费用发生日期']] as const).map(([key,label])=><label key={key}>{label}<input required aria-label={'库房'+label} type={key==='date'?'date':'text'} max={key==='date'?today:undefined} maxLength={128} inputMode={key==='amount'?'decimal':undefined} value={form[key]} onChange={e=>setForm({...form,[key]:e.target.value})}/></label>)}
-   <label className="wh-full">备注<textarea maxLength={1000} value={form.note} onChange={e=>setForm({...form,note:e.target.value})}/></label></div></fieldset><button type="submit" disabled={busy}>提交待结账单</button>
-  </form></div></dialog>}
-  <section className="card"><h2>结账台账</h2>
-   <div className="wh-ledger-toolbar">
-    <div className="wh-pills" role="group" aria-label="账单状态">{statuses.map(key=><button type="button" className="secondary" key={key} aria-pressed={status===key} onClick={()=>setStatus(key)}>{key||'全部'}</button>)}</div>
-    <label>查找账单<input type="search" aria-label="库房查找账单" placeholder="订单、客户、供货方或料号" value={query} onChange={e=>setQuery(e.target.value)}/></label>
-   </div>
-   <div className="wh-table-scroll"><table className="wh-table" aria-label="结账台账">
-    <thead><tr>{['结账项目','订单／客户','供货方／料号','金额／已付','状态','操作'].map(label=><th key={label} scope="col">{label}</th>)}</tr></thead>
-    <tbody>{rows.slice().reverse().map(b=>{
-     const o=data.orders.find(item=>item.id===b.orderId);
-     return <tr key={b.id}>
-      <th scope="row"><span className="wh-badge">{data.kinds[b.category]||b.category}</span><strong>{b.label}</strong><small>{b.date} · {b.proof}</small></th>
-      <td>{o?.orderRef||'—'}<small>{o?.customerLabel||'—'}</small></td>
-      <td>{b.counterparty}<small>{b.materialRef||'—'}</small></td>
-      <td className="wh-money">{yuan(b.amount)}<small>已付 {yuan(m(paid(b)))}</small></td>
-      <td><span className="wh-badge" data-status={b.status}>{state(b)}</span></td>
-      <td><div className="wh-row-actions">
-       <button type="button" className="text-action" onClick={()=>{setDetail(b);detailDrawer.current?.showModal();}}>详情</button>
-       {!demo&&!finance&&b.status==='rejected'&&b.createdById===userId&&<button type="button" className="secondary" onClick={()=>{setError('');setRevision(b);setForm({...blank(),orderId:b.orderId,expenseId:b.expenseId||'',afterSaleChargeId:b.afterSaleChargeId||'',category:b.category,label:b.label,counterparty:b.counterparty,amount:b.amount,date:b.date,materialRef:b.materialRef,proof:b.proof,note:b.note});createDrawer.current?.showModal();}}>修改并重新提交</button>}
-       {finance&&b.status==='submitted'&&<button type="button" className="secondary" disabled={busy} onClick={()=>openAction(b)}>核对账单</button>}
-       {finance&&b.status==='approved'&&remaining(b)>0n&&<button type="button" className="secondary" disabled={busy} onClick={()=>openAction(b)}>登记实际付款</button>}
-       {!demo&&finance&&b.status==='approved'&&paid(b)===0n&&<button type="button" className="secondary" disabled={busy} onClick={()=>openAction(b,true)}>撤回审核</button>}
-      </div></td>
-     </tr>;
-    })}</tbody>
-   </table></div>
-   {!rows.length&&<p className="empty-state">当前没有符合条件的结账单</p>}
-  </section>
-  <dialog ref={detailDrawer} className="wh-drawer" aria-label="账单详情" onClose={()=>setDetail(null)}><div className="wh-drawer-body">
-   <header className="commerce-line"><h2>账单详情</h2><button type="button" className="secondary" onClick={()=>detailDrawer.current?.close()}>关闭</button></header>
-   {detail&&(()=>{
-    const o=data.orders.find(item=>item.id===detail.orderId);
-    return <><h3>{detail.label}</h3><dl className="wh-facts">{[
-     ['结账类别',data.kinds[detail.category]],['费用发生日',detail.date],['订单／客户',[o?.orderRef,o?.customerLabel].filter(Boolean).join(' · ')],
-     ['直播间／人设／客服',[roomLabel(o?.liveRoomCode),o?.personaName,o?.operatorName].filter(Boolean).join(' · ')],
-     ['供货／服务方',detail.counterparty],['商品编号／料号',detail.materialRef],['凭证编号',detail.proof],['登记人',detail.createdBy],
-     ['备注',detail.note],['财务核对',[detail.reviewNote,detail.reviewedBy].filter(Boolean).join(' · ')],
-     ['金额',yuan(detail.amount)],['实际已付',yuan(m(paid(detail)))],['状态',state(detail)],
-    ].map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value||'—'}</dd></div>)}</dl>
-    <h3>付款流水</h3>{data.state.payments.some(item=>item.billId===detail.id)?data.state.payments.filter(item=>item.billId===detail.id).map(item=><p key={item.id}>{item.date} · {item.payee} · {yuan(item.amount)} · {item.account} · 流水 {item.reference}</p>):<p>暂无付款流水</p>}</>;
-   })()}
-  </div></dialog>
-  {finance&&<dialog ref={actionDrawer} className="wh-drawer" aria-label="财务结账操作" onClose={()=>setSelected(null)} onCancel={e=>{if(busy)e.preventDefault();}}><div className="wh-drawer-body">
-   {error&&<p className="error" role="alert">{error}</p>}
-  {selected&&finance&&withdraw&&<form className="card warehouse-form" onSubmit={e=>{e.preventDefault();void act({action:'withdraw',id:selected.id,version:selected.version,reason:review},'已撤回审核并退回库房');}}><h2>撤回审核 · {selected.label}</h2><label>撤回说明<textarea required maxLength={500} value={review} onChange={e=>setReview(e.target.value)}/></label><div className="actions"><button disabled={busy||!review.trim()}>撤回并退回库房</button><button type="button" className="secondary" disabled={busy} onClick={()=>actionDrawer.current?.close()}>取消</button></div></form>}
-  {selected&&finance&&!withdraw&&<form className="card warehouse-form" onSubmit={e=>{e.preventDefault();if(selected.status!=='approved')return;void act({action:'pay',id:selected.id,version:selected.version,...payment},'实际付款已登记，结账台账已更新');}}><h2>{selected.status==='submitted'?'核对账单':'登记实际付款'} · {selected.label}</h2>{selected.status==='submitted'?<><label>审核说明<textarea required maxLength={500} aria-label="库房审核说明" value={review} onChange={e=>setReview(e.target.value)}/></label><div className="actions"><button type="button" disabled={busy||!review.trim()} onClick={()=>void act({action:'review',id:selected.id,version:selected.version,decision:'approved',reason:review},'审核通过，已进入待付款')}>审核通过</button><button type="button" className="secondary" disabled={busy||!review.trim()} onClick={()=>void act({action:'review',id:selected.id,version:selected.version,decision:'rejected',reason:review},'已退回库房')}>退回</button></div></>:<><div className="wh-fields">{([['amount','实际付款金额 · ¥'],['date','付款日期'],['payee','实际收款方'],['account','公司付款账户'],['reference','付款流水号']] as const).map(([key,label])=><label key={key}>{label}<input required aria-label={'库房'+label} type={key==='date'?'date':'text'} max={key==='date'?today:undefined} value={payment[key]} onChange={e=>setPayment({...payment,[key]:e.target.value})}/></label>)}</div><button type="submit" disabled={busy}>保存实际付款</button></>}<button type="button" className="secondary" disabled={busy} onClick={()=>actionDrawer.current?.close()}>取消</button></form>}
-  </div></dialog>}
-  <p className="wh-caption">库房提交账单，财务审核并登记实际付款。{demo?'演示试填仅保留在当前浏览器会话。':'正式账单与付款记录保存在服务器。'}</p>
+  <div className="wh-tabs" role="tablist">{[["queue","待核算"],["pack","按供应商结算"],["record","结算记录"]].map(([key,label])=><button type="button" key={key} role="tab" aria-selected={tab===key} onClick={()=>setTab(key as "queue"|"pack"|"record")}>{label}</button>)}</div>
+  {tab!=="record"&&<div className="wh-pills wh-scroll" role="group" aria-label="账目分类">{[["all","全部"],["material","原石料子"],["finished","成品配货"],["other","其他费用"]].map(([key,label])=><button type="button" className="secondary" key={key} aria-pressed={filter===key} onClick={()=>setFilter(key)}>{label}</button>)}</div>}
+  {tab==="queue"&&<section className="wh-board">{filter==="other"?<p className="empty-state">其他费用不从客服售后成本自动推送，请用右上角「手动补录」，补录后进入待打包。</p>:visibleQueue.length?visibleQueue.map(item=><article className="wh-card" key={item.key}><div className="wh-card-main"><Thumb orderId={item.orderId} attachmentId={item.attachmentId}/><div><p className="wh-tags"><span className="wh-badge">{kindName[item.queueKind]}</span><span className="wh-badge">{item.triggerLabel}</span></p><h2>{item.label}</h2><p className="wh-meta">{item.materialRef||"未填料号"} · {item.orderRef}</p><p className="wh-meta">{item.customerLabel} · 客服 {item.operatorName||"—"}</p><p className="wh-meta">参考本价 <b className="wh-num">{yuan(item.referenceCny)}</b></p>{!!item.shippingProofs?.length&&<div className="wh-proofs"><span>快递凭证</span>{item.shippingProofs.map(proof=><button type="button" className="ship-proof-mini" key={proof.id} onClick={()=>openProofs(item.orderId,item.shippingProofs)}><img alt="" src={proof.url||`/api/warehouse/attachments/${item.orderId}/${proof.id}`}/></button>)}</div>}</div></div>{!finance&&<PriceBox item={item} today={today} busy={busy} onSave={async fields=>{if(await act({action:"price",itemId:item.itemId,...fields},"已确认入待结"))setTab("pack");}}/>}</article>):<p className="empty-state">当前没有待核算的货。原石要客户已付全款且未标接待（PH）；成品要已登记发货日期。</p>}</section>}
+  {tab==="pack"&&<section className="wh-board">{groups.length?groups.map(([supplier,rows])=>{const chosen=rows.filter(line=>picked.includes(line.id));const total=chosen.reduce((sum,line)=>sum+cents(line.amount),0n);return <article className="wh-card" key={supplier}><header className="wh-supplier"><h2>{supplier}</h2><b className="wh-num">{chosen.length} 笔 · {yuan(money(total))}</b></header>{rows.map(line=><label className="wh-check" key={line.id}><input type="checkbox" checked={picked.includes(line.id)} onChange={event=>setPicked(current=>event.target.checked?[...current,line.id]:current.filter(id=>id!==line.id))}/><span><strong>{line.label}</strong><small>{kindName[line.queueKind]} · {line.orderRef||"无订单"} · {line.customerLabel||line.triggerLabel}</small>{!!line.shippingProofs?.length&&<button type="button" className="text-action" onClick={event=>{event.preventDefault();event.stopPropagation();openProofs(line.orderId,line.shippingProofs);}}>快递凭证</button>}</span><b className="wh-num">{yuan(line.amount)}</b></label>)}{!finance&&<button type="button" disabled={busy||!chosen.length} onClick={()=>void act({action:"pack",lineIds:chosen.map(line=>line.id),date:today},`已提交 ${supplier} 的结算单`).then(ok=>{if(ok){setPicked(current=>current.filter(id=>!chosen.some(line=>line.id===id)));setTab("record");}})}>合并提交财务审核</button>}</article>;}):<p className="empty-state">还没有已核价、待打包的账目。</p>}</section>}
+  {tab==="record"&&<section className="wh-board"><div className="wh-pills wh-scroll">{["","待财务审核","已审核待打款","财务已退回","财务已打款"].map(key=><button type="button" className="secondary" key={key||"all"} aria-pressed={recordFilter===key} onClick={()=>setRecordFilter(key)}>{key||"全部"}</button>)}</div>{recordBatches.map(batch=>{const details=(data.lines??[]).filter(line=>line.batchId===batch.id);return <article className="wh-card" key={batch.id}><header className="wh-supplier"><div><p className="wh-tags"><span className="wh-badge" data-status={batch.status}>{batchName[batch.status]}</span></p><h2>{batch.counterparty}</h2><p className="wh-meta wh-num">{batch.batchRef} · {batch.date} · {details.length} 笔</p></div><b className="wh-num">{yuan(batch.amount)}</b></header><ul className="wh-lines">{details.map(line=><li key={line.id}><span>{line.label}<small>{line.orderRef||"其他费用"} · {line.customerLabel}</small>{line.offsetNote&&<em className="wh-offset">{line.offsetNote}</em>}</span><b className="wh-num">{yuan(line.amount)}</b></li>)}</ul>{batch.reviewNote&&<p className="wh-meta">财务说明：{batch.reviewNote}</p>}{!finance&&batch.status==="submitted"&&<button type="button" className="secondary" disabled={busy} onClick={()=>void act({action:"recall",id:batch.id,version:batch.version},"已撤回，明细回到待打包")}>撤回审核</button>}{!finance&&batch.status==="rejected"&&<Resubmit batch={batch} lines={details} busy={busy} onSave={fields=>act({action:"resubmitBatch",id:batch.id,version:batch.version,...fields},"已重新提交财务审核")}/>}{finance&&batch.status==="submitted"&&<Review busy={busy} onPass={reason=>act({action:"batchReview",id:batch.id,version:batch.version,decision:"approved",reason},"审核通过，等待标记打款")} onReject={reason=>act({action:"batchReview",id:batch.id,version:batch.version,decision:"rejected",reason},"已退回库房")}/>}{finance&&batch.status==="approved"&&<Pay today={today} payee={batch.counterparty} busy={busy} onSave={fields=>act({action:"markPaid",id:batch.id,version:batch.version,...fields},"已标记打款")}/>}</article>;})}{!!data.state.bills.length&&<details className="wh-legacy"><summary>历史单笔结账单 · {data.state.bills.length}</summary>{data.state.bills.slice().reverse().map(bill=>{const order=data.orders.find(item=>item.id===bill.orderId);const paid=legacy(bill);const stateLabel=bill.status==="approved"?(paid>=cents(bill.amount)?"已结清":"待付款"):bill.status==="rejected"?"已退回":"待财务审核";return <article className="wh-legacy-row" key={bill.id}><div><strong>{bill.label}</strong><small>{order?.orderRef} · {bill.counterparty} · {stateLabel}</small></div><b className="wh-num">{yuan(bill.amount)}</b>{finance&&bill.status==="submitted"&&<Review busy={busy} onPass={reason=>act({action:"review",id:bill.id,version:bill.version,decision:"approved",reason},"历史账单已审核通过")} onReject={reason=>act({action:"review",id:bill.id,version:bill.version,decision:"rejected",reason},"历史账单已退回")}/>}{finance&&bill.status==="approved"&&paid<cents(bill.amount)&&<Pay today={today} payee={bill.counterparty} busy={busy} preset={money(cents(bill.amount)-paid)} onSave={fields=>act({action:"pay",id:bill.id,version:bill.version,...fields},"历史账单付款已登记")}/>}</article>;})}</details>}{!recordBatches.length&&!data.state.bills.length&&<p className="empty-state">还没有结算单。</p>}</section>}
+  <dialog ref={manualDialog} className="wh-drawer" aria-label="手动补录其他费用" onClose={()=>setManual(false)}>{manual&&<form className="warehouse-form wh-inline" onSubmit={async event=>{event.preventDefault();if(await act({action:"manual",...draft},"其他费用已进入待打包")){manualDialog.current?.close();setTab("pack");}}}><h2>手动补录</h2><p className="wh-meta">只记其他费用，不从雕刻、镶嵌、市场配货等客服售后成本自动带入。</p><label>费用名称<input required maxLength={128} value={draft.label} onChange={event=>setDraft({...draft,label:event.target.value})}/></label><label>供应商／收款方<input required maxLength={128} value={draft.counterparty} onChange={event=>setDraft({...draft,counterparty:event.target.value})}/></label><label>结算金额 ¥<input required inputMode="decimal" className="wh-num" value={draft.amount} onChange={event=>setDraft({...draft,amount:event.target.value})}/></label><label>发生日期<input required type="date" max={today} value={draft.date} onChange={event=>setDraft({...draft,date:event.target.value})}/></label><div className="actions"><button type="submit" disabled={busy}>放入待打包</button><button type="button" className="secondary" onClick={()=>manualDialog.current?.close()}>取消</button></div></form>}</dialog>
+    {proofView&&<ShippingProofViewer shots={proofView} index={proofIndex} onClose={()=>setProofView(null)} onIndex={setProofIndex}/>}
+  <p className="wh-caption">原石在已付全款且未标接待（PH）后自动进入待核算；成品在登记发货日期后自动进入。已提交或已打款的记录保留，并用红字提示需要冲抵。{demo?"演示试填只留在当前浏览器。":"正式结算单保存在服务器。"}</p>
   </>}
  </div>;
+}
+function PriceBox({item,today,busy,onSave}:{item:QueueItem;today:string;busy:boolean;onSave:(fields:{counterparty:string;amount:string;date:string})=>Promise<void>}){
+ const [open,setOpen]=useState(false),[counterparty,setCounterparty]=useState(""),[amount,setAmount]=useState(item.referenceCny??""),[date,setDate]=useState(today);
+ if(!open)return <button type="button" className="secondary" disabled={busy} onClick={()=>setOpen(true)}>核价确认</button>;
+ return <form className="warehouse-form wh-inline" onSubmit={event=>{event.preventDefault();void onSave({counterparty,amount,date});}}><label>结算供应商<input required maxLength={128} value={counterparty} onChange={event=>setCounterparty(event.target.value)}/></label><label>核定结算价 ¥<input required inputMode="decimal" className="wh-num" value={amount} onChange={event=>setAmount(event.target.value)}/></label><label>发生日期<input required type="date" max={today} value={date} onChange={event=>setDate(event.target.value)}/></label><div className="actions"><button type="submit" disabled={busy}>确认入待结</button><button type="button" className="secondary" onClick={()=>setOpen(false)}>收起</button></div></form>;
+}
+function Review({busy,onPass,onReject}:{busy:boolean;onPass:(reason:string)=>Promise<unknown>;onReject:(reason:string)=>Promise<unknown>}){
+ const [reason,setReason]=useState("");
+ return <form className="warehouse-form wh-inline" onSubmit={event=>event.preventDefault()}><label>审核说明<textarea required maxLength={500} value={reason} onChange={event=>setReason(event.target.value)}/></label><div className="actions"><button type="button" disabled={busy||!reason.trim()} onClick={()=>void onPass(reason)}>审核通过</button><button type="button" className="secondary" disabled={busy||!reason.trim()} onClick={()=>void onReject(reason)}>退回</button></div></form>;
+}
+function Pay({today,payee,busy,preset,onSave}:{today:string;payee:string;busy:boolean;preset?:string;onSave:(fields:{amount?:string;date:string;payee:string;account:string;reference:string})=>Promise<unknown>}){
+ const [form,setForm]=useState({amount:preset??"",date:today,payee,account:"",reference:""});
+ return <form className="warehouse-form wh-inline" onSubmit={event=>{event.preventDefault();void onSave(form);}}>{preset&&<label>实际付款 ¥<input required inputMode="decimal" className="wh-num" value={form.amount} onChange={event=>setForm({...form,amount:event.target.value})}/></label>}<label>付款日期<input required type="date" max={today} value={form.date} onChange={event=>setForm({...form,date:event.target.value})}/></label><label>实际收款方<input required value={form.payee} onChange={event=>setForm({...form,payee:event.target.value})}/></label><label>公司付款账户<input required value={form.account} onChange={event=>setForm({...form,account:event.target.value})}/></label><label>付款流水号<input required value={form.reference} onChange={event=>setForm({...form,reference:event.target.value})}/></label><button type="submit" disabled={busy}>{preset?"保存实际付款":"标记打款"}</button></form>;
+}
+function Resubmit({batch,lines,busy,onSave}:{batch:Batch;lines:Line[];busy:boolean;onSave:(fields:{counterparty:string;lines:{id:string;amount:string}[]})=>Promise<unknown>}){
+ const [counterparty,setCounterparty]=useState(batch.counterparty),[amounts,setAmounts]=useState(Object.fromEntries(lines.map(line=>[line.id,line.amount])));
+ return <form className="warehouse-form wh-inline" onSubmit={event=>{event.preventDefault();void onSave({counterparty,lines:lines.map(line=>({id:line.id,amount:amounts[line.id]??line.amount}))});}}><label>结算供应商<input required value={counterparty} onChange={event=>setCounterparty(event.target.value)}/></label>{lines.map(line=><label key={line.id}>{line.label} 核定价 ¥<input required inputMode="decimal" className="wh-num" value={amounts[line.id]??""} onChange={event=>setAmounts({...amounts,[line.id]:event.target.value})}/></label>)}<button type="submit" disabled={busy}>修改并重新提交</button></form>;
 }

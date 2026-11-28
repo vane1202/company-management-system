@@ -2,7 +2,6 @@ import ReimbursementWorkspace from "./ReimbursementWorkspace";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { CreateOrder, Field } from "../OrderWorkspace";
-import { cents, currencies, expenseLabels } from "../commerceUi";
 import { toErrorMessage } from "../errors";
 import { csFillPageFromPath, csFillPageIds, csFillPages, type CsFillPage } from "../fillEntries";
 import { DashboardIcon } from "../DashboardIcon";
@@ -12,8 +11,7 @@ import { PeriodToolbar, type StandardPreset } from "../PeriodToolbar";
 import type { PersonalFanPreset } from "../leadApi";
 import { yuan } from "../dashboardDisplay";
 import { CsFillOverview } from "../CsFillOverview";
-import ReportTextImport from "./ReportTextImport";
-import { afterSaleTotals, emptyAfterSale, parseAfterSaleText, signedMoney, type AfterSaleExpense, type AfterSaleFields } from "./afterSalesText";
+import OrderAfterSalesFill from "./OrderAfterSalesFill";
 import FanFillForm from "./FanFillForm";
 import { loadServiceDirectory, type FillAccount } from "./serviceDirectory";
 import { effectiveOrderCents, type CrmOrder, type CrmOrderDraft, centsToYuan, customerStatus, customerTags, invalidReasons, latestCustomerReview, useCustomerCrm, type CrmActor, type CrmCustomer, type SpendTier } from "./customerCrm";
@@ -214,7 +212,7 @@ function CustomerDetail({ today, customer, actor, crm, account, onMessage }: { t
     
       {!pending && !tags.includes("无效") && <InvalidRequest hasDeal={customerStatus(crm.state, customer) === "dealt"} onSubmit={(reason, note) => { crm.dispatch({ type: "requestInvalid", actor, customerId: customer.id, reason, note }); onMessage(reason === "custom" ? "已提交主管复核。确认前客户仍不是无效客资；若驳回会自动打上「尝试沟通」标识。" : "已按预设规则标记为无效客资。"); }} />}
     </details>
-    <section className="card"><h2>开单记录</h2><CrmOrderHistory state={crm.state} customerId={customer.id} today={today} actor={actor} dispatch={crm.dispatch} room={account?.registeredRoomName ? {name:account.registeredRoomName,host:account.registeredHostName||""}:undefined} onMessage={onMessage} onAfterSales={order=><details><summary>办理售后</summary><AfterSalesFill today={today} operator={actor.employeeName} linkedOrder={order.id} /></details>}/><OrderPractice customerName={customer.name} today={today} operator={actor.employeeName} room={account?.registeredRoomName ? { name: account.registeredRoomName, host: account.registeredHostName || "" } : undefined} onPractice={values => { crm.dispatch({ type: "addOrder", actor, customerId: customer.id, ...values }); onMessage("已按开单卡记入本次演练业绩。正式收款仍由财务登记。"); }} /></section>
+    <section className="card"><h2>开单记录</h2><CrmOrderHistory state={crm.state} customerId={customer.id} today={today} actor={actor} dispatch={crm.dispatch} room={account?.registeredRoomName ? {name:account.registeredRoomName,host:account.registeredHostName||""}:undefined} onMessage={onMessage} onAfterSales={order=><details className="as-fold"><summary>办理售后</summary><OrderAfterSalesFill today={today} operator={actor.employeeName} customerName={customer.name} customerCode={customer.customerRef||customer.id} orderRef={order.id} orderDate={order.businessDate} currency={order.customerCurrency||"CNY"} room={account?.registeredRoomName?{name:account.registeredRoomName,host:account.registeredHostName||""}:undefined} /></details>}/><OrderPractice customerName={customer.name} today={today} operator={actor.employeeName} room={account?.registeredRoomName ? { name: account.registeredRoomName, host: account.registeredHostName || "" } : undefined} onPractice={values => { crm.dispatch({ type: "addOrder", actor, customerId: customer.id, ...values }); onMessage("已按开单卡记入本次演练业绩。正式收款仍由财务登记。"); }} /></section>
     
   </div>;
 }
@@ -286,26 +284,4 @@ function Performance({ today, employeeId, state, onOpen }: { today:string; emplo
     })}</div>
     {!rows.length && <p>这个区间还没有开单。</p>}
   </section>;
-}
-
-const afterLabels: Record<keyof AfterSaleFields, string> = { orderRef: "关联订单编号", customerCode: "客户ID", personaName: "人设 / 主页", personaCode: "人设ID", liveRoomCode: "直播间编号", hostName: "对应主播", operatorName: "经办客服姓名", note: "备注", chargeLabel: "客户收费名称", chargeCny: "客户收费 · 人民币", paidAmount: "本次实收", paidCurrency: "实收币种", channel: "收款账户 / 付款方式", paymentDate: "付款日期", shippedOn: "发货日期", businessDate: "费用发生日期" };
-const freshExpense = (): AfterSaleExpense => ({ label: "", category: "", amountCny: "", counterparty: "" });
-function PreviewFields({ fields, labels }: { fields: Record<string, string | undefined>; labels: Record<string, string> }) {
-  return <dl className="fill-preview-fields">{Object.entries(fields).filter(([, value]) => value !== undefined && value !== "").map(([key, value]) => <div key={key}><dt>{labels[key] || key}</dt><dd>{value}</dd></div>)}</dl>;
-}
-
-
-function AfterSalesFill({ today, operator, registeredRoom, linkedOrder }: { today: string; operator: string; linkedOrder?:string; registeredRoom?: { name: string; host: string } }) {
-  const [form, setForm] = useState(() => ({...emptyAfterSale(), operatorName:operator,orderRef:linkedOrder??""})), [expenses, setExpenses] = useState<AfterSaleExpense[]>([]), [reviewed, setReviewed] = useState(false);
-  const dirty = Object.entries(form).some(([key, value]) => !!value && (key !== "operatorName" || value !== operator)) || expenses.length > 0, totals = afterSaleTotals(form, expenses);
-  const example = `人设：演示主页甲\n客服：演示客服甲\n客户：demo_customer_A\n卖价：600人民币\n实收：600人民币\n付款方式：演示支付宝账户\n付款日期：${today}\n备注：直播间\n发货日期：${today}\n关公：400人民币\n证书支出：6元\n盒子支出：9元\n运费支出：30元\n合计：445元`;
-  const patchExpense = (index: number, patch: Partial<AfterSaleExpense>) => setExpenses(expenses.map((e, i) => i === index ? { ...e, ...patch } : e));
-  const input = (key: keyof AfterSaleFields, type = "text", required = true) => <Field key={key} label={afterLabels[key]}><input required={required} type={type} max={type === "date" ? today : undefined} inputMode={key === "chargeCny" || key === "paidAmount" ? "decimal" : undefined} pattern={key === "chargeCny" || key === "paidAmount" ? "[0-9]{1,12}(\\.[0-9]{1,2})?" : undefined} maxLength={128} value={form[key]} readOnly={key==="orderRef"&&Boolean(linkedOrder)} onChange={e => setForm({ ...form, [key]: e.target.value })} /></Field>;
-  return <div className="card"><h2>售后费用填报</h2><ReportTextImport name="售后费用" example={example} dirty={dirty} parse={text => parseAfterSaleText(text, today)} preview={r => <><PreviewFields fields={r.fields} labels={afterLabels} /><ul>{r.expenses.map((e, i) => <li key={i}>{e.label}：¥{e.amountCny} · {expenseLabels[e.category] || "费用类别待确认"}</li>)}</ul><p>成本合计 ¥{afterSaleTotals(r.fields, r.expenses).cost === null ? "—" : signedMoney(afterSaleTotals(r.fields, r.expenses).cost!)}{afterSaleTotals(r.fields, r.expenses).difference !== null ? ` · 本笔差额 ¥${signedMoney(afterSaleTotals(r.fields, r.expenses).difference!)}` : ""}</p></>} onApply={r => { setForm(f => ({ ...f, ...r.fields,...(linkedOrder?{orderRef:linkedOrder}:{}) })); setExpenses(r.expenses); setReviewed(false); }} />
-    <form onSubmit={e => { e.preventDefault(); setReviewed(true); }} onChange={() => setReviewed(false)}><h3>关联客户与订单</h3><p className="notice">填写原订单编号，避免同一客户多笔订单串单；演示不自动匹配或生成原订单。人设与直播间不作固定搭配。</p><div className="grid two">{(["orderRef", "customerCode", "personaName", "personaCode", "liveRoomCode", "hostName", "operatorName"] as const).filter(key => !registeredRoom || key !== "liveRoomCode" && key !== "hostName").map(k => input(k))}{registeredRoom && <Field label="主播 / 直播间"><input readOnly value={registeredRoom.host + " · " + registeredRoom.name} /><small className="hint">按接待小组绑定；正式编号待补，当前仅试填。</small></Field>}{input("businessDate", "date")}</div>
-      <h3>客户收费与本次收款</h3><p className="notice">客户收费与公司实际成本分别录入。此处新增售后应收，不重复计入原开单营业额。实收不代表第三方已结算给公司。</p><div className="grid two">{input("chargeLabel")}{input("chargeCny")}{input("paidAmount", "text", false)}<Field label="实收币种"><select required={!!form.paidAmount} value={form.paidCurrency} onChange={e => setForm({ ...form, paidCurrency: e.target.value as AfterSaleFields["paidCurrency"] })}><option value="">请选择币种</option>{Object.entries(currencies).map(([key, label]) => <option key={key} value={key}>{label}（{key}）</option>)}</select></Field>{input("channel", "text", !!form.paidAmount)}{input("paymentDate", "date", !!form.paidAmount)}</div>
-      <h3>公司成本</h3><p className="notice">客服登记业务费用；实际付款、扣点及第三方结汇由财务登记。商品名「关公」无法决定费用类型，请选择真实类别。</p>{expenses.map((expense, index) => <fieldset key={index} className="fill-line"><legend>费用 {index + 1}</legend><div className="grid two"><Field label="商品 / 费用名称"><input required maxLength={128} value={expense.label} onChange={e => patchExpense(index, { label: e.target.value })} /></Field><Field label="费用类别"><select required value={expense.category} onChange={e => patchExpense(index, { category: e.target.value })}><option value="">请确认真实费用类别</option>{Object.entries(expenseLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Field><Field label="成本 · 人民币"><input required inputMode="decimal" pattern="[0-9]{1,12}(\.[0-9]{1,2})?" value={expense.amountCny} onChange={e => patchExpense(index, { amountCny: e.target.value })} /></Field><Field label="服务提供方 / 商家（可后补）"><input maxLength={128} value={expense.counterparty} onChange={e => patchExpense(index, { counterparty: e.target.value })} /></Field></div><button type="button" className="secondary" onClick={() => setExpenses(expenses.filter((_, i) => i !== index))}>移除此项</button></fieldset>)}
-      <button type="button" className="secondary" disabled={expenses.length >= 50} onClick={() => setExpenses([...expenses, freshExpense()])}>＋ 添加费用</button><div className="fill-totals"><span>客户收费 <strong>{cents(form.chargeCny) !== null ? `¥${form.chargeCny}` : "—"}</strong></span><span>公司成本 <strong>{totals.cost !== null ? `¥${signedMoney(totals.cost)}` : "—"}</strong></span><span>本笔差额 <strong>{totals.difference !== null ? `¥${signedMoney(totals.difference)}` : "—"}</strong></span></div><p className="notice">差额＝客户收费－已填公司成本，仅供本笔业务核对；费用未补齐时不是最终利润，也不反映实际付款状态。</p>
-      <h3>发货信息</h3><div className="grid two">{input("shippedOn", "date", false)}</div><Field label="备注"><textarea maxLength={500} value={form.note} onChange={e => setForm({ ...form, note: e.target.value })} /></Field><button type="button" onClick={e => { if (e.currentTarget.form?.reportValidity()) setReviewed(true); }}>检查试填内容（不保存）</button>{reviewed && <p role="status">基础必填项已填写，请核对订单关联和各项金额；演示未保存。</p>}
-    </form></div>;
 }

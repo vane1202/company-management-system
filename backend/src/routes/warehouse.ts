@@ -8,6 +8,7 @@ import { HttpError } from "../types.js";
 import { amount, dateField, hashPayload, textField, uuid } from "../lib/commerce.js";
 import { centsToMoney, moneyToCents } from "../lib/money.js";
 import { writeAudit } from "../audit.js";
+import { isWarehouseQueueAction, loadWarehouseFlow, mutateWarehouseQueue, warehouseAttachmentVisible } from "./warehouseQueue.js";
 
 const kinds: Record<string, string> = { goods: "原石出库", sourcing: "售后接待", labor: "加工雕刻", design: "设计", accessory: "配件", certificate: "证书", box: "包装", shipping: "运费", other: "其他对外结账" };
 type Bill = {
@@ -39,7 +40,8 @@ async function snapshot(client: PoolClient, finance: boolean) {
     o.status<>'refunded' AND NOT EXISTS(SELECT 1 FROM order_cancellations c WHERE c.order_id=o.id AND c.voided_at IS NULL) AS "canCreate"
     FROM orders o JOIN order_details d ON d.order_id=o.id ORDER BY o.business_date DESC,o.created_at DESC`)).rows;
   const charges = (await client.query(`SELECT id,order_id AS "orderId",label FROM order_charges WHERE voided_at IS NULL ORDER BY created_at`)).rows;
-  return { state: { bills, payments }, expenses, orders, charges, kinds };
+  const flow = await loadWarehouseFlow(client, finance);
+  return { state: { bills, payments }, expenses, orders, charges, kinds, ...flow };
 }
 
 async function lockOrder(client: PoolClient, orderId: string, requireActive = true) {
@@ -173,6 +175,15 @@ async function mutate(client: PoolClient, req: Request, config: AppConfig) {
 export function createWarehouseRouter(db: Pool, config: AppConfig) {
   const router = Router();
   router.use((req, _res, next) => ["warehouse", "finance"].includes(req.actor?.role ?? "") ? next() : next(new HttpError(403, "仅库房与财务可访问结账台账")));
+  router.get("/attachments/:orderId/:attachmentId", async (req, res, next) => {
+    try {
+      const orderId = uuid(req.params.orderId), attachmentId = uuid(req.params.attachmentId);
+      if (!(await warehouseAttachmentVisible(db, orderId))) throw new HttpError(404, "图片不存在");
+      const row = (await db.query("SELECT mime_type,image_bytes FROM order_attachments WHERE order_id=$1 AND id=$2", [orderId, attachmentId])).rows[0];
+      if (!row) throw new HttpError(404, "图片不存在");
+      res.set({"Content-Type": row.mime_type, "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"}).send(row.image_bytes);
+    } catch (error) { next(error); }
+  });
   router.get("/", (req, res, next) => {
     void withTransaction(db, (client) => snapshot(client, req.actor!.role === "finance"), true)
       .then((data) => res.set("Cache-Control", "private, no-store").json(data))

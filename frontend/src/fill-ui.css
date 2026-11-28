@@ -543,3 +543,52 @@ main.customer-fill .reimbursement-workspace.is-staff .card, main.customer-fill .
 .fill-order-detail .order-cost-bar span { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px; min-width:0; color:var(--muted); font-size:13px; }
 .fill-order-detail .order-cost-bar small { color:var(--muted); }
 .fill-order-detail .order-cost-bar b { flex:0 0 auto; font-weight:650; font-variant-numeric:tabular-nums; white-space:nowrap; }
+
+.as-panel { display: grid; gap: 12px; }
+.as-belong { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.4; }
+.as-belong b { color: var(--ink); font-weight: 650; }
+.as-sums { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.as-sums div { min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--jade-light); }
+.as-sums small { display: block; color: var(--muted); font-size: 12px; }
+.as-sums strong { display: block; margin-top: 2px; overflow: hidden; color: var(--jade-dark); font-size: 16px; font-variant-numeric: tabular-nums; white-space: nowrap; text-overflow: ellipsis; }
+.as-list { display: grid; }
+.as-line { display: grid; gap: 4px; padding: 8px 0; border-top: 1px solid var(--line); }
+.as-line.is-void { opacity: 0.55; }
+.as-line-top, .as-line-sub { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.as-line-top span, .as-line-sub small { min-width: 0; }
+.as-line-top span { display: flex; align-items: center; gap: 6px; font-weight: 650; }
+.as-tag { flex: 0 0 auto; padding: 1px 6px; border-radius: 999px; background: var(--jade-light); color: var(--jade-dark); font-style: normal; font-size: 11px; font-weight: 650; }
+.as-tag.is-cost { background: #eef1ef; color: var(--muted); }
+.as-line b, .as-num, .as-shipped { font-variant-numeric: tabular-nums; }
+.as-line b { flex: 0 0 auto; white-space: nowrap; }
+.as-line-sub small, .as-shipped, .as-hint { color: var(--muted); font-size: 12px; line-height: 1.4; }
+.as-shipped, .as-hint { margin: 0; }
+.as-actions { display: flex; flex: 0 0 auto; gap: 6px; }
+.as-actions .secondary, .as-line-sub > .secondary, .as-void .secondary { min-height: 32px; padding: 4px 10px; white-space: nowrap; }
+.as-entries { display: grid; gap: 8px; }
+.as-entries > .secondary { justify-content: flex-start; width: 100%; }
+.as-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.as-panel .as-grid > .row, .as-panel .as-ship > .row { display: flex; flex-direction: column; gap: 6px; min-width: 0; margin: 0; font-size: 13px; }
+.as-panel input, .as-panel select { width: 100%; margin: 0; font-size: 16px; }
+.as-check { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--ink); font-size: 14px; }
+.as-check input { width: auto; }
+.as-ship { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.as-ship > button { justify-self: start; min-height: 36px; }
+.as-void { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; }
+.as-fold { margin-top: 8px; }
+
+.as-shipped-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ship-proof-mini, .ship-proof-thumb { width: 52px; height: 52px; padding: 0; border: 0; border-radius: 8px; overflow: hidden; background: var(--jade-light); }
+.ship-proof-mini img, .ship-proof-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ship-proofs { display: grid; gap: 8px; }
+.ship-proof-label { color: var(--muted); font-size: 12px; line-height: 1.4; }
+.ship-proof-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.ship-proof-item { display: grid; gap: 4px; justify-items: start; }
+.ship-proof-actions { display: flex; gap: 8px; align-items: center; }
+.ship-proof-actions input, .ship-proof-add input { display: none; }
+.ship-proof-add { display: grid; place-items: center; width: 52px; height: 52px; margin: 0; border: 1px dashed var(--line); border-radius: 8px; color: var(--jade-dark); font-size: 12px; text-align: center; cursor: pointer; }
+.ship-proof-view { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; }
+.ship-proof-backdrop { position: absolute; inset: 0; border: 0; background: rgba(16, 32, 24, 0.72); }
+.ship-proof-stage { position: relative; z-index: 1; width: min(92vw, 520px); display: grid; gap: 10px; }
+.ship-proof-stage img { width: 100%; max-height: 72vh; object-fit: contain; border-radius: 12px; background: #fff; }
+.ship-proof-nav { display: flex; justify-content: center; gap: 8px; }

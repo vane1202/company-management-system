@@ -210,7 +210,7 @@
     const items=[{id:'demo-item-'+index,label:index<2?'演示原石':'演示成品',material_ref:'DEMO-JADE-'+(index+1),kind:index<2?'material':'finished',price_cny:index===0?'1173.18':index===1?'436.36':index===2?'850.00':order.amount,buying_fee_cny:index===0?'117.32':index===1?'43.64':'0.00'}];
     const expenses=[{id:'demo-expense-'+index,business_date:order.businessDate,category:'goods',label:'演示商品供货款',amount_cny:index===1?'150.00':order.customProductCost,counterparty:'演示供货方',item_id:items[0].id,note:'虚构成本资料',voided_at:null},{id:'demo-labor-'+index,business_date:order.businessDate,category:'design',label:'演示雕刻工费',amount_cny:order.laborCost,counterparty:'演示加工方',item_id:items[0].id,voided_at:null},{id:'demo-shipping-'+index,business_date:index===2?today:order.businessDate,category:'shipping',label:'演示运费',amount_cny:order.shippingCost,counterparty:'演示承运方',voided_at:null}];
     if(index===1)expenses.push({id:'demo-sourcing-1',business_date:order.businessDate,category:'sourcing',label:'市场购入替代翡翠成品',amount_cny:'250.00',counterparty:'演示市场商家',item_id:items[0].id,note:'原石不满足加工需求，采购成品交付客户',voided_at:null});
-    return {order:raw,legacy:false,details:{personaName:order.personaName,personaCode:order.personaCode,liveRoomCode:order.liveRoomCode,hostName:order.hostName,customerCode:order.customerCode,operatorName:order.operatorName,source:'演示直播间',customerCurrency:cur,customerDue:due,baseCustomerDue:index===1?'2300.00':index===2?'120.00':due,shippedOn:order.status==='shipped'?today:null,version:1},items,charges,payments:payments.filter(p=>p.order_id===order.id),expenses,attachments:[],paid,balance:money(cents(due)-cents(paid)),expenseTotal:sumMoney(expenses,'amount_cny')};
+    return {order:raw,legacy:false,details:{personaName:order.personaName,personaCode:order.personaCode,liveRoomCode:order.liveRoomCode,hostName:order.hostName,customerCode:order.customerCode,operatorName:order.operatorName,source:'演示直播间',customerCurrency:cur,customerDue:due,baseCustomerDue:index===1?'2300.00':index===2?'120.00':due,shippedOn:order.status==='shipped'||index===2?today:null,version:1},items,charges,payments:payments.filter(p=>p.order_id===order.id),expenses,attachments:index===2?[{id:'demo-ship-proof',item_id:null,filename:'ship.png',mime_type:'image/png',kind:'shipping_proof',url:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='}]:[],paid,balance:money(cents(due)-cents(paid)),expenseTotal:sumMoney(expenses,'amount_cny')};
   }
   function reportHistory(query) {
     if (!['cs','cs_supervisor'].includes(role)) return json({error:'当前身份不能查看客服填报历史'},403);
@@ -257,6 +257,22 @@
     }
     records.sort((left,right)=>right.businessDate.localeCompare(left.businessDate)||left.id.localeCompare(right.id));
     return json({demo:true,canPreviewCorrections:role==='cs_supervisor',accounts:[...registeredAccounts.map(account=>({id:account.id,label:account.holderName+' · '+account.wechatId,teamName:account.teamName})),...allowed.map(account=>({id:account.id,label:account.wechatId,teamName:account.teamName}))],records});
+  }
+  function withShippingProofs(records){
+    let saved={};
+    try{saved=JSON.parse(window.sessionStorage.getItem('cms-demo-shipping-proofs-v1')||'{}')||{};}catch(e){saved={};}
+    const live=window.CmsShippingProofs||{};
+    return records.map(record=>{
+      if(!record||!record.order)return record;
+      const key=record.order.id,fromLive=live[key]||{},fromSaved=saved[key]||{};
+      const shippedOn=fromLive.shippedOn||fromSaved.shippedOn||'';
+      const shots=Array.isArray(fromLive.shots)?fromLive.shots:(Array.isArray(fromSaved.shots)?fromSaved.shots:[]);
+      if(!shippedOn&&!shots.length)return record;
+      const attachments=[...(record.attachments||[]).filter(row=>row.kind!=='shipping_proof')];
+      for(const shot of shots){if(!shot||!shot.url)continue;attachments.push({id:shot.id,item_id:null,filename:shot.name||'shipping.png',mime_type:'image/jpeg',kind:'shipping_proof',url:shot.url});}
+      const details=record.details?{...record.details,shippedOn:shippedOn||record.details.shippedOn}:record.details;
+      return {...record,attachments,details};
+    });
   }
   const warehouseKey='cms-demo-warehouse-v1';
   function warehouseState(){const raw=window.sessionStorage.getItem(warehouseKey);if(!raw)return window.CmsFinanceSeed?window.CmsFinanceSeed.warehouse(today,shift):{bills:[],payments:[]};const state=JSON.parse(raw);if(!Array.isArray(state.bills)||!Array.isArray(state.payments))throw Error('Warehouse state invalid');return state;}
@@ -559,11 +575,11 @@
       if(!['warehouse','finance'].includes(role))return json({error:'Warehouse or finance access required'},403);
       if(!window.CmsWarehouse)return json({error:'Warehouse module unavailable'},503);
       try{
-        const snapshot=()=>({state:warehouseState(),expenses:payables().expenses,orders:orders.filter(o=>o.workflowEnabled&&!o.cancelled&&o.status!=='refunded').map(o=>({id:o.id,orderRef:o.orderRef,customerLabel:o.customerLabel,liveRoomCode:o.liveRoomCode,hostName:o.hostName,operatorName:o.operatorName,personaName:o.personaName,customerCode:o.customerCode})),kinds:window.CmsWarehouse.kinds});
+        const snapshot=()=>{const state=warehouseState();if(!Array.isArray(state.lines))state.lines=[];if(!Array.isArray(state.batches))state.batches=[];const records=withShippingProofs(orders.map(orderRecord));const flow=window.CmsWarehouse.project(records,state);return {state,expenses:payables().expenses,orders:orders.filter(o=>o.workflowEnabled&&!o.cancelled&&o.status!=='refunded').map(o=>({id:o.id,orderRef:o.orderRef,customerLabel:o.customerLabel,liveRoomCode:o.liveRoomCode,hostName:o.hostName,operatorName:o.operatorName,personaName:o.personaName,customerCode:o.customerCode})),kinds:window.CmsWarehouse.kinds,...flow};};
         if(method==='GET')return json(snapshot());
         if(method!=='POST')return json({error:'Unsupported method'},405);
         const body=JSON.parse(options.body||'{}');
-        const next=window.CmsWarehouse.apply(warehouseState(),body,{role,today,actor:currentUser().displayName,orders,expenses:payables().expenses,references:allPaymentReferences(),id:'wh-'+Date.now()+'-'+Math.random().toString(36).slice(2,9),now:new Date().toISOString()});
+        const next=window.CmsWarehouse.apply(warehouseState(),body,{role,today,actor:currentUser().displayName,orders,records:withShippingProofs(orders.map(orderRecord)),expenses:payables().expenses,references:allPaymentReferences(),id:'wh-'+Date.now()+'-'+Math.random().toString(36).slice(2,9),now:new Date().toISOString()});
         window.sessionStorage.setItem(warehouseKey,JSON.stringify(next));return json(snapshot());
       }catch(error){return json({error:error.message||'Warehouse request failed'},error.status||400);}
     }

@@ -98,14 +98,16 @@ export const api = {
   correctOrderRecord: (id: string, payload: Record<string, unknown>) => requestInner<{id:string;itemIds?:string[]}>(`/api/order-records/${encodeURIComponent(id)}`, {method:"PATCH",body:JSON.stringify(payload)}),
   deleteOrderRecord: (id: string, reason: string) => requestInner<{ok:boolean;id:string}>(`/api/order-records/${encodeURIComponent(id)}`, {method:"DELETE",body:JSON.stringify({reason})}),
   orderAction: (id: string, action: string, payload: Record<string, unknown>) => requestInner<{id:string}>(`/api/order-records/${encodeURIComponent(id)}/${action}`, {method:"POST",body:JSON.stringify(payload)}),
-  uploadOrderPhoto: async (id: string, file: File, itemId: string) => {
+  uploadOrderPhoto: async (id: string, file: File, itemId = "", kind: "card" | "shipping_proof" = "card") => {
     const mime = await resolveImageMime(file);
     if (!mime) throw new Error("请上传 JPEG、PNG 或 WebP 原图");
+    const query = new URLSearchParams({ filename: file.name, ...(itemId ? { itemId } : {}), ...(kind === "shipping_proof" ? { kind } : {}) });
     return requestInner<{ id: string }>(
-      `/api/order-records/${encodeURIComponent(id)}/attachments?${new URLSearchParams({ filename: file.name, ...(itemId ? { itemId } : {}) })}`,
+      `/api/order-records/${encodeURIComponent(id)}/attachments?${query}`,
       { method: "POST", headers: { "Content-Type": mime }, body: file }
     );
   },
+  deleteOrderAttachment: (id: string, attachmentId: string) => requestInner<{ id: string }>(`/api/order-records/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}`, { method: "DELETE" }),
   finance: () => requestInner<FinanceData>("/api/finance"),
   payables: () => requestInner<PayablesData>("/api/finance/payables"),
   costAttachments: (expenseId:string) => requestInner<{attachments:{id:string;filename:string;mime_type:string}[]}>(`/api/finance/payables/${encodeURIComponent(expenseId)}/attachments`),
@@ -377,7 +379,7 @@ export type OrderRecord = {
   details?:{dealChannel?:"live"|"private";projectLine?:string;personaName:string;personaCode?:string;liveRoomCode?:string;hostName?:string;customerCode?:string;operatorName:string;source:string;customerCurrency:Currency;customerDue:string;baseCustomerDue?:string;shippedOn:string|null;version:number};
   items?:{id:string;label:string;material_ref:string;kind:string;price_cny:string;buying_fee_cny:string;sourcing_no_settle?:boolean}[];
   payments?:PaymentRecord[]; expenses?:ExpenseRecord[]; charges?:ChargeRecord[];
-  attachments?:{id:string;item_id:string|null;filename:string;mime_type:string}[];
+  attachments?:{id:string;item_id:string|null;filename:string;mime_type:string;kind?:"card"|"shipping_proof"|string;url?:string}[];
   paid?:string;balance?:string;expenseTotal?:string;
 };
 export type FinancePayment=PaymentRecord & {order_id:string;order_ref:string;customer_label:string;persona_name:string;persona_code?:string;live_room_code?:string;host_name?:string;customer_code?:string;operator_name?:string;wechat_id:string|null;customer_currency:Currency;pendingAmount:string};
