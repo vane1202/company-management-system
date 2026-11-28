@@ -98,10 +98,10 @@ export const api = {
   correctOrderRecord: (id: string, payload: Record<string, unknown>) => requestInner<{id:string;itemIds?:string[]}>(`/api/order-records/${encodeURIComponent(id)}`, {method:"PATCH",body:JSON.stringify(payload)}),
   deleteOrderRecord: (id: string, reason: string) => requestInner<{ok:boolean;id:string}>(`/api/order-records/${encodeURIComponent(id)}`, {method:"DELETE",body:JSON.stringify({reason})}),
   orderAction: (id: string, action: string, payload: Record<string, unknown>) => requestInner<{id:string}>(`/api/order-records/${encodeURIComponent(id)}/${action}`, {method:"POST",body:JSON.stringify(payload)}),
-  uploadOrderPhoto: async (id: string, file: File, itemId = "", kind: "card" | "shipping_proof" = "card") => {
+  uploadOrderPhoto: async (id: string, file: File, itemId = "", kind: "card" | "shipping_proof" | "payment_proof" = "card") => {
     const mime = await resolveImageMime(file);
     if (!mime) throw new Error("请上传 JPEG、PNG 或 WebP 原图");
-    const query = new URLSearchParams({ filename: file.name, ...(itemId ? { itemId } : {}), ...(kind === "shipping_proof" ? { kind } : {}) });
+    const query = new URLSearchParams({ filename: file.name, ...(itemId ? { itemId } : {}), ...(kind !== "card" ? { kind } : {}) });
     return requestInner<{ id: string }>(
       `/api/order-records/${encodeURIComponent(id)}/attachments?${query}`,
       { method: "POST", headers: { "Content-Type": mime }, body: file }
@@ -371,7 +371,7 @@ export type LiveBusinessOrder={id:string;status:string;cancelled?:boolean;order_
 export type LiveBusinessEvent={id:string;order_id:string;kind:'sale'|'charge'|'expense'|'receipt'|'company'|'supplier';date:string;amount:string;currency:Currency;category:string;label:string;order:LiveBusinessOrder};
 export type LiveBusinessData={operations?:LiveRoomOperations;period:{from:string;to:string};selected:LiveBusinessFilters;totals:LiveBusinessTotals;paidPerformance:{amountCny:string|null;recordCount:number;scope:'room_host';records:{id:string;date:string;live_room_code:string;host_name:string;amount_cny:string;note:string}[]};afterSales:{receipts:Record<Currency,string>;recordCount:number;unclassifiedReceiptCount:number;records:{id:string;date:string;amount:string;currency:Currency;order_id:string;order_ref:string;customer_label:string;live_room_code:string;host_name:string;operator_name:string;charge_id:string;label:string;quoted_cny:string;cost_cny:string;costs_completed_at:string|null;margin_cny:string|null;charge_voided_at:string|null}[]};rooms:{key:string;roomCode:string;hosts:string[];personas:string[];totals:LiveBusinessTotals;profit?:LiveRoomProfit}[];events:LiveBusinessEvent[];options:{room:string;host:string;persona:string;persona_name:string;operator:string}[];legacyCost:{count:number;amountCny:string};ads:{scope:'company';spendUsd:string;records:{id:string;date:string;persona:string;account:string;amount:string}[];unknownCount:number};profitMethod?:string};
 export type PaidPerformanceRecord={id:string;business_date:string;live_room_code:string;host_name:string;amount_cny:string;note:string;created_by_name:string;voided_at:string|null;void_reason:string|null};
-export type PaymentRecord = { after_sale_charge_id?:string|null;id:string; payment_date:string; amount:string; currency:Currency; credit_amount:string; received_cny?:string|null; purpose:string; channel:string; third_party:boolean; reference:string; note?:string; voided_at:string|null; void_reason?:string; settled_amount:string };
+export type PaymentRecord = { after_sale_charge_id?:string|null;id:string; payment_date:string; amount:string; currency:Currency; credit_amount:string; received_cny?:string|null; purpose:string; channel:string; third_party:boolean; reference:string; note?:string; voided_at:string|null; void_reason?:string; settled_amount:string; verify_status?:"pending"|"confirmed"|"rejected"|null; verify_reason?:string|null; verified_cny?:string|null; fee_cny?:string|null; verified_on?:string|null; proof_id?:string|null };
 export type ExpenseRecord = {after_sale_charge_id?:string|null;id:string;business_date:string;category:string;label:string;amount_cny:string;counterparty?:string;item_id?:string;note?:string;voided_at:string|null;void_reason?:string};
 export type ChargeRecord = {cost_cny?:string;costs_completed_at?:string|null;margin_cny?:string|null;id:string;business_date:string;label:string;amount_cny:string;customer_amount:string;note:string;voided_at:string|null;void_reason?:string};
 export type CompanyExpense = ExpenseRecord & {order_id:string;order_ref:string;customer_label:string;persona_name:string;persona_code:string;live_room_code:string;host_name:string;customer_code:string;operator_name:string;wechat_id:string;material_ref:string;item_label:string;item_sourcing_no_settle?:boolean;paid_cny:string;pending_cny:string|null;paymentState:string};
@@ -387,7 +387,7 @@ export type OrderRecord = {
   details?:{dealChannel?:"live"|"private";projectLine?:string;personaName:string;personaCode?:string;liveRoomCode?:string;hostName?:string;customerCode?:string;operatorName:string;source:string;customerCurrency:Currency;customerDue:string;baseCustomerDue?:string;shippedOn:string|null;version:number};
   items?:{id:string;label:string;material_ref:string;kind:string;price_cny:string;buying_fee_cny:string;sourcing_no_settle?:boolean}[];
   payments?:PaymentRecord[]; expenses?:ExpenseRecord[]; charges?:ChargeRecord[];
-  attachments?:{id:string;item_id:string|null;filename:string;mime_type:string;kind?:"card"|"shipping_proof"|string;url?:string}[];
+  attachments?:{id:string;item_id:string|null;filename:string;mime_type:string;kind?:"card"|"shipping_proof"|"payment_proof"|string;url?:string}[];
   paid?:string;balance?:string;expenseTotal?:string;
 };
 export type FinancePayment=PaymentRecord & {order_id:string;order_ref:string;customer_label:string;persona_name:string;persona_code?:string;live_room_code?:string;host_name?:string;customer_code?:string;operator_name?:string;wechat_id:string|null;customer_currency:Currency;pendingAmount:string};

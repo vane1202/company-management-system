@@ -38,7 +38,7 @@ export function createOrderRouter(db: Pool, config: AppConfig): Router {
         d.customer_currency, (d.customer_due + COALESCE((SELECT sum(c.customer_amount) FROM order_charges c
           WHERE c.order_id=o.id AND c.voided_at IS NULL),0)
           - COALESCE((SELECT sum(p.credit_amount) FROM customer_payments p
-          WHERE p.order_id=o.id AND p.voided_at IS NULL),0))::text AS customer_balance` : "";
+          WHERE p.order_id=o.id AND p.voided_at IS NULL AND p.verify_status <> 'rejected'),0))::text AS customer_balance` : "";
       const rows = await query(
         db,
         `SELECT o.*${balanceColumn},EXISTS(SELECT 1 FROM order_cancellations x WHERE x.order_id=o.id AND x.voided_at IS NULL) AS cancelled,EXISTS(SELECT 1 FROM order_items i WHERE i.order_id=o.id AND i.sourcing_no_settle) AS has_sourcing_no_settle,(CASE WHEN d.order_id IS NULL THEN o.amount ELSE COALESCE((SELECT sum(i.price_cny+i.buying_fee_cny) FROM order_items i WHERE i.order_id=o.id),o.amount) END)::numeric(14,2)::text AS booking_amount,d.persona_code,d.persona_name,${liveRoomSql("d.live_room_code")} AS live_room_code,d.host_name,d.customer_code,d.operator_name,d.deal_channel,d.project_line,u.display_name,u.service_account_label AS wechat_id,u.account_kind,t.id::text AS team_id,t.name AS team_name,EXISTS(SELECT 1 FROM order_details d WHERE d.order_id=o.id) AS workflow_enabled,d.shipped_on,(CASE WHEN d.order_id IS NULL THEN NULL ELSE d.customer_due::text END) AS customer_due,d.customer_currency AS order_currency,pay.base_paid,pay.base_payment_count,pay.has_split_payment,pay.has_full_payment,pay.charge_paid,chg.charge_due FROM orders o JOIN users u ON u.id=o.user_id LEFT JOIN order_details d ON d.order_id=o.id LEFT JOIN LATERAL (SELECT m.team_id FROM team_memberships m WHERE m.user_id=o.user_id AND m.start_date<=o.business_date AND (m.end_date IS NULL OR m.end_date>=o.business_date) ORDER BY m.start_date DESC LIMIT 1) mem ON TRUE LEFT JOIN teams t ON t.id=COALESCE(o.performance_team_id,mem.team_id) LEFT JOIN LATERAL (
@@ -47,7 +47,7 @@ export function createOrderRouter(db: Pool, config: AppConfig): Router {
               COALESCE(bool_or(p.after_sale_charge_id IS NULL AND p.purpose IN ('deposit','balance')),false) AS has_split_payment,
               COALESCE(bool_or(p.after_sale_charge_id IS NULL AND p.purpose='full'),false) AS has_full_payment,
               COALESCE(sum(p.credit_amount) FILTER (WHERE p.after_sale_charge_id IS NOT NULL),0)::numeric(14,2)::text AS charge_paid
-            FROM customer_payments p WHERE p.order_id=o.id AND p.voided_at IS NULL
+            FROM customer_payments p WHERE p.order_id=o.id AND p.voided_at IS NULL AND p.verify_status <> 'rejected'
           ) pay ON TRUE LEFT JOIN LATERAL (
             SELECT COALESCE(sum(c.customer_amount),0)::numeric(14,2)::text AS charge_due
             FROM order_charges c WHERE c.order_id=o.id AND c.voided_at IS NULL

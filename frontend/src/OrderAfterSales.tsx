@@ -1,3 +1,4 @@
+import { PaymentProofField } from "./PaymentProofField";
 import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import { api, type Currency, type OrderRecord } from "./api";
 import { cents, currencies, expenseLabels, submissionKey } from "./commerceUi";
@@ -42,6 +43,8 @@ export function OrderAfterSales({ data, today, canFill, busy, action, onVoidExpe
   const orderCur = (details?.customerCurrency || "CNY") as Currency;
   const [open, setOpen] = useState<"" | "charge" | "cost" | "ship">("");
   const [charge, setCharge] = useState({ label: "", businessDate: today, amount: "", currency: orderCur, cnyQuote: "", orderDue: "", syncPay: false, paidAmount: "", channel: "" });
+  const [payProof, setPayProof] = useState<File | null>(null);
+  const [payProofError, setPayProofError] = useState("");
   const [cost, setCost] = useState({ category: "labor", businessDate: today, amountCny: "", counterparty: "" });
   const [shipDate, setShipDate] = useState(details?.shippedOn || today);
   const demo = import.meta.env.MODE === "demo";
@@ -76,6 +79,11 @@ export function OrderAfterSales({ data, today, canFill, busy, action, onVoidExpe
     const agreed = orderCur === "CNY" ? quote : charge.currency === orderCur ? amount : charge.orderDue.trim();
     if (toCents(amount) === null || toCents(quote) === null || toCents(agreed) === null) return;
     if (charge.syncPay && toCents(charge.paidAmount) === null) return;
+    if (charge.syncPay && !payProof) {
+      setPayProofError("请先上传客户付款凭证截图");
+      return;
+    }
+    setPayProofError("");
     const note = charge.currency !== "CNY" && charge.currency !== orderCur ? `约定 ${amount} ${charge.currency}` : "";
     const body = { businessDate: charge.businessDate, label: charge.label.trim(), amountCny: quote, customerAmount: agreed, note };
     void action(async () => {
@@ -95,7 +103,10 @@ export function OrderAfterSales({ data, today, canFill, busy, action, onVoidExpe
           reference: "",
           note: ""
         };
-        await api.orderAction(data.order.id, "payments", { ...pay, requestKey: payKey.current(pay) });
+        if (!payProof) throw new Error("\u8bf7\u5148\u4e0a\u4f20\u5ba2\u6237\u4ed8\u6b3e\u51ed\u8bc1\u622a\u56fe");
+        const uploaded = await api.uploadOrderPhoto(data.order.id, payProof, "", "payment_proof");
+        await api.orderAction(data.order.id, "payments", { ...pay, proofAttachmentId: uploaded.id, requestKey: payKey.current(pay) });
+        setPayProof(null);
         payKey.current = submissionKey();
       }
       setCharge(current => ({ ...current, label: "", amount: "", cnyQuote: "", orderDue: "", syncPay: false, paidAmount: "", channel: "" }));
@@ -220,10 +231,10 @@ export function OrderAfterSales({ data, today, canFill, busy, action, onVoidExpe
         {needCnyQuote && <Row label="人民币报价"><input required className="as-num" inputMode="decimal" pattern="[0-9]{1,12}(\.[0-9]{1,2})?" value={charge.cnyQuote} onChange={event => setCharge({ ...charge, cnyQuote: event.target.value })} /></Row>}
         {needOrderDue && <Row label={`订单约定应收 · ${orderCur}`}><input required className="as-num" inputMode="decimal" pattern="[0-9]{1,12}(\.[0-9]{1,2})?" value={charge.orderDue} onChange={event => setCharge({ ...charge, orderDue: event.target.value })} /></Row>}
         <label className="as-check"><input type="checkbox" checked={charge.syncPay} onChange={event => setCharge({ ...charge, syncPay: event.target.checked })} />同步登记本次收款（可选）</label>
-        {charge.syncPay && <div className="as-grid">
+        {charge.syncPay && <><PaymentProofField file={payProof} disabled={busy} onChange={next => { setPayProof(next); if (next) setPayProofError(""); }}/>{payProofError && <p className="error" role="alert">{payProofError}</p>}<div className="as-grid">
           <Row label="本次实收"><input required className="as-num" inputMode="decimal" pattern="[0-9]{1,12}(\.[0-9]{1,2})?" value={charge.paidAmount} onChange={event => setCharge({ ...charge, paidAmount: event.target.value })} /></Row>
           <Row label="收款账户 / 方式"><input required maxLength={128} value={charge.channel} onChange={event => setCharge({ ...charge, channel: event.target.value })} /></Row>
-        </div>}
+        </div></>}
         <button disabled={busy}>{busy ? "保存中…" : "保存追加收费"}</button>
       </form>}
       <button type="button" className="secondary" aria-expanded={open === "cost"} onClick={() => toggle("cost")}>+ 登记公司成本支出（逐笔）</button>

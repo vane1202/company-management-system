@@ -18,13 +18,16 @@ describe("成交、客户付款与财务结算隔离",()=>{
  function get(who:string,path:string){return clients[who].agent.get(path);}
  const body=(extra:object={})=>({requestKey:randomUUID(),orderRef:"FIX-"+randomUUID(),businessDate:today,personaName:"虚构主页",personaCode:"P-TEST",liveRoomCode:"LIVE-TEST",hostName:"虚构主播",customerCode:"C-TEST",operatorName:"虚构经办",customerLabel:"虚构客户",source:"测试",customerCurrency:"TWD",customerDue:"3000.00",items:[{kind:"material",label:"虚构原石",priceCny:"100.05"},{kind:"finished",label:"虚构成品",priceCny:"20.00"}],...extra});
  async function order(extra:object={},who="cashier"){return(await post(who,"/api/order-records",body(extra)).expect(200)).body.id as string;}
- async function payment(id:string,extra:object={}){const b={requestKey:randomUUID(),paymentDate:today,amount:"1000.00",currency:"TWD",purpose:"deposit",channel:"测试代收账户",thirdParty:true,reference:randomUUID(),...extra};return(await post("cashier",`/api/order-records/${id}/payments`,b).expect(200)).body.id as string;}
+ const png=Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=","base64");
+ let proofSeq=0;
+ async function attachProof(orderId:string){proofSeq+=1;const bytes=Buffer.concat([png,Buffer.from(String(proofSeq))]);const res=await clients.cashier.agent.post("/api/order-records/"+orderId+"/attachments?filename=pay.png&kind=payment_proof").set("Origin",origin).set("X-CSRF-Token",clients.cashier.token).set("Content-Type","image/png").send(bytes);if(res.status!==200)throw new Error("proof "+res.status+" "+JSON.stringify(res.body));return res.body.id as string;}
+ async function payment(id:string,extra:object={}){const given=(extra as {proofAttachmentId?:string}).proofAttachmentId;const proofAttachmentId=given||await attachProof(id);const b={requestKey:randomUUID(),paymentDate:today,amount:"1000.00",currency:"TWD",purpose:"deposit",channel:"\u6d4b\u8bd5\u4ee3\u6536\u8d26\u6237",thirdParty:true,reference:randomUUID(),...extra,proofAttachmentId};return(await post("cashier",`/api/order-records/${id}/payments`,b).expect(200)).body.id as string;}
  const settlement=(paymentId:string,extra:object={})=>({requestKey:randomUUID(),reference:randomUUID(),channel:"测试代收账户",currency:"TWD",settledOn:today,feeAmount:"30.00",feeCurrency:"TWD",feePercent:"3",fxRate:"0.21",netCny:"203.70",allocations:[{paymentId,foreignAmount:"1000.00",netCny:"203.70"}],...extra});
  it('售后实收600、跨日成本445形成同一业务毛利155；不并入开单营业额',async()=>{
   const yesterday=new Date(Date.parse(today+'T00:00:00Z')-86400000).toISOString().slice(0,10),persona='AFTER-'+randomUUID();
   const id=await order({businessDate:yesterday,personaCode:persona,customerCurrency:'CNY',items:[{kind:'material',label:'原开单料子',priceCny:'100.00'}]});
   const charge=(await post('cashier',`/api/order-records/${id}/charges`,{requestKey:randomUUID(),businessDate:yesterday,label:'虚构售后关公配货费',amountCny:'600.00'}).expect(200)).body.id;
-  const payBody={requestKey:randomUUID(),paymentDate:yesterday,amount:'600.00',currency:'CNY',purpose:'full',channel:'测试支付宝',afterSaleChargeId:charge};
+  const proofA=await attachProof(id);const payBody={requestKey:randomUUID(),paymentDate:yesterday,amount:'600.00',currency:'CNY',purpose:'full',channel:'\u6d4b\u8bd5\u652f\u4ed8\u5b9d',afterSaleChargeId:charge,proofAttachmentId:proofA};
   await post('cashier',`/api/order-records/${id}/payments`,payBody).expect(200);
   await post('cashier',`/api/order-records/${id}/payments`,{...payBody,requestKey:randomUUID(),amount:'1.00'}).expect(409);
   const other=await order({customerCurrency:'CNY'});
@@ -159,9 +162,9 @@ describe("成交、客户付款与财务结算隔离",()=>{
   expect(sales.length).toBe(after.totals.turnoverCount);
  });
  it('收款和跑单并发时只允许一种结果；已有定金不能伪造未付款跑单',async()=>{
-  const id=await order({customerCurrency:'CNY'}),version=(await get('cashier','/api/order-records/'+id)).body.details.version;
+  const id=await order({customerCurrency:'CNY'}),version=(await get('cashier','/api/order-records/'+id)).body.details.version,raceProof=await attachProof(id);
   const blocker=await db.connect();await blocker.query('BEGIN');await blocker.query('SELECT id FROM orders WHERE id=$1 FOR UPDATE',[id]);
-  const pending=Promise.all([post('cashier',`/api/order-records/${id}/cancellations`,{version,reason:'客户放弃'}).then(r=>r),post('cashier',`/api/order-records/${id}/payments`,{requestKey:randomUUID(),paymentDate:today,amount:'10.00',currency:'CNY',purpose:'deposit',channel:'测试账户'}).then(r=>r)]);
+  const pending=Promise.all([post('cashier',`/api/order-records/${id}/cancellations`,{version,reason:'客户放弃'}).then(r=>r),post('cashier',`/api/order-records/${id}/payments`,{requestKey:randomUUID(),paymentDate:today,amount:'10.00',currency:'CNY',purpose:'deposit',channel:'\u6d4b\u8bd5\u8d26\u6237',proofAttachmentId:raceProof}).then(r=>r)]);
   try{const until=Date.now()+5000;let waiting=0;while(waiting<2&&Date.now()<until){waiting=Number((await db.query("SELECT count(*) AS n FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'SELECT o.%'")).rows[0].n);if(waiting<2)await new Promise(r=>setTimeout(r,20));}expect(waiting).toBe(2);}finally{await blocker.query('COMMIT');blocker.release();}
   const responses=await pending;
   expect(responses.map(r=>r.status).sort()).toEqual([200,409]);
@@ -398,13 +401,13 @@ describe("成交、客户付款与财务结算隔离",()=>{
   const d=(await get("cashier",`/api/order-records/${id}`)).body;expect(d.details.customerCurrency).toBe("TWD");expect(d.payments[0].credit_amount).toBe("1000.00");expect(d.balance).toBe("3000.00");
  });
  it("分次定金尾款、收款幂等与超过欠款拒绝",async()=>{
-  const id=await order(),b={requestKey:randomUUID(),paymentDate:today,amount:"1000.00",currency:"TWD",purpose:"deposit",channel:"测试代收账户",thirdParty:true};
+  const id=await order(),proofB=await attachProof(id),b={requestKey:randomUUID(),paymentDate:today,amount:"1000.00",currency:"TWD",purpose:"deposit",channel:"\u6d4b\u8bd5\u4ee3\u6536\u8d26\u6237",thirdParty:true,proofAttachmentId:proofB};
   const one=await post("cashier",`/api/order-records/${id}/payments`,b).expect(200);expect((await post("cashier",`/api/order-records/${id}/payments`,b).expect(200)).body.id).toBe(one.body.id);
   expect((await get("cashier",`/api/order-records/${id}`)).body.balance).toBe("2000.00");await payment(id,{amount:"2000.00",purpose:"balance"});expect((await get("cashier",`/api/order-records/${id}`)).body.balance).toBe("0.00");await post("cashier",`/api/order-records/${id}/payments`,{...b,requestKey:randomUUID(),amount:"1.00"}).expect(409);
  });
  it("并发收款不能超收；拒绝跨订单重放与不明币种",async()=>{
-  const id=await order({customerDue:"1000.00"});const b={paymentDate:today,amount:"700.00",currency:"TWD",purpose:"deposit",channel:"并发账户",thirdParty:true};const key=randomUUID(),secondKey=randomUUID();
-  const results=await Promise.all([post("cashier",`/api/order-records/${id}/payments`,{...b,requestKey:key}),post("cashier",`/api/order-records/${id}/payments`,{...b,requestKey:secondKey})]);expect(results.map(r=>r.status).sort()).toEqual([200,409]);
+  const id=await order({customerDue:"1000.00"});const proofC=await attachProof(id),proofD=await attachProof(id),b={paymentDate:today,amount:"700.00",currency:"TWD",purpose:"deposit",channel:"\u5e76\u53d1\u8d26\u6237",thirdParty:true};const key=randomUUID(),secondKey=randomUUID();
+  const results=await Promise.all([post("cashier",`/api/order-records/${id}/payments`,{...b,requestKey:key,proofAttachmentId:proofC}),post("cashier",`/api/order-records/${id}/payments`,{...b,requestKey:secondKey,proofAttachmentId:proofD})]);expect(results.map(r=>r.status).sort()).toEqual([200,409]);
   const usedKey=results[0].status===200?key:secondKey;
   await post("cashier",`/api/order-records/${await order()}/payments`,{...b,requestKey:usedKey}).expect(409);await post("cashier",`/api/order-records/${id}/payments`,{...b,currency:"HKD",requestKey:randomUUID()}).expect(400);
  });
@@ -460,7 +463,8 @@ describe("成交、客户付款与财务结算隔离",()=>{
   const id=await order({businessDate:yesterday,personaCode:persona,customerCurrency:"CNY",items:[{kind:"material",label:"开单料子",priceCny:"100.00"}]});
   await post("cashier",`/api/order-records/${id}/charges`,{requestKey:randomUUID(),businessDate:today,label:"设计雕工追加",amountCny:"60.00"}).expect(200);
   await post("cashier",`/api/order-records/${id}/expenses`,{requestKey:randomUUID(),businessDate:today,category:"goods",label:"供货材料支出",amountCny:"20.00"}).expect(200);
-  await payment(id,{paymentDate:today,amount:"170.00",currency:"CNY",purpose:"full",thirdParty:false,channel:"直收测试账户"});
+  const receiptId=await payment(id,{paymentDate:today,amount:"170.00",currency:"CNY",purpose:"full",thirdParty:false,channel:"\u76f4\u6536\u6d4b\u8bd5\u8d26\u6237"});
+  await post("finance",`/api/finance/payments/${receiptId}/confirm`,{verifiedCny:"170.00",feeCny:"0.00",verifiedOn:today}).expect(200);
 
   const ySummary=(await get("boss",`/api/dashboard/summary?from=${yesterday}&to=${yesterday}`).expect(200)).body.metrics;
   const tSummary=(await get("boss",`/api/dashboard/summary?from=${today}&to=${today}`).expect(200)).body.metrics;

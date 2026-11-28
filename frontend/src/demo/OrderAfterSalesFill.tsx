@@ -3,6 +3,7 @@ import type { Currency } from "../api";
 import { cents, currencies, expenseLabels } from "../commerceUi";
 import { yuan } from "../dashboardDisplay";
 import { Field } from "../OrderWorkspace";
+import { PaymentProofField } from "../PaymentProofField";
 import { signedMoney } from "./afterSalesText";
 import { dataUrl, rememberShippingProofs } from "./shippingProofStore";
 import { readShippingFiles, releaseShippingShot, ShippingProofEditor, ShippingProofViewer, type ShippingShot } from "../ShippingProofs";
@@ -73,6 +74,7 @@ export default function OrderAfterSalesFill({ today, operator, customerName, cus
   const [costs, setCosts] = useState<CostLine[]>([]);
   const [shippedOn, setShippedOn] = useState("");
   const [charge, setCharge] = useState({ label: "", businessDate: today, amount: "", currency, syncPay: false, paidAmount: "", channel: "" });
+  const [payProof, setPayProof] = useState<File | null>(null);
   const [cost, setCost] = useState({ category: "labor", businessDate: today, amountCny: "", counterparty: "" });
   const [shipDate, setShipDate] = useState(today);
   const [shipShots, setShipShots] = useState<ShippingShot[]>([]);
@@ -93,6 +95,10 @@ export default function OrderAfterSalesFill({ today, operator, customerName, cus
       setError("金额需为最多两位小数的数字");
       return;
     }
+    if (charge.syncPay && !payProof) {
+      setError("请先上传客户付款凭证截图");
+      return;
+    }
     const amount = charge.amount.trim();
     setCharges(rows => [...rows, {
       id: nextId(),
@@ -107,6 +113,7 @@ export default function OrderAfterSalesFill({ today, operator, customerName, cus
       context
     }]);
     setCharge(current => ({ ...current, label: "", amount: "", syncPay: false, paidAmount: "", channel: "" }));
+    setPayProof(null);
     setError("");
     setOpen("");
   }
@@ -198,10 +205,10 @@ export default function OrderAfterSalesFill({ today, operator, customerName, cus
         </div>
         {charge.currency !== "CNY" && <p className="as-hint">按约定外币计应收，不受结汇汇率影响</p>}
         <label className="as-check"><input type="checkbox" checked={charge.syncPay} onChange={event => setCharge({ ...charge, syncPay: event.target.checked })} />同步登记本次收款（可选）</label>
-        {charge.syncPay && <div className="as-grid">
+        {charge.syncPay && <><PaymentProofField file={payProof} onChange={next => { setPayProof(next); if (next) setError(""); }} /><div className="as-grid">
           <Field label="本次实收"><input required className="as-num" inputMode="decimal" pattern="[0-9]{1,12}(\.[0-9]{1,2})?" value={charge.paidAmount} onChange={event => setCharge({ ...charge, paidAmount: event.target.value })} /></Field>
           <Field label="收款账户 / 方式"><input required maxLength={128} value={charge.channel} onChange={event => setCharge({ ...charge, channel: event.target.value })} /></Field>
-        </div>}
+        </div></>}
         <button type="button" onClick={event => { if (event.currentTarget.form?.reportValidity()) saveCharge(); }}>保存追加收费</button>
       </form>}
       <button type="button" className="secondary" aria-expanded={open === "cost"} onClick={() => toggle("cost")}>+ 登记公司成本支出（逐笔）</button>

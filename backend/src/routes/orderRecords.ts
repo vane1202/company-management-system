@@ -109,12 +109,12 @@ export function createOrderRecordsRouter(db: Pool, config: AppConfig) {
       const details=(await c.query("SELECT * FROM order_details WHERE order_id=$1",[order.id])).rows[0];
       if (!details) return {order, legacy:true};
       const items=(await c.query("SELECT * FROM order_items WHERE order_id=$1 ORDER BY id",[order.id])).rows;
-      const payments=(await c.query(`SELECT p.id,p.payment_date,p.amount,p.currency,p.credit_amount,p.received_cny,p.purpose,p.channel,p.third_party,p.reference,p.note,p.created_at,p.voided_at,p.void_reason,p.after_sale_charge_id,COALESCE((SELECT sum(a.foreign_amount) FROM settlement_allocations a JOIN finance_settlements s ON s.id=a.settlement_id WHERE a.payment_id=p.id AND s.voided_at IS NULL),0)::numeric(14,2) AS settled_amount FROM customer_payments p WHERE p.order_id=$1 ORDER BY p.created_at,p.id`,[order.id])).rows;
+      const payments=(await c.query(`SELECT p.id,p.payment_date,p.amount,p.currency,p.credit_amount,p.received_cny,p.purpose,p.channel,p.third_party,p.reference,p.note,p.created_at,p.voided_at,p.void_reason,p.after_sale_charge_id,p.verify_status,p.verify_reason,p.verified_cny,p.fee_cny,p.verified_on,(SELECT a.id FROM order_attachments a WHERE a.payment_id=p.id AND a.kind='payment_proof' ORDER BY a.created_at DESC LIMIT 1) AS proof_id,COALESCE((SELECT sum(a.foreign_amount) FROM settlement_allocations a JOIN finance_settlements s ON s.id=a.settlement_id WHERE a.payment_id=p.id AND s.voided_at IS NULL),0)::numeric(14,2) AS settled_amount FROM customer_payments p WHERE p.order_id=$1 ORDER BY p.created_at,p.id`,[order.id])).rows;
       const expenses=(await c.query("SELECT id,business_date,category,label,amount_cny,counterparty,item_id,note,created_at,voided_at,void_reason,after_sale_charge_id FROM order_expenses WHERE order_id=$1 ORDER BY created_at,id",[order.id])).rows;
       const attachments=(await c.query("SELECT id,item_id,filename,mime_type,created_at,kind FROM order_attachments WHERE order_id=$1 ORDER BY created_at,id",[order.id])).rows;
       const charges=(await c.query("SELECT a.*,COALESCE((SELECT sum(e.amount_cny) FROM order_expenses e WHERE e.after_sale_charge_id=a.id AND e.voided_at IS NULL),0)::numeric(14,2)::text AS cost_cny FROM order_charges a WHERE a.order_id=$1 ORDER BY a.created_at,a.id",[order.id])).rows.map(a=>({...a,margin_cny:a.costs_completed_at?centsToMoney(moneyToCents(a.amount_cny)-moneyToCents(a.cost_cny)):null}));
       const totalDue=await effectiveDue(c,String(order.id),String(details.customer_due));
-      const paid=addMoney(payments.filter(p=>!p.voided_at).map(p=>p.credit_amount));
+      const paid=addMoney(payments.filter(p=>!p.voided_at&&p.verify_status!=="rejected").map(p=>p.credit_amount));
       const balance=centsToMoney(moneyToCents(totalDue)-moneyToCents(paid));
       return {order,cancellations,details:{dealChannel:details.deal_channel??"live",projectLine:details.project_line??"",personaName:details.persona_name,operatorName:details.operator_name,source:details.source,customerCurrency:details.customer_currency,customerDue:totalDue,baseCustomerDue:details.customer_due,personaCode:details.persona_code,liveRoomCode:canonicalLiveRoom(details.live_room_code),hostName:details.host_name,customerCode:details.customer_code,shippedOn:details.shipped_on,version:details.version},items,charges,payments,expenses,attachments,paid,balance,expenseTotal:addMoney(expenses.filter(e=>!e.voided_at).map(e=>e.amount_cny)),legacy:false};
     }, true).then((result) => res.json(result)).catch(next);
@@ -124,7 +124,7 @@ export function createOrderRecordsRouter(db: Pool, config: AppConfig) {
     if(Number(b.version)!==details.version)throw new HttpError(409,'订单已变更，请刷新后再登记跑单');
     if(order.cancelled)throw new HttpError(409,'此单已登记跑单，不重复冲抵');
     if(!['placed','in_production'].includes(order.status)||details.shipped_on)throw new HttpError(409,'已发货或退款订单不能登记为未付款跑单');
-    if((await c.query('SELECT 1 FROM customer_payments WHERE order_id=$1 AND voided_at IS NULL',[id])).rowCount)throw new HttpError(409,'已有有效收款，须另行处理退款，不能登记为未付款跑单');
+    if((await c.query("SELECT 1 FROM customer_payments WHERE order_id=$1 AND voided_at IS NULL AND verify_status <> 'rejected'",[id])).rowCount)throw new HttpError(409,'已有有效收款，须另行处理退款，不能登记为未付款跑单');
     if((await c.query('SELECT 1 FROM order_charges WHERE order_id=$1 AND voided_at IS NULL',[id])).rowCount)throw new HttpError(409,'已有追加应收，请先核对追加收费，不能直接登记未付款跑单');
     const reason=textField(b.reason,'跑单原因',500),base=(await c.query('SELECT sum(price_cny+buying_fee_cny)::text AS amount FROM order_items WHERE order_id=$1',[id])).rows[0].amount;
     amount(base,'开单金额',true);
@@ -231,7 +231,7 @@ export function createOrderRecordsRouter(db: Pool, config: AppConfig) {
     const id=uuid(req.params.id),{order,details}=await writeOrder(c,req.actor!,id),b=req.body??{};
     if(order.cancelled)throw new HttpError(409,'已登记跑单，请先撤销跑单后再更正开单卡');
     if(Number(b.version)!==details.version)throw new HttpError(409,"订单已变更，请刷新后再编辑");
-    if(order.status==="shipped"||order.status==="refunded"||(await c.query("SELECT 1 FROM customer_payments WHERE order_id=$1 AND voided_at IS NULL",[id])).rowCount)throw new HttpError(409,"已有有效收款或已发货，不能直接修改成交；登记错误须先核对并纠正关联记录");
+    if(order.status==="shipped"||order.status==="refunded"||(await c.query("SELECT 1 FROM customer_payments WHERE order_id=$1 AND voided_at IS NULL AND verify_status <> 'rejected'",[id])).rowCount)throw new HttpError(409,"已有有效收款或已发货，不能直接修改成交；登记错误须先核对并纠正关联记录");
     if((await c.query("SELECT 1 FROM order_charges WHERE order_id=$1",[id])).rowCount)throw new HttpError(409,"已有追加收费记录，请保留原成交，通过追加收费纠错处理");
     const dealChannel=readDealChannel(b.dealChannel??details.deal_channel);
     const items=readItems(b.items,dealChannel),total=addMoney(items.flatMap(i=>[i.priceCny,i.buyingFeeCny]));amount(total,"成交合计",true);
@@ -263,11 +263,17 @@ export function createOrderRecordsRouter(db: Pool, config: AppConfig) {
     if(cur!=="CNY"&&!body.thirdParty)throw new HttpError(400,"外币收款须登记第三方账户");
     if(body.paymentDate<String(order.business_date))throw new HttpError(400,"收款日期不能早于订单日期");
     const hash=hashPayload(body),old=await replay(c,"customer_payments",uuid(b.requestKey),hash,id);if(old)return {id:old.id,replayed:true};
-    if(charge){const linked=(await c.query('SELECT COALESCE(sum(credit_amount),0)::text AS paid FROM customer_payments WHERE after_sale_charge_id=$1 AND voided_at IS NULL',[charge.id])).rows[0].paid;if(moneyToCents(linked)+moneyToCents(body.creditAmount)>moneyToCents(charge.customer_amount))throw new HttpError(409,'本笔售后收款超过该售后业务剩余应收');}
-    const paid=(await c.query("SELECT COALESCE(sum(credit_amount),0)::text AS paid FROM customer_payments WHERE order_id=$1 AND voided_at IS NULL",[id])).rows[0].paid;
+    if(charge){const linked=(await c.query("SELECT COALESCE(sum(credit_amount),0)::text AS paid FROM customer_payments WHERE after_sale_charge_id=$1 AND voided_at IS NULL AND verify_status <> 'rejected'",[charge.id])).rows[0].paid;if(moneyToCents(linked)+moneyToCents(body.creditAmount)>moneyToCents(charge.customer_amount))throw new HttpError(409,'本笔售后收款超过该售后业务剩余应收');}
+    const paid=(await c.query("SELECT COALESCE(sum(credit_amount),0)::text AS paid FROM customer_payments WHERE order_id=$1 AND voided_at IS NULL AND verify_status <> 'rejected'",[id])).rows[0].paid;
     if(!allowOverpay&&moneyToCents(paid)+moneyToCents(body.creditAmount)>moneyToCents(await effectiveDue(c,id,details.customer_due)))throw new HttpError(409,"本次抵扣金额超过客户剩余应收");
-    const row=(await c.query(`INSERT INTO customer_payments(order_id,payment_date,amount,currency,credit_amount,received_cny,purpose,channel,third_party,reference,note,created_by,request_key,payload_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,[id,body.paymentDate,val,cur,body.creditAmount,body.receivedCny,body.purpose,body.channel,body.thirdParty,body.reference,body.note,req.actor!.id,b.requestKey,hash])).rows[0];
+    const proofId = String(b.proofAttachmentId ?? "");
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(proofId)) throw new HttpError(400, "\u8bf7\u5148\u4e0a\u4f20\u5ba2\u6237\u4ed8\u6b3e\u51ed\u8bc1\u622a\u56fe");
+    const proof = (await c.query("SELECT id,kind,payment_id FROM order_attachments WHERE id=$1 AND order_id=$2 FOR UPDATE", [proofId, id])).rows[0];
+    if (!proof || proof.kind !== "payment_proof") throw new HttpError(400, "\u8bf7\u5148\u4e0a\u4f20\u5ba2\u6237\u4ed8\u6b3e\u51ed\u8bc1\u622a\u56fe");
+    if (proof.payment_id) throw new HttpError(409, "\u8fd9\u5f20\u4ed8\u6b3e\u51ed\u8bc1\u5df2\u7528\u4e8e\u5176\u4ed6\u6536\u6b3e");
+    const row=(await c.query("INSERT INTO customer_payments(order_id,payment_date,amount,currency,credit_amount,received_cny,purpose,channel,third_party,reference,note,created_by,request_key,payload_hash,verify_status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'pending') RETURNING id",[id,body.paymentDate,val,cur,body.creditAmount,body.receivedCny,body.purpose,body.channel,body.thirdParty,body.reference,body.note,req.actor!.id,b.requestKey,hash])).rows[0];
     if(charge)await c.query('UPDATE customer_payments SET after_sale_charge_id=$2 WHERE id=$1',[row.id,charge.id]);
+    await c.query("UPDATE order_attachments SET payment_id=$2 WHERE id=$1",[proof.id,row.id]);
     await touch(c,id);await audit(c,req,"customer_payment_create",id,{id:row.id,...body});return {id:row.id};
   }));
   router.post("/:id/payments/:paymentId/void",mutate(async(c,req)=>{
@@ -279,6 +285,48 @@ export function createOrderRecordsRouter(db: Pool, config: AppConfig) {
     if((await c.query("SELECT 1 FROM settlement_allocations a JOIN finance_settlements s ON s.id=a.settlement_id WHERE a.payment_id=$1 AND s.voided_at IS NULL",[p.id])).rowCount)throw new HttpError(409,"收款已关联结算，请财务先作废对应结算");
     await c.query("UPDATE customer_payments SET voided_at=now(),void_reason=$2 WHERE id=$1",[p.id,reason]);await touch(c,id);await audit(c,req,"customer_payment_void",id,{paymentId:p.id,reason});return {id:p.id};
   }));
+
+  router.post("/:id/payments/:paymentId/resubmit",mutate(async(c,req)=>{
+    const id=uuid(req.params.id),{details,order}=await writeOrder(c,req.actor!,id);
+    const p=(await c.query("SELECT * FROM customer_payments WHERE id=$1 AND order_id=$2 FOR UPDATE",[uuid(req.params.paymentId),id])).rows[0];
+    if(!p)throw new HttpError(404,"\u6536\u6b3e\u4e0d\u5b58\u5728");
+    if(p.voided_at)throw new HttpError(409,"\u6536\u6b3e\u5df2\u4f5c\u5e9f");
+    if(p.verify_status!=="rejected")throw new HttpError(409,"\u53ea\u80fd\u91cd\u65b0\u63d0\u4ea4\u5df2\u9000\u56de\u7684\u6536\u6b3e");
+    const b=req.body??{};
+    const nextDate=b.paymentDate!==undefined?dateField(b.paymentDate,config.businessTimezone):String(p.payment_date);
+    if(nextDate<String(order.business_date))throw new HttpError(400,"收款日期不能早于订单日期");
+    const nextAmount=b.amount!==undefined&&String(b.amount).trim()!==""?amount(b.amount,"原币收款",true):String(p.amount);
+    const nextCredit=p.currency===details.customer_currency?nextAmount:(b.creditAmount!==undefined&&String(b.creditAmount).trim()!==""?amount(b.creditAmount,"本次抵扣应收",true):String(p.credit_amount));
+    const nextReceivedCny=b.receivedCny!==undefined?optionalAmount(b.receivedCny,"折合实收人民币")??(p.currency==="CNY"?nextAmount:null):(p.currency==="CNY"?nextAmount:p.received_cny);
+    const nextChannel=b.channel!==undefined?textField(b.channel,"收款账户"):String(p.channel);
+    const nextRef=b.reference!==undefined?textField(b.reference??"","收款流水号",128,false):String(p.reference??"");
+    if(p.after_sale_charge_id){
+      const chargeRow=(await c.query("SELECT customer_amount FROM order_charges WHERE id=$1",[p.after_sale_charge_id])).rows[0];
+      if(chargeRow){
+        const linked=(await c.query("SELECT COALESCE(sum(credit_amount),0)::text AS paid FROM customer_payments WHERE after_sale_charge_id=$1 AND voided_at IS NULL AND verify_status <> 'rejected'",[p.after_sale_charge_id])).rows[0].paid;
+        if(moneyToCents(linked)+moneyToCents(nextCredit)>moneyToCents(chargeRow.customer_amount))throw new HttpError(409,"本笔售后收款超过该售后业务剩余应收");
+      }
+    }
+    const paid=(await c.query("SELECT COALESCE(sum(credit_amount),0)::text AS paid FROM customer_payments WHERE order_id=$1 AND voided_at IS NULL AND verify_status <> 'rejected'",[id])).rows[0].paid;
+    if(b.allowOverpay!==true&&moneyToCents(paid)+moneyToCents(nextCredit)>moneyToCents(await effectiveDue(c,id,details.customer_due)))throw new HttpError(409,"本次抵扣金额超过客户剩余应收");
+    const proofId=String(b.proofAttachmentId??"");
+    let proof=null;
+    if(proofId){
+      if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(proofId))throw new HttpError(400,"\u8bf7\u5148\u4e0a\u4f20\u5ba2\u6237\u4ed8\u6b3e\u51ed\u8bc1\u622a\u56fe");
+      proof=(await c.query("SELECT id,kind,payment_id FROM order_attachments WHERE id=$1 AND order_id=$2 FOR UPDATE",[proofId,id])).rows[0];
+      if(!proof||proof.kind!=="payment_proof")throw new HttpError(400,"\u8bf7\u5148\u4e0a\u4f20\u5ba2\u6237\u4ed8\u6b3e\u51ed\u8bc1\u622a\u56fe");
+      if(proof.payment_id&&proof.payment_id!==p.id)throw new HttpError(409,"\u8fd9\u5f20\u4ed8\u6b3e\u51ed\u8bc1\u5df2\u7528\u4e8e\u5176\u4ed6\u6536\u6b3e");
+    } else if(!(await c.query("SELECT 1 FROM order_attachments WHERE payment_id=$1 AND kind='payment_proof'",[p.id])).rowCount) {
+      throw new HttpError(400,"\u8bf7\u5148\u4e0a\u4f20\u5ba2\u6237\u4ed8\u6b3e\u51ed\u8bc1\u622a\u56fe");
+    }
+    await c.query("UPDATE customer_payments SET payment_date=$2,amount=$3,credit_amount=$4,received_cny=$5,channel=$6,reference=$7,verify_status='pending',verify_reason=NULL,verified_cny=NULL,fee_cny=NULL,verified_on=NULL,verified_by=NULL,verified_at=NULL WHERE id=$1",[p.id,nextDate,nextAmount,nextCredit,nextReceivedCny,nextChannel,nextRef]);
+    if(proof&&proof.payment_id!==p.id){
+      await c.query("UPDATE order_attachments SET payment_id=NULL WHERE payment_id=$1 AND kind='payment_proof'",[p.id]);
+      await c.query("UPDATE order_attachments SET payment_id=$2 WHERE id=$1",[proof.id,p.id]);
+    }
+    await touch(c,id);await audit(c,req,"customer_payment_resubmit",id,{paymentId:p.id,amount:nextAmount,channel:nextChannel,paymentDate:nextDate,proofId:proof?.id??null});return {id:p.id};
+  }));
+
   const syncCosts=async(c:PoolClient,id:string)=>{await c.query(`UPDATE orders SET custom_product_cost=(SELECT COALESCE(sum(amount_cny) FILTER(WHERE category IN ('goods','sourcing','accessory','certificate','box','other')),0) FROM order_expenses WHERE order_id=$1 AND voided_at IS NULL),labor_cost=(SELECT COALESCE(sum(amount_cny) FILTER(WHERE category IN ('labor','design')),0) FROM order_expenses WHERE order_id=$1 AND voided_at IS NULL),shipping_cost=(SELECT COALESCE(sum(amount_cny) FILTER(WHERE category='shipping'),0) FROM order_expenses WHERE order_id=$1 AND voided_at IS NULL) WHERE id=$1`,[id]);await touch(c,id);};
   router.post("/:id/items/:itemId/sourcing-status",mutate(async(c,req)=>{
     const id=uuid(req.params.id),itemId=uuid(req.params.itemId),{order}=await writeOrder(c,req.actor!,id);
@@ -330,26 +378,28 @@ export function createOrderRecordsRouter(db: Pool, config: AppConfig) {
     const mime=bytes.subarray(0,3).equals(Buffer.from([255,216,255]))?"image/jpeg":bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))?"image/png":bytes.toString("ascii",0,4)==="RIFF"&&bytes.toString("ascii",8,12)==="WEBP"?"image/webp":"";
     if(!mime||mime!==req.get("content-type")?.split(";")[0])throw new HttpError(400,"图片内容与格式不符");
     const sha=createHash("sha256").update(bytes).digest("hex");
-    const kind=req.query.kind==="shipping_proof"?"shipping_proof":"card";
-    if(req.query.kind&&req.query.kind!=="card"&&req.query.kind!=="shipping_proof")throw new HttpError(400,"图片分类无效");
+    const requested = String(req.query.kind ?? "card");
+    if (!["card", "shipping_proof", "payment_proof"].includes(requested)) throw new HttpError(400, "\u56fe\u7247\u5206\u7c7b\u65e0\u6548");
+    const kind = requested;
     const old=(await c.query("SELECT id,kind FROM order_attachments WHERE order_id=$1 AND sha256=$2",[id,sha])).rows[0];
-    if(old){if(old.kind===kind)return {id:old.id};throw new HttpError(409,kind==="shipping_proof"?"这张图片已用作开单卡原图，请另选快递截图":"这张图片已用作快递记录截图");}
-    const itemId=kind==="shipping_proof"?null:(req.query.itemId?uuid(String(req.query.itemId)):null);
-    if(kind==="shipping_proof"&&req.query.itemId)throw new HttpError(400,"快递截图不挂到单件商品");
-    if(itemId&&!(await c.query("SELECT 1 FROM order_items WHERE id=$1 AND order_id=$2",[itemId,id])).rowCount)throw new HttpError(400,"照片对应料子不属于此单");
-    const limit=kind==="shipping_proof"?3:12;
-    const message=kind==="shipping_proof"?"每单最多 3 张快递记录截图":"每单最多留存12张原图";
+    if(old){if(old.kind===kind)return {id:old.id};throw new HttpError(409,"\u8fd9\u5f20\u56fe\u7247\u5df2\u7528\u4e8e\u5176\u4ed6\u5206\u7c7b\uff0c\u8bf7\u53e6\u9009");}
+    const itemId=kind==="card"&&req.query.itemId?uuid(String(req.query.itemId)):null;
+    if(kind!=="card"&&req.query.itemId)throw new HttpError(400,"\u8fd9\u7c7b\u56fe\u7247\u4e0d\u6302\u5230\u5355\u4ef6\u5546\u54c1");
+    if(itemId&&!(await c.query("SELECT 1 FROM order_items WHERE id=$1 AND order_id=$2",[itemId,id])).rowCount)throw new HttpError(400,"\u7167\u7247\u5bf9\u5e94\u6599\u5b50\u4e0d\u5c5e\u4e8e\u6b64\u5355");
+    const limit=kind==="shipping_proof"?3:kind==="payment_proof"?30:12;
+    const message=kind==="shipping_proof"?"\u6bcf\u5355\u6700\u591a 3 \u5f20\u5feb\u9012\u8bb0\u5f55\u622a\u56fe":kind==="payment_proof"?"\u6bcf\u5355\u6700\u591a 30 \u5f20\u4ed8\u6b3e\u51ed\u8bc1":"\u6bcf\u5355\u6700\u591a\u7559\u5b5812\u5f20\u539f\u56fe";
     if(Number((await c.query("SELECT count(*) FROM order_attachments WHERE order_id=$1 AND kind=$2",[id,kind])).rows[0].count)>=limit)throw new HttpError(409,message);
-    const filename=textField(req.query.filename??(kind==="shipping_proof"?"快递记录截图":"留底照片"),"文件名",180).replace(/[\\/\r\n\u0000-\u001f]/g,"_");
+    const filename=textField(req.query.filename??(kind==="shipping_proof"?"\u5feb\u9012\u8bb0\u5f55\u622a\u56fe":kind==="payment_proof"?"\u4ed8\u6b3e\u51ed\u8bc1":"\u7559\u5e95\u7167\u7247"),"\u6587\u4ef6\u540d",180).replace(/[\\/\r\n\u0000-\u001f]/g,"_");
     const row=(await c.query("INSERT INTO order_attachments(order_id,item_id,filename,mime_type,image_bytes,sha256,created_by,kind) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id",[id,itemId,filename,mime,bytes,sha,req.actor!.id,kind])).rows[0];
-    await audit(c,req,kind==="shipping_proof"?"order_shipping_proof_create":"order_photo_create",id,{id:row.id,filename,sha256:sha,itemId,kind});return {id:row.id};
+    await audit(c,req,kind==="shipping_proof"?"order_shipping_proof_create":kind==="payment_proof"?"order_payment_proof_create":"order_photo_create",id,{id:row.id,filename,sha256:sha,itemId,kind});return {id:row.id};
   }));
   router.delete("/:id/attachments/:attachmentId",mutate(async(c,req)=>{
     const id=uuid(req.params.id);await writeOrder(c,req.actor!,id);
     const attachmentId=uuid(req.params.attachmentId);
     const row=(await c.query("SELECT id,kind FROM order_attachments WHERE order_id=$1 AND id=$2",[id,attachmentId])).rows[0];
     if(!row)throw new HttpError(404,"图片不存在");
-    if(row.kind!=="shipping_proof")throw new HttpError(409,"开单卡原图不在这里删除");
+    if(row.kind!=="shipping_proof"&&row.kind!=="payment_proof")throw new HttpError(409,"\u5f00\u5355\u5361\u539f\u56fe\u4e0d\u5728\u8fd9\u91cc\u5220\u9664");
+    if(row.kind==="payment_proof"){const linked=(await c.query("SELECT payment_id FROM order_attachments WHERE id=$1",[row.id])).rows[0]; if(linked?.payment_id){const pay=(await c.query("SELECT verify_status,voided_at FROM customer_payments WHERE id=$1",[linked.payment_id])).rows[0]; if(pay&&!pay.voided_at&&pay.verify_status!=="rejected")throw new HttpError(409,"\u4ed8\u6b3e\u51ed\u8bc1\u5df2\u6302\u5230\u6536\u6b3e\uff0c\u4e0d\u80fd\u76f4\u63a5\u5220\u9664");}}
     await c.query("DELETE FROM order_attachments WHERE id=$1",[row.id]);
     await audit(c,req,"order_shipping_proof_delete",id,{id:row.id});return {id:row.id};
   }));

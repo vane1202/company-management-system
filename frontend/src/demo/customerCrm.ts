@@ -57,12 +57,12 @@ export type CrmOrder = {
   transferredOn?: string;
   transferredBy?: string;
 };
-export type CrmReceipt = { id:string; date:string; amountMinor:number; purpose:'deposit'|'balance'; channel:string; reference:string; reportedBy:string };
+export type CrmReceipt = { id:string; date:string; amountMinor:number; purpose:'deposit'|'balance'|'full'; channel:string; reference:string; reportedBy:string; proofUrl?:string; verifyStatus?:'pending'|'confirmed'|'rejected'; verifyReason?:string; verifiedCny?:number; feeCny?:number; verifiedOn?:string; voidedAt?:string; voidReason?:string };
 export type CrmOrderDraft = { businessDate:string; performanceTeamId?:string; performanceTeamName?:string; channel:'live'|'private'; materialCny:string; feeCny:string; customerCurrency?:'CNY'|'TWD'|'USD'|'SGD'|'HKD'; customerDue?:string; materialRef?:string; items?:CrmOrder['items'] };
 
 export function orderFunds(order: CrmOrder) {
   const due = order.customerDueMinor ?? order.materialCents + (order.channel==='private'?0:order.feeCents);
-  const received = (order.receipts??[]).reduce((sum,row)=>sum+row.amountMinor,0);
+  const received = (order.receipts??[]).reduce((sum,row)=>sum+(row.voidedAt||row.verifyStatus==='rejected'?0:row.amountMinor),0);
   const carried = order.replacesId ? order.transferMinor??0 : 0;
   const allocated = order.cancelled ? 0 : received+carried;
   return { currency:order.customerCurrency??'CNY', due, received, carried, allocated, balance:order.cancelled?0:due-allocated };
@@ -210,6 +210,9 @@ export function reduceCrm(state: CrmState, action: CrmAction, today: string): Cr
   if (action.type === "reviewInvalid") return reviewInvalid(state, action, today);
   if (action.type === "setTier") return setTier(state, action);
   if (action.type === "recordReceipt") return recordReceipt(state,action,today);
+  if (action.type === "verifyReceipt") return verifyReceipt(state, action);
+  if (action.type === "resubmitReceipt") return resubmitReceipt(state, action, today);
+  if (action.type === "voidReceipt") return voidReceipt(state, action, today);
   if (action.type === "transferOrder") return transferOrder(state,action,today);
   if (action.type === "toggleSourcingNoSettle") {
     return { ...state, orders: state.orders.map(order => order.id === action.orderId ? { ...order, sourcingNoSettle: !order.sourcingNoSettle } : order) };
@@ -223,7 +226,10 @@ export type CrmAction =
   | { type: "reviewInvalid"; actor: CrmActor; reviewId: string; decision: "approve" | "reject" | "restore"; note: string }
   | { type: "setTier"; actor: CrmActor; customerId: string; tier: SpendTier }
   | ({ type: "addOrder"; actor: CrmActor; customerId: string } & CrmOrderDraft)
-  | { type:'recordReceipt'; actor:CrmActor; orderId:string; date:string; amount:string; purpose:'deposit'|'balance'; channel:string; reference:string }
+  | { type:'recordReceipt'; actor:CrmActor; orderId:string; date:string; amount:string; purpose:'deposit'|'balance'|'full'; channel:string; reference:string; proofUrl:string }
+  | { type:'verifyReceipt'; orderId:string; receiptId:string; status:'confirmed'|'rejected'; verifiedCny?:number; feeCny?:number; verifiedOn?:string; reason?:string }
+  | { type:'resubmitReceipt'; actor:CrmActor; orderId:string; receiptId:string; date:string; amount:string; channel:string; reference:string; proofUrl?:string }
+  | { type:'voidReceipt'; actor:CrmActor; orderId:string; receiptId:string; reason:string }
   | { type:'transferOrder'; actor:CrmActor; orderId:string; draft:CrmOrderDraft; reason:string }
   | { type:'toggleSourcingNoSettle'; actor:CrmActor; orderId:string };
 
@@ -329,15 +335,59 @@ function validPaymentDate(value:string,today:string) {
 function recordReceipt(state:CrmState,action:Extract<CrmAction,{type:'recordReceipt'}>,today:string):CrmState {
   const order=ownedOrder(state,action.actor,action.orderId),funds=orderFunds(order);
   validPaymentDate(action.date,today);
+  if(action.date<order.businessDate)throw Error('\u4ed8\u6b3e\u65e5\u671f\u4e0d\u80fd\u65e9\u4e8e\u5f00\u5355\u65e5\u671f');
+  const amount=yuanToCents(action.amount);
+  if(amount===null||amount<=0||amount>funds.balance)throw Error('\u4ed8\u6b3e\u91d1\u989d\u5fc5\u987b\u5927\u4e8e\u96f6\u4e14\u4e0d\u8d85\u8fc7\u5269\u4f59\u5e94\u6536');
+  if(!['deposit','balance','full'].includes(action.purpose))throw Error('\u8bf7\u9009\u62e9\u6536\u6b3e\u7c7b\u578b');
+  if(!action.channel.trim())throw Error('\u8bf7\u586b\u5199\u4ed8\u6b3e\u65b9\u5f0f');
+  if(!action.proofUrl)throw Error('\u8bf7\u5148\u4e0a\u4f20\u5ba2\u6237\u4ed8\u6b3e\u51ed\u8bc1\u622a\u56fe');
+  const reference=action.reference.trim().slice(0,128);
+  if(reference&&state.orders.some(row=>row.receipts?.some(p=>!p.voidedAt&&p.verifyStatus!=='rejected'&&p.channel===action.channel.trim()&&p.reference===reference)))throw Error('\u8be5\u4ed8\u6b3e\u51ed\u8bc1\u5df2\u62a5\u9001\uff0c\u8bf7\u52ff\u91cd\u590d\u767b\u8bb0');
+  const receipt:CrmReceipt={id:order.id+'-receipt-'+((order.receipts?.length??0)+1),date:action.date,amountMinor:amount,purpose:action.purpose,channel:action.channel.trim().slice(0,128),reference,reportedBy:action.actor.employeeName,proofUrl:action.proofUrl,verifyStatus:'pending'};
+  return {...state,orders:state.orders.map(row=>row.id===order.id?{...row,receipts:[...(row.receipts??[]),receipt]}:row)};
+}
+function resubmitReceipt(state:CrmState,action:Extract<CrmAction,{type:'resubmitReceipt'}>,today:string):CrmState {
+  const order=ownedOrder(state,action.actor,action.orderId),funds=orderFunds(order);
+  validPaymentDate(action.date,today);
   if(action.date<order.businessDate)throw Error('付款日期不能早于开单日期');
   const amount=yuanToCents(action.amount);
   if(amount===null||amount<=0||amount>funds.balance)throw Error('付款金额必须大于零且不超过剩余应收');
-  if(!['deposit','balance'].includes(action.purpose))throw Error('请选择收款类型');
-  if(!action.channel.trim()||!action.reference.trim())throw Error('请填写付款方式和流水号或凭证编号');
-  if(action.channel.trim().length>128||action.reference.trim().length>128)throw Error('付款方式和凭证编号最多128字');
-  if(state.orders.some(row=>row.receipts?.some(p=>p.channel===action.channel.trim()&&p.reference===action.reference.trim())))throw Error('该付款凭证已报送，请勿重复登记');
-  const receipt:CrmReceipt={id:order.id+'-receipt-'+((order.receipts?.length??0)+1),date:action.date,amountMinor:amount,purpose:action.purpose,channel:action.channel.trim().slice(0,128),reference:action.reference.trim().slice(0,128),reportedBy:action.actor.employeeName};
-  return {...state,orders:state.orders.map(row=>row.id===order.id?{...row,receipts:[...(row.receipts??[]),receipt]}:row)};
+  if(!action.channel.trim())throw Error('请填写付款方式');
+  let found=false;
+  const orders=state.orders.map(row=>{
+    if(row.id!==order.id) return row;
+    return {...row, receipts:(row.receipts??[]).map(item=>{
+      if(item.id!==action.receiptId) return item;
+      found=true;
+      if(item.voidedAt||item.verifyStatus!=='rejected') throw Error('只能重新提交已退回的收款');
+      const proofUrl=action.proofUrl||item.proofUrl||'';
+      if(!proofUrl) throw Error('请先上传客户付款凭证截图');
+      return {...item, date:action.date, amountMinor:amount, channel:action.channel.trim().slice(0,128), reference:action.reference.trim().slice(0,128), proofUrl, verifyStatus:'pending' as const, verifyReason:''};
+    })};
+  });
+  if(!found) throw Error('收款不存在');
+  return {...state, orders};
+}
+function voidReceipt(state:CrmState,action:Extract<CrmAction,{type:'voidReceipt'}>,today:string):CrmState {
+  const order=ownedOrder(state,action.actor,action.orderId);
+  const reason=action.reason.trim().slice(0,200)||'客服作废';
+  const orders=state.orders.map(row=>row.id!==order.id?row:{...row, receipts:(row.receipts??[]).map(item=>item.id===action.receiptId?{...item, voidedAt:today, voidReason:reason}:item)});
+  return {...state, orders};
+}
+function verifyReceipt(state:CrmState, action:Extract<CrmAction,{type:'verifyReceipt'}>):CrmState {
+  let found=false;
+  const orders=state.orders.map(order=>{
+    if(order.id!==action.orderId) return order;
+    return {...order, receipts:(order.receipts??[]).map(row=>{
+      if(row.id!==action.receiptId) return row;
+      found=true;
+      if(row.verifyStatus&&row.verifyStatus!=='pending') throw Error('\u8fd9\u7b14\u6536\u6b3e\u5df2\u6838\u8fc7');
+      if(action.status==='rejected') return {...row, verifyStatus:'rejected' as const, verifyReason:action.reason||'\u6838\u8d26\u9000\u56de'};
+      return {...row, verifyStatus:'confirmed' as const, verifiedCny:action.verifiedCny, feeCny:action.feeCny??0, verifiedOn:action.verifiedOn, verifyReason:''};
+    })};
+  });
+  if(!found) throw Error('\u6536\u6b3e\u4e0d\u5b58\u5728');
+  return {...state, orders};
 }
 function transferOrder(state:CrmState,action:Extract<CrmAction,{type:'transferOrder'}>,today:string):CrmState {
   const original=ownedOrder(state,action.actor,action.orderId),funds=orderFunds(original);

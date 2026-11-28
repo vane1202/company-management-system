@@ -34,10 +34,10 @@ export function createFinanceRouter(db:Pool, config:AppConfig) {
   router.get("/", (_req, res, next) => {
     void withTransaction(db, async (c) => {
       // Deliberately excludes cost prices, private photos and unrelated personnel data.
-      const payments=(await c.query(`SELECT p.id,p.order_id,o.order_ref,o.customer_label,d.persona_name,d.persona_code,${liveRoomSql("d.live_room_code")} AS live_room_code,d.host_name,d.customer_code,d.operator_name,u.service_account_label AS wechat_id,p.payment_date,p.amount,p.currency,p.credit_amount,p.received_cny,d.customer_currency,p.purpose,p.channel,p.third_party,p.reference,p.voided_at,p.void_reason,COALESCE((SELECT sum(a.foreign_amount) FROM settlement_allocations a JOIN finance_settlements s ON s.id=a.settlement_id WHERE a.payment_id=p.id AND s.voided_at IS NULL),0)::numeric(14,2) AS settled_amount FROM customer_payments p JOIN orders o ON o.id=p.order_id JOIN order_details d ON d.order_id=o.id JOIN users u ON u.id=o.user_id ORDER BY p.payment_date DESC,p.created_at DESC`)).rows.map(p=>({...p,pendingAmount:p.voided_at||!p.third_party?"0.00":centsToMoney(moneyToCents(p.amount)-moneyToCents(p.settled_amount))}));
+      const payments=(await c.query(`SELECT p.id,p.order_id,o.order_ref,o.customer_label,d.persona_name,d.persona_code,${liveRoomSql("d.live_room_code")} AS live_room_code,d.host_name,d.customer_code,d.operator_name,u.service_account_label AS wechat_id,p.payment_date,p.amount,p.currency,p.credit_amount,p.received_cny,d.customer_currency,p.purpose,p.channel,p.third_party,p.reference,p.voided_at,p.void_reason,p.verify_status,p.verify_reason,p.verified_cny,p.fee_cny,p.verified_on,(SELECT a.id FROM order_attachments a WHERE a.payment_id=p.id AND a.kind='payment_proof' ORDER BY a.created_at DESC LIMIT 1) AS proof_id,COALESCE((SELECT sum(a.foreign_amount) FROM settlement_allocations a JOIN finance_settlements s ON s.id=a.settlement_id WHERE a.payment_id=p.id AND s.voided_at IS NULL),0)::numeric(14,2) AS settled_amount FROM customer_payments p JOIN orders o ON o.id=p.order_id JOIN order_details d ON d.order_id=o.id JOIN users u ON u.id=o.user_id ORDER BY p.payment_date DESC,p.created_at DESC`)).rows.map(p=>({...p,pendingAmount:p.voided_at||!p.third_party?"0.00":centsToMoney(moneyToCents(p.amount)-moneyToCents(p.settled_amount))}));
       const settlements=(await c.query(`SELECT s.id,s.reference,s.channel,s.currency,s.settled_on,s.fee_amount,s.fee_currency,s.fee_percent,s.fx_rate,s.net_cny,s.note,s.voided_at,s.void_reason,COALESCE((SELECT json_agg(json_build_object('paymentId',a.payment_id,'foreignAmount',a.foreign_amount::text,'netCny',a.net_cny::text)) FROM settlement_allocations a WHERE a.settlement_id=s.id),'[]'::json) AS allocations FROM finance_settlements s ORDER BY s.settled_on DESC,s.created_at DESC`)).rows;
       const pending=Object.fromEntries(["CNY","TWD","USD","SGD","HKD"].map(cur=>[cur,addMoney(payments.filter(p=>p.currency===cur).map(p=>p.pendingAmount))]));
-      const directCny=addMoney(payments.filter(p=>!p.voided_at&&!p.third_party&&p.currency==="CNY").map(p=>p.amount));
+      const directCny=addMoney(payments.filter(p=>!p.voided_at&&p.verify_status==="confirmed"&&!p.third_party&&p.currency==="CNY").map(p=>p.verified_cny??p.amount));
       const settledCny=addMoney(settlements.filter(s=>!s.voided_at).map(s=>s.net_cny));
       return {payments,settlements,summary:{pending,directCny,settledCny,totalCny:addMoney([directCny,settledCny])}};
     }, true).then((result) => res.set("Cache-Control", "private, no-store").json(result)).catch(next);
@@ -68,6 +68,38 @@ export function createFinanceRouter(db:Pool, config:AppConfig) {
     await c.query("SELECT p.id FROM customer_payments p JOIN settlement_allocations a ON a.payment_id=p.id WHERE a.settlement_id=$1 ORDER BY p.id FOR UPDATE OF p",[id]);
     await c.query("UPDATE finance_settlements SET voided_at=now(),void_reason=$2 WHERE id=$1",[id,reason]);
     await writeAudit(c,{actorId:req.actor!.id,action:"finance_settlement_void",entityType:"finance_settlement",entityId:id,after:{reason},ip:req.ip});return {id};
+  }));
+  router.get("/payments/:id/proof", async (req, res, next) => {
+    try {
+      const row = (await db.query("SELECT a.mime_type, a.image_bytes FROM order_attachments a WHERE a.payment_id=$1 AND a.kind='payment_proof' ORDER BY a.created_at DESC LIMIT 1", [uuid(req.params.id)])).rows[0];
+      if (!row) throw new HttpError(404, "\u4ed8\u6b3e\u51ed\u8bc1\u4e0d\u5b58\u5728");
+      res.set({ "Content-Type": row.mime_type, "Content-Disposition": "inline", "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" }).send(row.image_bytes);
+    } catch (error) { next(error); }
+  });
+  router.post("/payments/:id/confirm", mutate(async (c, req) => {
+    const id = uuid(req.params.id);
+    const payment = (await c.query("SELECT * FROM customer_payments WHERE id=$1 FOR UPDATE", [id])).rows[0];
+    if (!payment) throw new HttpError(404, "\u6536\u6b3e\u4e0d\u5b58\u5728");
+    if (payment.voided_at) throw new HttpError(409, "\u6536\u6b3e\u5df2\u4f5c\u5e9f");
+    if (payment.verify_status !== "pending") throw new HttpError(409, "\u53ea\u80fd\u786e\u8ba4\u5f85\u6838\u8d26\u7684\u6536\u6b3e");
+    const verifiedCny = amount(req.body?.verifiedCny, "\u5b9e\u9645\u5230\u8d26\u4eba\u6c11\u5e01", true);
+    const feeCny = amount(req.body?.feeCny ?? "0", "\u7b2c\u4e09\u65b9\u6263\u70b9");
+    const verifiedOn = dateField(req.body?.verifiedOn, config.businessTimezone);
+    if (verifiedOn < String(payment.payment_date)) throw new HttpError(400, "\u5230\u8d26\u65e5\u671f\u4e0d\u80fd\u65e9\u4e8e\u4ed8\u6b3e\u65e5\u671f");
+    await c.query("UPDATE customer_payments SET verify_status='confirmed', verified_cny=$2, fee_cny=$3, verified_on=$4, verified_by=$5, verified_at=now(), verify_reason=NULL WHERE id=$1", [id, verifiedCny, feeCny, verifiedOn, req.actor!.id]);
+    await writeAudit(c, { actorId: req.actor!.id, action: "customer_payment_confirm", entityType: "customer_payment", entityId: id, after: { verifiedCny, feeCny, verifiedOn }, ip: req.ip });
+    return { id };
+  }));
+  router.post("/payments/:id/reject", mutate(async (c, req) => {
+    const id = uuid(req.params.id);
+    const payment = (await c.query("SELECT * FROM customer_payments WHERE id=$1 FOR UPDATE", [id])).rows[0];
+    if (!payment) throw new HttpError(404, "\u6536\u6b3e\u4e0d\u5b58\u5728");
+    if (payment.voided_at) throw new HttpError(409, "\u6536\u6b3e\u5df2\u4f5c\u5e9f");
+    if (payment.verify_status !== "pending") throw new HttpError(409, "\u53ea\u80fd\u9000\u56de\u5f85\u6838\u8d26\u7684\u6536\u6b3e");
+    const reason = textField(req.body?.reason, "\u9000\u56de\u539f\u56e0", 500);
+    await c.query("UPDATE customer_payments SET verify_status='rejected', verify_reason=$2, verified_cny=NULL, fee_cny=NULL, verified_on=NULL, verified_by=$3, verified_at=now() WHERE id=$1", [id, reason, req.actor!.id]);
+    await writeAudit(c, { actorId: req.actor!.id, action: "customer_payment_reject", entityType: "customer_payment", entityId: id, after: { reason }, ip: req.ip });
+    return { id };
   }));
   return router;
 }

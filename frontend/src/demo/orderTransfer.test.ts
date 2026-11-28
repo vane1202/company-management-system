@@ -4,10 +4,11 @@ import {createSeed,reduceCrm,orderFunds,effectiveOrderCents,personalPerformance,
 const today='2026-11-18';
 const actor:CrmActor={role:'cs',employeeId:'demo-cs-a',employeeName:'演示客服甲',teamIds:['demo-team-a']};
 const draft:CrmOrderDraft={businessDate:'2026-11-16',channel:'live',materialCny:'1800',feeCny:'180',materialRef:'NEW-16'};
+const proofUrl='data:image/png;base64,iVBORw0KGgo=';
 function original(currency:'CNY'|'TWD'|'USD'='CNY'){
   let state=createSeed(today); state={...state,orders:[]};
   state=reduceCrm(state,{type:'addOrder',actor,customerId:'sample-dealt',businessDate:'2026-11-15',channel:'live',materialCny:'980',feeCny:'98',customerCurrency:currency,customerDue:currency==='TWD'?'5000':'200',materialRef:'OLD-15'},today);
-  return reduceCrm(state,{type:'recordReceipt',actor,orderId:state.orders[0].id,date:'2026-11-15',amount:currency==='TWD'?'1000':'100',purpose:'deposit',channel:'账户A',reference:'PAY-DEPOSIT'},today);
+  return reduceCrm(state,{type:'recordReceipt',actor,orderId:state.orders[0].id,date:'2026-11-15',amount:currency==='TWD'?'1000':'100',purpose:'deposit',channel:'账户A',reference:'PAY-DEPOSIT',proofUrl},today);
 }
 function transfer(state=original(),patch:Partial<CrmOrderDraft>={}){return reduceCrm(state,{type:'transferOrder',actor,orderId:state.orders[0].id,draft:{...draft,...patch},reason:'客户改选另一块料子'},today);}
 describe('跨日换料与定金转单',()=>{
@@ -20,7 +21,7 @@ describe('跨日换料与定金转单',()=>{
     expect(orderFunds(old).balance).toBe(0);expect(orderFunds(next)).toMatchObject({carried:10000,received:0,balance:188000});
     expect(next.receipts).toEqual([]);expect(personalPerformance(state,actor.employeeId).totalCents).toBe(198000);
     expect(validOrderCount(state,'sample-dealt')).toBe(1);
-    const paid=reduceCrm(state,{type:'recordReceipt',actor,orderId:next.id,date:'2026-11-18',amount:'1880',purpose:'balance',channel:'账户A',reference:'PAY-BALANCE'},today);
+    const paid=reduceCrm(state,{type:'recordReceipt',actor,orderId:next.id,date:'2026-11-18',amount:'1880',purpose:'balance',channel:'账户A',reference:'PAY-BALANCE',proofUrl},today);
     expect(orderFunds(paid.orders[1]).balance).toBe(0);
     expect(paid.orders.flatMap(row=>row.receipts??[]).reduce((n,p)=>n+p.amountMinor,0)).toBe(198000);
     expect(paid.orders.map(o=>[o.businessDate,effectiveOrderCents(o)])).toEqual([['2026-11-15',0],['2026-11-16',198000]]);
@@ -48,18 +49,18 @@ describe('跨日换料与定金转单',()=>{
   it('没有定金、已结清、报送过尾款的订单不能直接转单',()=>{
     const state=original();
     expect(()=>transfer({...state,orders:state.orders.map(o=>({...o,receipts:[]}))})).toThrow('先登记');
-    const paid=reduceCrm(state,{type:'recordReceipt',actor,orderId:state.orders[0].id,date:'2026-11-16',amount:'978',purpose:'balance',channel:'账户A',reference:'TAIL'},today);
+    const paid=reduceCrm(state,{type:'recordReceipt',actor,orderId:state.orders[0].id,date:'2026-11-16',amount:'978',purpose:'balance',channel:'账户A',reference:'TAIL',proofUrl},today);
     expect(()=>transfer(paid)).toThrow('交财务');
-    const partial=reduceCrm(state,{type:'recordReceipt',actor,orderId:state.orders[0].id,date:'2026-11-16',amount:'1',purpose:'balance',channel:'账户A',reference:'TAIL'},today);
+    const partial=reduceCrm(state,{type:'recordReceipt',actor,orderId:state.orders[0].id,date:'2026-11-16',amount:'1',purpose:'balance',channel:'账户A',reference:'TAIL',proofUrl},today);
     expect(()=>transfer(partial)).toThrow('交财务');
   });
   it('旧单禁止再收款，尾款超收、凭证重复、无凭证或早于开单日均拒绝',()=>{
-    const state=transfer(),base={type:'recordReceipt' as const,actor,orderId:state.orders[1].id,date:'2026-11-18',amount:'100',purpose:'balance' as const,channel:'账户A',reference:'TAIL'};
+    const state=transfer(),base={type:'recordReceipt' as const,actor,orderId:state.orders[1].id,date:'2026-11-18',amount:'100',purpose:'balance' as const,channel:'账户A',reference:'TAIL',proofUrl};
     expect(()=>reduceCrm(state,{...base,orderId:state.orders[0].id},today)).toThrow('重复操作');
     expect(()=>reduceCrm(state,{...base,amount:'1880.01'},today)).toThrow('剩余应收');
     expect(()=>reduceCrm(state,{...base,reference:'PAY-DEPOSIT'},today)).toThrow('重复登记');
     expect(()=>reduceCrm(state,{...base,date:'2026-11-15'},today)).toThrow('早于');
-    expect(()=>reduceCrm(state,{...base,reference:''},today)).toThrow('凭证');
+    expect(()=>reduceCrm(state,{...base,proofUrl:''},today)).toThrow('凭证');
   });
   it('连续换料保留链路且不复制收款记录',()=>{
     const state=transfer(),next=reduceCrm(state,{type:'transferOrder',actor,orderId:state.orders[1].id,draft:{...draft,businessDate:'2026-11-17',materialCny:'2000',feeCny:'200'},reason:'再次换料'},today);

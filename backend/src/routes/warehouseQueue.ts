@@ -87,7 +87,7 @@ export async function loadWarehouseFlow(client: PoolClient, finance: boolean) {
     o.customer_label AS "customerLabel", o.business_date AS "businessDate", o.status,
     o.material_cost_cny::text AS "referenceCny", d.operator_name AS "operatorName", d.shipped_on AS "shippedOn",
     (d.customer_due + COALESCE((SELECT sum(c.customer_amount) FROM order_charges c WHERE c.order_id=o.id AND c.voided_at IS NULL),0)
-      - COALESCE((SELECT sum(p.credit_amount) FROM customer_payments p WHERE p.order_id=o.id AND p.voided_at IS NULL),0))::numeric(14,2)::text AS balance,
+      - COALESCE((SELECT sum(p.credit_amount) FROM customer_payments p WHERE p.order_id=o.id AND p.voided_at IS NULL AND p.verify_status <> 'rejected'),0))::numeric(14,2)::text AS balance,
     EXISTS(SELECT 1 FROM order_cancellations x WHERE x.order_id=o.id AND x.voided_at IS NULL) AS cancelled
     FROM order_items i JOIN orders o ON o.id=i.order_id JOIN order_details d ON d.order_id=o.id
     WHERE i.kind IN ('material','finished')`)).rows.map((row) => ({ ...row, shippedOn: day(row.shippedOn), businessDate: day(row.businessDate), referenceCny: moneyText(row.referenceCny), balance: moneyText(row.balance) || "0.00" })) as ItemRow[];
@@ -150,7 +150,7 @@ async function lockItem(client: PoolClient, itemId: string) {
     o.business_date AS "businessDate", o.status, o.material_cost_cny::text AS "referenceCny", d.operator_name AS "operatorName",
     d.shipped_on AS "shippedOn",
     (d.customer_due + COALESCE((SELECT sum(c.customer_amount) FROM order_charges c WHERE c.order_id=o.id AND c.voided_at IS NULL),0)
-      - COALESCE((SELECT sum(p.credit_amount) FROM customer_payments p WHERE p.order_id=o.id AND p.voided_at IS NULL),0))::numeric(14,2)::text AS balance,
+      - COALESCE((SELECT sum(p.credit_amount) FROM customer_payments p WHERE p.order_id=o.id AND p.voided_at IS NULL AND p.verify_status <> 'rejected'),0))::numeric(14,2)::text AS balance,
     EXISTS(SELECT 1 FROM order_cancellations x WHERE x.order_id=o.id AND x.voided_at IS NULL) AS cancelled
     FROM order_items i JOIN orders o ON o.id=i.order_id JOIN order_details d ON d.order_id=o.id WHERE i.id=$1`, [itemId])).rows[0];
   if (!row) throw new HttpError(404, "商品不在可推送范围");
@@ -298,7 +298,7 @@ export async function warehouseAttachmentVisible(db: Pool | PoolClient, orderId:
   const queue = await db.query(`SELECT 1 FROM order_items i JOIN orders o ON o.id=i.order_id JOIN order_details d ON d.order_id=o.id
     WHERE o.id=$1 AND i.kind IN ('material','finished') AND o.status<>'refunded'
       AND NOT EXISTS (SELECT 1 FROM order_cancellations x WHERE x.order_id=o.id AND x.voided_at IS NULL)
-      AND ((i.kind='material' AND NOT COALESCE(i.sourcing_no_settle,FALSE) AND d.customer_due + COALESCE((SELECT sum(c.customer_amount) FROM order_charges c WHERE c.order_id=o.id AND c.voided_at IS NULL),0) - COALESCE((SELECT sum(p.credit_amount) FROM customer_payments p WHERE p.order_id=o.id AND p.voided_at IS NULL),0) <= 0)
+      AND ((i.kind='material' AND NOT COALESCE(i.sourcing_no_settle,FALSE) AND d.customer_due + COALESCE((SELECT sum(c.customer_amount) FROM order_charges c WHERE c.order_id=o.id AND c.voided_at IS NULL),0) - COALESCE((SELECT sum(p.credit_amount) FROM customer_payments p WHERE p.order_id=o.id AND p.voided_at IS NULL AND p.verify_status <> 'rejected'),0) <= 0)
         OR (i.kind='finished' AND d.shipped_on IS NOT NULL)) LIMIT 1`, [orderId]);
   return !!queue.rowCount;
 }

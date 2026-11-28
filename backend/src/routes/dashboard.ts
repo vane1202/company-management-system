@@ -107,7 +107,7 @@ export function createDashboardRouter(db: Pool, config: AppConfig): Router {
       const cashTotals = await queryOne<{ company_received_cny: string; supplier_paid_cny: string }>(
         db,
         `SELECT (
-                  COALESCE((SELECT SUM(p.amount) FROM customer_payments p WHERE p.voided_at IS NULL AND NOT p.third_party AND p.currency = 'CNY' AND p.payment_date BETWEEN $1 AND $2), 0) +
+                  COALESCE((SELECT SUM(COALESCE(p.verified_cny, p.amount)) FROM customer_payments p WHERE p.voided_at IS NULL AND p.verify_status = 'confirmed' AND NOT p.third_party AND p.currency = 'CNY' AND COALESCE(p.verified_on, p.payment_date) BETWEEN $1 AND $2), 0) +
                   COALESCE((SELECT SUM(a.net_cny) FROM settlement_allocations a JOIN finance_settlements s ON s.id = a.settlement_id JOIN customer_payments p ON p.id = a.payment_id WHERE s.voided_at IS NULL AND p.voided_at IS NULL AND s.settled_on BETWEEN $1 AND $2), 0)
                 )::text AS company_received_cny,
                 COALESCE((SELECT SUM(p.amount_cny) FROM supplier_payments p JOIN order_expenses e ON e.id = p.expense_id WHERE p.voided_at IS NULL AND e.voided_at IS NULL AND p.paid_on BETWEEN $1 AND $2), 0)::text AS supplier_paid_cny`,
